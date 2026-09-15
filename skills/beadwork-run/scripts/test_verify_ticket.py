@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""验收协议回归：在一次性 Git 仓库运行真实 CLI，不修改调用方仓库。
+
+python3 test_verify_ticket.py
+"""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+VERIFIER = Path(__file__).with_name("verify-ticket.py")
+
+
+class TicketAcceptanceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="ticket-acceptance-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.primary = self.root / "primary"
+        self.worktree = self.root / "implementation"
+        self.primary.mkdir()
+        self.env = {
+            **os.environ,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "验收回归",
+            "GIT_AUTHOR_EMAIL": "test@example.invalid",
+            "GIT_COMMITTER_NAME": "验收回归",
+            "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        }
+        self.git(self.primary, "init", "-b", "main")
+        (self.primary / "behavior.txt").write_text("baseline\n")
+        self.git(self.primary, "add", ".")
+        self.git(self.primary, "commit", "-m", "baseline")
+        self.base = self.git(self.primary, "rev-parse", "HEAD")
+        self.git(self.primary, "worktree", "add", "-b", "implement/test", str(self.worktree))
+        self.commits = []
+        for number in (1, 2):
+            (self.worktree / "behavior.txt").write_text("behavior {}\n".format(number))
+            self.git(self.worktree, "add", ".")
+            self.git(self.worktree, "commit", "-m", "ticket layer {}".format(number))
+            self.commits.append({"sha": self.git(self.worktree, "rev-parse", "HEAD"), "subject": "ticket layer {}".format(number)})
+        self.head = self.commits[-1]["sha"]
+        self.snapshot = self.root / "baseline.txt"
+        self.snapshot.write_text("")
+        self.plan = {"mode": "TDD", "approved_seams": ["S1"]}
+        self.report = {
+            "status": "DONE", "base_commit": self.base, "head_commit": self.head,
+            "implementation_commits": self.commits,
+            "test_plan": {**self.plan, "decision_source": "ticket/spec", "red_evidence": "BASE 行为断言失败，随后实现通过"},
+            "acceptance": [{"criterion": "交付行为", "evidence": "观察到目标状态转换"}],
+            "verification": [{"command": "just test", "result": "通过"}],
+            "review": {"attempts": 1, "gate": "PASS", "final": self.pair(self.head)},
+            "requested_context": [], "blockers": [], "concerns": [],
+        }
+
+    def git(self, cwd: Path, *args: str) -> str:
+        result = subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + os.devnull, *args],
+            cwd=cwd, env=self.env, capture_output=True, text=True, check=True,
+        )
+        return result.stdout.strip()
+
+    def pair(self, head: str) -> dict:
+        return {axis: {
+            "reviewed_base": self.base, "reviewed_head": head,
+            "axis": axis, "findings": [], "notes": [],
+        } for axis in ("standards", "spec")}
+
+    def invoke(self, report: object, *, plan: dict | None = None, status: str = "DONE", local: bool = False) -> dict:
+        self.report_file = self.root / "report.json"
+        raw = json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8")
+        self.report_file.write_bytes(raw)
+        plan_file = self.root / "expected-plan.json"
+        plan_file.write_text(json.dumps(plan if plan is not None else self.plan))
+        args = ["--check-report", str(self.report_file)] if local else [
+            "implement/test", self.base, self.head, status, str(self.report_file), str(plan_file),
+        ]
+        result = subprocess.run(
+            [sys.executable, str(VERIFIER), *args], cwd=self.worktree, env=self.env,
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(self.report_file.read_bytes(), raw, "验收不能覆写原始报告")
+        self.assertEqual(parsed["report_sha256"], hashlib.sha256(raw).hexdigest())
+        return parsed
+
+    def reject(self, report: object, check: str, **kwargs: object) -> None:
+        result = self.invoke(report, **kwargs)
+        self.assertFalse(result["ok"])
+        self.assertIn(check, {failure["check"] for failure in result["failures"]})
+
+    def check_receipt(self, receipt: object) -> dict:
+        receipt_file = self.root / "receipt.json"
+        receipt_file.write_text(json.dumps(receipt))
+        original = self.report_file.read_bytes()
+        result = subprocess.run(
+            [sys.executable, str(VERIFIER), "--check-report", str(self.report_file),
+             str(receipt_file)],
+            cwd=self.worktree, env=self.env, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.report_file.read_bytes(), original)
+        return json.loads(result.stdout)
+
+    def receipt(self) -> dict:
+        return {
+            "status": self.report["status"], "report_path": str(self.report_file),
+            "report_sha256": hashlib.sha256(self.report_file.read_bytes()).hexdigest(),
+        }
+
+    def test_receipt_accepts_done_and_partial_reports_without_full_chat_copy(self) -> None:
+        for status in ("DONE", "NEEDS_CONTEXT", "BLOCKED"):
+            with self.subTest(status=status):
+                self.report["status"] = status
+                if status != "DONE":
+                    self.report.update(base_commit=None, head_commit=None, test_plan=None,
+                                       implementation_commits=[], acceptance=[], verification=[], review=None,
+                                       requested_context=["缺少 spec"] if status == "NEEDS_CONTEXT" else [],
+                                       blockers=["环境不可用"] if status == "BLOCKED" else [])
+                self.assertTrue(self.invoke(self.report, local=True)["ok"])
+                self.assertTrue(self.check_receipt(self.receipt())["ok"])
+
+    def test_receipt_cannot_select_another_report_or_misstate_status_or_hash(self) -> None:
+        self.invoke(self.report, local=True)
+        other = self.root / "other-report.json"
+        other.write_bytes(self.report_file.read_bytes())
+        for field, value in (("report_path", str(other)), ("report_path", "report.json"),
+                             ("status", "BLOCKED"), ("report_sha256", "0" * 64)):
+            with self.subTest(field=field, value=value):
+                receipt = {**self.receipt(), field: value}
+                result = self.check_receipt(receipt)
+                self.assertFalse(result["ok"])
+                self.assertIn("receipt_" + field + "_matches",
+                              {f["check"] for f in result["failures"]})
+
+    def test_receipt_rejects_changed_file_and_accepts_explicit_correction(self) -> None:
+        self.invoke(self.report, local=True)
+        receipt = self.receipt()
+        original = self.report_file.read_bytes()
+        self.report_file.write_bytes(original + b"\n")
+        result = self.check_receipt(receipt)
+        self.assertFalse(result["ok"])
+        self.assertIn("receipt_report_sha256_matches", {f["check"] for f in result["failures"]})
+        self.report_file.write_bytes(original)
+        original_file = self.report_file
+        self.report_file = self.root / "report-2.json"
+        self.report_file.write_bytes(original + b"\n")
+        self.assertTrue(self.check_receipt(self.receipt())["ok"])
+        self.assertEqual(original_file.read_bytes(), original)
+
+    def test_receipt_never_replaces_full_report_validation(self) -> None:
+        self.invoke(self.report, local=True)
+        for receipt in ({}, [], {**self.receipt(), "report": self.report}):
+            with self.subTest(receipt=receipt):
+                result = self.check_receipt(receipt)
+                self.assertFalse(result["ok"])
+                self.assertIn("receipt_schema", {f["check"] for f in result["failures"]})
+        self.report["verification"] = []
+        self.invoke(self.report, local=True)
+        result = self.check_receipt(self.receipt())
+        self.assertFalse(result["ok"])
+        self.assertIn("report_schema", {f["check"] for f in result["failures"]})
+
+    def test_valid_done_preserves_original_and_accepts_nonblocking_smell(self) -> None:
+        self.report["review"]["final"]["standards"]["findings"] = [{
+            "axis": "standards", "kind": "smell", "blocking": False,
+            "title": "可能重复", "evidence": "两段同形分支，但当前不值得引入抽象",
+        }]
+        self.assertTrue(self.invoke(self.report)["ok"])
+        self.assertTrue(self.invoke(self.report, local=True)["ok"])
+
+    def test_missing_placeholder_and_inconsistent_done_are_rejected(self) -> None:
+        cases = [None, {}, {"report": "delivered elsewhere"}, []]
+        for key, value in (
+            ("verification", []), ("acceptance", []), ("implementation_commits", []),
+            ("blockers", ["未解除"]), ("requested_context", ["缺上下文"]),
+            ("review", None), ("test_plan", None),
+        ):
+            changed = copy.deepcopy(self.report)
+            changed[key] = value
+            cases.append(changed)
+        for value in cases:
+            with self.subTest(value=value):
+                self.reject(value, "report_schema", local=True)
+
+    def test_commit_set_must_be_complete_unique_and_exact(self) -> None:
+        for commits, check in (
+            (self.commits[:1], "report_commits_match_range"),
+            (self.commits + [self.commits[0]], "report_commits_unique"),
+            (self.commits + [{"sha": "f" * 40, "subject": "错误 SHA"}], "report_commits_match_range"),
+        ):
+            with self.subTest(commits=commits):
+                changed = copy.deepcopy(self.report)
+                changed["implementation_commits"] = commits
+                self.reject(changed, check)
+
+    def test_controller_identity_and_preflight_plan_are_authoritative(self) -> None:
+        changed = copy.deepcopy(self.report)
+        changed["base_commit"] = "e" * 40
+        for result in changed["review"]["final"].values():
+            result["reviewed_base"] = changed["base_commit"]
+        self.reject(changed, "base_matches_reported")
+        changed = copy.deepcopy(self.report)
+        changed["test_plan"]["approved_seams"] = ["S2"]
+        self.reject(changed, "test_plan_matches_preflight")
+        self.reject(self.report, "status_matches", status="BLOCKED")
+        changed["test_plan"]["approved_seams"] = ["S2", "S1"]
+        self.assertTrue(self.invoke(changed, plan={"mode": "TDD", "approved_seams": ["S1", "S2"]})["ok"])
+
+    def test_tdd_and_direct_verification_have_distinct_contracts(self) -> None:
+        for field, value in (("approved_seams", []), ("approved_seams", ["S1", "S1"]), ("red_evidence", None)):
+            with self.subTest(field=field, value=value):
+                changed = copy.deepcopy(self.report)
+                changed["test_plan"][field] = value
+                self.reject(changed, "report_schema", local=True)
+        changed = copy.deepcopy(self.report)
+        changed["test_plan"].update(mode="direct_verification", approved_seams=[], red_evidence=None)
+        plan = {"mode": "direct_verification", "approved_seams": []}
+        self.assertTrue(self.invoke(changed, plan=plan)["ok"])
+        changed["test_plan"]["red_evidence"] = "不应声称 red"
+        self.reject(changed, "report_schema", local=True)
+
+    def test_review_must_cover_the_delivered_head_on_both_axes(self) -> None:
+        changed = copy.deepcopy(self.report)
+        changed["review"]["final"] = self.pair(self.commits[0]["sha"])
+        self.reject(changed, "review_head_matches_reported")
+        changed["review"]["final"]["standards"]["reviewed_head"] = self.head
+        self.reject(changed, "review_heads_agree")
+        changed = copy.deepcopy(self.report)
+        changed["review"]["final"]["spec"]["axis"] = "standards"
+        self.reject(changed, "review_axis")
+
+    def test_two_round_review_requires_real_ordered_commit_evidence(self) -> None:
+        changed = copy.deepcopy(self.report)
+        changed["review"].update(attempts=2, initial=self.pair(self.commits[0]["sha"]))
+        changed["review"]["initial"]["spec"]["findings"] = [{"axis": "spec", "kind": "defect", "blocking": True, "title": "待修复", "evidence": "初审缺陷"}]
+        self.assertTrue(self.invoke(changed)["ok"])
+        changed["review"]["attempts"] = 1
+        self.reject(changed, "report_schema", local=True)
+        del changed["review"]["initial"]
+        changed["review"]["attempts"] = 2
+        self.reject(changed, "report_schema", local=True)
+        changed["review"]["initial"] = self.pair("d" * 40)
+        changed["review"]["initial"]["spec"]["findings"] = [{"axis": "spec", "kind": "defect", "blocking": True, "title": "待修复", "evidence": "初审缺陷"}]
+        self.reject(changed, "review_commit_range")
+
+    def test_finding_kind_blocking_and_axis_cannot_disagree(self) -> None:
+        finding = {"axis": "spec", "kind": "defect", "blocking": True, "title": "未实现", "evidence": "需求引用及行为缺失"}
+        changed = copy.deepcopy(self.report)
+        changed["review"]["final"]["spec"]["findings"] = [finding]
+        self.reject(changed, "review_gate")
+        finding["blocking"] = False
+        self.reject(changed, "report_schema", local=True)
+        finding.update(kind="documented_standard", blocking=True)
+        self.reject(changed, "report_schema", local=True)
+        finding.update(kind="smell", blocking=False, axis="standards")
+        self.reject(changed, "review_axis", local=True)
+        changed["review"]["final"]["spec"]["findings"] = [{}]
+        self.reject(changed, "report_schema", local=True)
+
+    def test_partial_states_remain_reportable_without_fabricating_review(self) -> None:
+        changed = copy.deepcopy(self.report)
+        changed.update(status="NEEDS_CONTEXT", base_commit=None, head_commit=None, test_plan=None,
+                       acceptance=[], verification=[], review=None, requested_context=["缺少 spec pointer"])
+        self.assertTrue(self.invoke(changed, status="NEEDS_CONTEXT")["ok"])
+        changed["requested_context"] = []
+        self.reject(changed, "report_schema", status="NEEDS_CONTEXT")
+        changed.update(status="BLOCKED", blockers=["外部依赖不可用"])
+        (self.worktree / "behavior.txt").write_text("未完成增量\n")
+        self.assertTrue(self.invoke(changed, status="BLOCKED")["ok"])
+        reviewed_blocked = copy.deepcopy(self.report)
+        reviewed_blocked.update(status="BLOCKED", blockers=["review 后发现外部阻塞"])
+        self.assertTrue(self.invoke(reviewed_blocked, status="BLOCKED")["ok"])
+
+    def test_dirty_primary_allowed_but_dirty_done_tree_rejected(self) -> None:
+        (self.primary / "unexpected.txt").write_text("意外变动")
+        self.assertTrue(self.invoke(self.report)["ok"])
+        (self.primary / "unexpected.txt").unlink()
+        (self.worktree / "unexpected.txt").write_text("未提交")
+        self.reject(self.report, "done_clean_tree")
+
+    def test_schema_output_is_reusable_and_unknown_fields_fail_closed(self) -> None:
+        result = subprocess.run([sys.executable, str(VERIFIER), "--schema"], capture_output=True, text=True, check=True)
+        schema = json.loads(result.stdout)
+        self.assertEqual(schema["$schema"], "http://json-schema.org/draft-07/schema#")
+        changed = copy.deepcopy(self.report)
+        changed["supplement"] = {"gate": "PASS"}
+        self.reject(changed, "report_schema", local=True)
+        changed = copy.deepcopy(self.report)
+        changed["review"]["attempts"] = True
+        self.reject(changed, "report_schema", local=True)
+        changed["review"]["attempts"] = 1.0
+        self.assertTrue(self.invoke(changed, local=True)["ok"])
+
+
+if __name__ == "__main__":
+    unittest.main()
