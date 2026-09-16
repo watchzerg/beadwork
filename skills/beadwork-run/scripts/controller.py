@@ -251,7 +251,7 @@ def prepare(args):
     d.pop("primary_snapshot_path", None)
     fields = ["repository_root", "parent_id", "rules_paths"]
     if args.role == "executor":
-        fields += ["ticket_id", "mode", "test_mode", "approved_seams", "testing_seams_doc"]
+        fields += ["ticket_id", "mode", "test_mode", "approved_seams", "testing_seams_doc", "linked_spec", "required_boundary_gates"]
     elif args.role == "finalizer":
         fields += ["expected_children", "linked_spec", "ticket_evidence", "required_boundary_gates", "prior_finalization", "reviewed_main"]
     require(all(k in d for k in fields), "准备输入缺少必填字段")
@@ -261,6 +261,9 @@ def prepare(args):
     branch = "implement/" + parent
     git(root, "check-ref-format", "--branch", branch)
     git(root, "check-ignore", "-q", "--", ".worktrees/probe")
+    if args.role != 'preflight':
+        require(isinstance(d['linked_spec'], str) and d['linked_spec'].strip(), '需要明确 linked_spec，parent 即 spec 时填写 parent ID')
+        require(isinstance(d['required_boundary_gates'], list) and all(isinstance(g, str) and g.startswith('gate-') for g in d['required_boundary_gates']), '需要显式 boundary gate 列表，允许空列表')
     d["execution_contract"] = 2
     d.update(repository_root=root, parent_id=parent, branch=branch,
              worktree=str(Path(root) / ".worktrees" / parent), skill_dir=str(SCRIPTS.parent), role=args.role)
@@ -276,6 +279,8 @@ def prepare(args):
                 require(d.get("sync_result"), "新 ticket 需要 sync-main 返回的 sync_result")
                 main_sync.check_result(d, d["sync_result"])
                 d["base_commit"] = head
+                import handoff
+                handoff.preflight_input(d)
             else:
                 require(re.fullmatch(r"[0-9a-f]{40}", d.get("base_commit", "")), "恢复必须提供 start comment 中的完整 BASE")
                 sha(d["worktree"], d["base_commit"])
@@ -382,6 +387,10 @@ def adapt_plan(args):
 
 
 def validate_plan(d):
+    if d.get('plan_source'):
+        executor_ops().bound(d['plan_source']['report'])
+    for source in d.get('environment_evidence', []):
+        executor_ops().bound(source)
     if d.get("ticket_execution_version") and d.get("expected_plan_path"):
         require(read(d["expected_plan_path"]) == {"mode": d["test_mode"], "approved_seams": d["approved_seams"]}, "执行计划文件与 dispatch 不符")
     if not d.get("plan_adjustment"):
@@ -449,10 +458,16 @@ def inspect(dispatch_path, report_path, receipt_path):
 def accept(args):
     require(Path(args.output).resolve().parent == Path(args.dispatch).resolve().parent, "验收记录必须留在 dispatch 证据目录")
     d, r, result = inspect(args.dispatch, args.report, args.receipt)
+    import handoff
+    closure = read(args.closure) if getattr(args, 'closure', None) else None
+    handoff.check_close(str(args.dispatch), str(args.report), closure,
+                        required=d.get('finalization_version') == 2 or bool(d.get('preflight_acceptance')))
     record = {"kind": "mechanical_acceptance", "role": d["role"], "status": r["status"],
               "dispatch_path": str(Path(args.dispatch).resolve()), "dispatch_sha256": digest(args.dispatch),
               "report_path": str(Path(args.report).resolve()), "report_sha256": result["report_sha256"],
               "receipt_path": str(Path(args.receipt).resolve()), "receipt_sha256": digest(args.receipt)}
+    if closure:
+        record['closure_source'] = closure
     write(args.output, record)
     return record
 
@@ -464,6 +479,9 @@ def accepted(path):
     for kind in ("dispatch", "report", "receipt"):
         require(digest(a[kind + "_path"]) == a[kind + "_sha256"], "已验收证据发生变化：" + kind)
     d, r, _ = inspect(a["dispatch_path"], a["report_path"], a["receipt_path"])
+    import handoff
+    handoff.check_close(a['dispatch_path'], a['report_path'], a.get('closure_source'),
+                        required=d.get('finalization_version') == 2 or bool(d.get('preflight_acceptance')))
     require(r["status"] in ("DONE", "READY_TO_MERGE"), "只有成功报告可生成完成记录或合入")
     return a, d, r
 
@@ -598,6 +616,7 @@ def main():
     p = commands.add_parser("adapt-plan")
     p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
     p = commands.add_parser("accept")
+    p.add_argument("--closure", help="收尾来源 path/sha256 JSON")
     for name in ("dispatch", "report", "receipt", "output"): p.add_argument("--" + name, required=True)
     p = commands.add_parser("comment")
     for name in ("acceptance", "summary", "output"): p.add_argument("--" + name, required=True)

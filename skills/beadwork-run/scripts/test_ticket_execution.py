@@ -85,8 +85,10 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         if ok:
             rp = self.file('receipt', receipt, self.wd.parent)
             if accept:
+                from test_controller import closure_source
+                cp = closure_source(self.wd, output)
                 self.cli('executor-operations.py', 'implementer-accept', '--dispatch', self.sd,
-                         '--report', output, '--receipt', rp)
+                         '--report', output, '--receipt', rp, '--closure', cp)
             self.writer_report, self.writer_receipt = output, rp
         return receipt
 
@@ -114,8 +116,10 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             rp = self.file('receipt', receipt, output.parent)
             self.root_report, self.root_receipt = output, rp
             self.acceptance = output.parent / ('accepted-' + str(self.serial) + '.json')
+            from test_controller import closure_source
+            cp = closure_source(self.root_dispatch, output)
             self.cli('controller.py', 'accept', '--dispatch', self.root_dispatch, '--report', output,
-                     '--receipt', rp, '--output', self.acceptance)
+                     '--receipt', rp, '--output', self.acceptance, '--closure', cp)
         return receipt
 
     def ready_writer(self):
@@ -320,7 +324,9 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             target = self.file('corrected', report, path.parent)
             receipt = self.file('receipt', {'status':'COMPLETED', 'report_path':str(target),
                                            'report_sha256':hashlib.sha256(target.read_bytes()).hexdigest()}, path.parent)
-            selection[axis] = {'report':str(target), 'receipt':str(receipt)}
+            from test_controller import closure_source
+            cp = closure_source(path.parent / 'dispatch.json', target)
+            selection[axis] = {'report':str(target), 'receipt':str(receipt), 'closure':json.loads(cp.read_text())['path']}
         selected = self.file('selection', selection)
         target = first.parent / 'collection-corrected.json'
         self.cli('executor-operations.py', 'review-collect', '--round', collection['round']['path'],

@@ -43,7 +43,7 @@ def write(path, value):
 def dispatch(path):
     p = absolute(path)
     d = c.read(p)
-    c.require(d["role"] in ("executor", "implementer", "fixer") and d["dispatch_path"] == str(p), "需要 executor 或 fixer dispatch")
+    c.require(d["role"] in ("executor", "implementer", "fixer", "finalizer") and d["dispatch_path"] == str(p), "需要 executor 或 fixer dispatch")
     c.require(not d.get("ticket_execution_version") or d["role"] == "implementer", "单票验证采集仅由 implementer 执行")
     c.require(Path(d["report_path"]).parent == p.parent, "dispatch 证据目录不符")
     return d
@@ -100,7 +100,18 @@ def run(args):
     if d.get("ticket_execution_version"):
         import ticket_execution
         ticket_execution.require_writer(d)
-    c.git(d["worktree"], "merge-base", "--is-ancestor", d["base_commit"], before["head"])
+    if d.get('finalization_version') == 2:
+        import final_state
+        import finalization
+        if d['role'] == 'fixer':
+            finalization.require_writer(d)
+        else:
+            _, selected = final_state.selected(d)
+            c.require(not selected['round_path'], 'review 已开始，验证候选冻结')
+            if d['stage']:
+                c.require(selected['fixes'] and c.read(c.executor_ops().bound(selected['fixes'][-1]['report']))['stopped_tasks'],
+                          '补充验证前需验收 fixer 收尾')
+    c.git(d["worktree"], "merge-base", "--is-ancestor", d.get("base_commit", d.get("reviewed_main")), before["head"])
     c.require(args.recipe in ("typecheck", "test", "final") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
               "仅执行 typecheck、test、final、gate-*")
     executable = shutil.which("just")
@@ -111,7 +122,10 @@ def run(args):
     attempt = None
     if args.delivery:
         import gate_repair
-        attempt = gate_repair.delivery(d, before)
+        if d['role'] == 'finalizer':
+            c.require(d.get('finalization_version') == 2 and not before['status'], '最终验证需要当前阶段干净 HEAD')
+        else:
+            attempt = gate_repair.delivery(d, before)
     directory = source.parent / ("verification-" + uuid.uuid4().hex)
     directory.mkdir(mode=0o700)
     started = {"dispatch_path": str(source), "dispatch_sha256": digest(source),

@@ -63,7 +63,7 @@ def bound(item):
 def dispatch(path):
     p = absolute(path)
     d = load(p)
-    c.require(d["role"] in ("executor", "finalizer", "implementer"), "需要 executor、implementer 或 finalizer dispatch")
+    c.require(d["role"] in ("executor", "finalizer", "implementer", "fixer"), "需要 executor、implementer 或 finalizer dispatch")
     c.require(Path(d["dispatch_path"]) == p, "dispatch 路径不符")
     c.require(Path(d["report_path"]).parent == p.parent, "报告目录与 dispatch 不符")
     c.validate_plan(d)
@@ -100,6 +100,10 @@ def prepare_review(args):
         import ticket_execution
         c.require(d.get("ticket_scope") == "stage", "review 由 stage executor 派发")
         ticket_execution.review_ready(d)
+    import final_state
+    if final_state.strict(d):
+        import finalization
+        finalization.review_ready(d)
     base = d["base_commit"] if d["role"] == "executor" else d["reviewed_main"]
     head = c.sha(d["worktree"], "HEAD")
     reviewed_state(d, base, head)
@@ -115,14 +119,20 @@ def prepare_review(args):
     if "stage" in d:
         import gate_repair
         gate_repair.freeze(d)
-    directory = absolute(args.dispatch).parent / ("review-" + uuid.uuid4().hex)
-    directory.mkdir()
+    directory = (final_state.reserve_review(d, getattr(args, 'resume', False)) if final_state.strict(d)
+                 else absolute(args.dispatch).parent / ("review-" + uuid.uuid4().hex))
+    directory.mkdir(exist_ok=True)
+    def write_review(path, value):
+        if Path(path).exists():
+            c.require(load(path) == value, 'review 准备半成品与当前身份不符')
+        else:
+            c.write(path, value)
     record = {"dispatch": binding(args.dispatch), "reviewed_base": base,
               "reviewed_head": head, "axes": {}, "review_kind": review_kind, "acceptance_evidence": evidence}
     commits = c.git(d["worktree"], "log", "--format=%H %s", base + ".." + head)
     for axis in AXES:
         folder = directory / axis
-        folder.mkdir()
+        folder.mkdir(exist_ok=True)
         identity = {"review_kind": review_kind, "acceptance_evidence": evidence, "axis": axis, "reviewed_base": base, "reviewed_head": head,
                     "skill_dir": d["skill_dir"], "worktree": d["worktree"],
                     "rules_paths": d["rules_paths"], "parent_id": d["parent_id"],
@@ -133,16 +143,21 @@ def prepare_review(args):
                     "receipt_schema_path": str(folder / "receipt-schema.json"),
                     "commits": commits,
                     "diff_argv": ["git", "-C", d["worktree"], "diff", base + "..." + head]}
+        import handoff
+        identity.update(handoff.review_inputs(d, axis))
+        identity['handoff_required'] = bool(d.get('preflight_acceptance')) or final_state.strict(d)
         if "stage" in d:
             identity.update(stage=d["stage"], **d["models"][axis])
         identity["self_check_argv"] = [sys.executable, "-B", str(c.SCRIPTS / "verify-worker.py"),
             "--check-report", "reviewer", identity["report_path"], "--expected", identity["dispatch_path"], "--emit-receipt"]
-        c.write(identity["report_schema_path"], worker("--schema"))
-        c.write(identity["receipt_schema_path"], worker("--receipt-schema"))
-        c.write(identity["dispatch_path"], identity)
+        write_review(identity["report_schema_path"], worker("--schema"))
+        write_review(identity["receipt_schema_path"], worker("--receipt-schema"))
+        write_review(identity["dispatch_path"], identity)
         record["axes"][axis] = binding(identity["dispatch_path"])
     path = directory / "round.json"
-    c.write(path, record)
+    write_review(path, record)
+    if final_state.strict(d):
+        final_state.bind_round(d, path)
     return {"round_path": str(path), "axes": {axis: item["path"] for axis, item in record["axes"].items()}}
 
 
@@ -157,7 +172,7 @@ def pair_from_sources(round_path, sources):
     c.require(set(sources) == set(AXES), "必须明确提供两个轴的报告与回执")
     pair = {}
     for axis in AXES:
-        c.require(set(sources[axis]) == {"report", "receipt"}, "每轴仅提供 report 和 receipt")
+        c.require(set(sources[axis]) in ({"report", "receipt"}, {"report", "receipt", "closure"}), "每轴需要 report/receipt 及可选 closure")
         identity_path = bound(record["axes"][axis])
         c.require(identity_path.parent == round_path.parent / axis, "轴目录不符")
         identity = load(identity_path)
@@ -169,6 +184,9 @@ def pair_from_sources(round_path, sources):
         receipt = absolute(sources[axis]["receipt"])
         c.require(report.parent == identity_path.parent and receipt.parent == identity_path.parent,
                   "报告和回执必须位于该轴证据目录")
+        import handoff
+        handoff.check_close(str(identity_path), str(report), binding(sources[axis]['closure']) if sources[axis].get('closure') else None,
+                            required=identity.get('handoff_required', False))
         checked = worker("--check-report", report, receipt, "--expected", identity_path)
         c.require(checked["status"] == "COMPLETED", "reviewer 未完成，保留失败证据并返回 BLOCKED")
         pair[axis] = load(report)
@@ -190,6 +208,9 @@ def collect_review(args):
     if d.get("ticket_execution_version"):
         import ticket_execution
         ticket_execution.select_review(d, output)
+    import final_state
+    if final_state.strict(d):
+        final_state.select_review(d, output)
     return {"collection_path": str(output), "gate": gate}
 
 
@@ -368,6 +389,11 @@ def assemble(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser('context-add')
+    p.add_argument('--dispatch', required=True); p.add_argument('--input', required=True)
+    p = commands.add_parser('handoff-close')
+    for name in ('dispatch', 'report', 'input'):
+        p.add_argument('--' + name, required=True)
     p = commands.add_parser("ticket-stage")
     p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
     p = commands.add_parser("ticket-deliver")
@@ -383,10 +409,24 @@ def main():
     p = commands.add_parser("implementer-check")
     p.add_argument("--dispatch", required=True); p.add_argument("--report", required=True)
     p = commands.add_parser("implementer-accept")
+    p.add_argument("--closure")
     for name in ("dispatch", "report", "receipt"):
         p.add_argument("--" + name, required=True)
     p = commands.add_parser("begin-gate-repair")
     p.add_argument("--dispatch", required=True); p.add_argument("--failure", required=True)
+    p = commands.add_parser('final-deliver')
+    p.add_argument('--dispatch', required=True); p.add_argument('--output', required=True)
+    p = commands.add_parser('fixer-assemble')
+    for name in ('dispatch', 'draft', 'output'):
+        p.add_argument('--' + name, required=True)
+    p = commands.add_parser('fixer-check')
+    p.add_argument('--dispatch', required=True); p.add_argument('--report', required=True)
+    p = commands.add_parser('fixer-accept')
+    p.add_argument('--closure')
+    for name in ('dispatch', 'report', 'receipt'):
+        p.add_argument('--' + name, required=True)
+    p = commands.add_parser('final-gates')
+    p.add_argument('--dispatch', required=True); p.add_argument('--input', required=True)
     p = commands.add_parser("final-stage")
     p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
     p = commands.add_parser("final-assemble")
@@ -398,6 +438,7 @@ def main():
     p = commands.add_parser("check-layer")
     p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
     p = commands.add_parser("review-prepare"); p.add_argument("--dispatch", required=True)
+    p.add_argument("--resume", action="store_true", help="仅恢复原 round 的未完成准备")
     p.add_argument("--evidence", help="无提交审查的 acceptance 映射 JSON")
     p = commands.add_parser("review-collect")
     for name in ("round", "input", "output"):
@@ -413,14 +454,22 @@ def main():
     import finalization
     import ticket_execution
     import gate_repair
-    action = {"ticket-stage": lambda a: ticket_execution.prepare_stage(a.dispatch, load(a.input)),
+    import handoff
+    action = {'context-add': lambda a: handoff.add_context(a.dispatch, load(a.input)),
+              'handoff-close': lambda a: handoff.close(a.dispatch, a.report, load(a.input)),
+              "ticket-stage": lambda a: ticket_execution.prepare_stage(a.dispatch, load(a.input)),
               "ticket-deliver": lambda a: ticket_execution.deliver(a.dispatch, a.output),
               "ticket-adapt-plan": ticket_execution.adapt_plan,
               "ticket-assemble": ticket_execution.assemble_stage,
               "implementer-assemble": ticket_execution.implementer_assemble,
               "implementer-check": lambda a: ticket_execution.implementer_check(a.dispatch, a.report),
-              "implementer-accept": lambda a: ticket_execution.accept_implementer(a.dispatch, a.report, a.receipt),
+              "implementer-accept": lambda a: ticket_execution.accept_implementer(a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None),
               "begin-gate-repair": gate_repair.begin,
+              'final-deliver': lambda a: finalization.deliver(a.dispatch, a.output),
+              'fixer-assemble': lambda a: finalization.fixer_assemble(a.dispatch, a.draft, a.output),
+              'fixer-check': lambda a: finalization.fixer_check(a.dispatch, a.report),
+              'fixer-accept': lambda a: finalization.accept_fixer(a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None),
+              'final-gates': lambda a: __import__('final_state').gates(dispatch(a.dispatch), **load(a.input)),
               "final-stage": lambda a: finalization.prepare_stage(a.dispatch, load(a.input)),
               "final-assemble": lambda a: finalization.assemble(a.dispatch, a.draft, a.output, a.review, load(a.fixers)),
               "inspect": inspect_context, "check-layer": check_layer,

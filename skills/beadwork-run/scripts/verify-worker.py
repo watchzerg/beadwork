@@ -59,9 +59,12 @@ def report_schema(role, axis_schema):
             "gate": TEXT, "command": TEXT, "head_commit": nullable(SHA),
             "passed": {"type": "boolean"}, "result": TEXT, "log_path": TEXT,
         })},
+        "verification_sources": {"type": "array", "items": {"type": "object"}},
+        "verification_notes": {"type": "object"},
+        "verification_issues": {"type": "array", "items": {"type": "object"}},
         "worktree_clean": {"type": "boolean"}, "stopped_tasks": {"type": "boolean"},
         "uncommitted_files": TEXTS, "blockers": TEXTS, "remaining_work": TEXTS,
-    }, optional=("stage", "attempt_id", "outcome", "fix_commits", "fix_commit"))
+    }, optional=("stage", "attempt_id", "outcome", "fix_commits", "fix_commit", "verification_sources", "verification_notes", "verification_issues"))
 
 
 def dispatch_schema(role):
@@ -100,6 +103,12 @@ def validate(role, report, axis_schema, expected):
             failures.append("fixer_outcome_status")
         if report["fix_commits"] and report["fix_commits"][-1] != report["head_commit"]:
             failures.append("fixer_commit_head")
+    if expected.get('finalization_version') == 2:
+        import final_verification
+        try:
+            final_verification.check(expected, report)
+        except Exception as error:
+            failures.append('fixer_verification: ' + str(error))
     if report["status"] == "BLOCKED":
         if not report["blockers"]:
             failures.append("blocked_has_reason")

@@ -115,13 +115,13 @@ bd update <ticket-id> --claim --json
 
 ### 3.3 派发整票 executor
 
-`prepare executor` 返回整票 root dispatch 和 `coordinator_model`；按该模型派发一个负责整张 ticket 的 executor，要求先读取 `<skill-dir>/agents/ticket-executor.md`。交接 linked spec、已验证环境和冒烟证据、实际进度通信目标、规则与 schema 路径；不复制 ticket 正文。
+`prepare executor` 返回整票 root dispatch 和 `coordinator_model`；按该模型派发一个负责整张 ticket 的 executor，要求先读取 `<skill-dir>/agents/ticket-executor.md`。提供已验收 READY preflight 的 preflight_acceptance 来源绑定；交接 linked spec、已验证环境和冒烟证据、实际进度通信目标、规则与 schema 路径；不复制 ticket 正文。
 
 executor 内部管理 stage 0..3、实现模型和双轴 review；implementer 内部管理同 stage 最多三次 gate-fix。controller 不组织单票修复、不逐次判读 gate 日志、不审批范围内的执行计划适配。收到阶段进度时继续等待；只有最终整票交付或中断/外部阻塞才进入验收。恢复时派发原 root 上的 executor，不新建四阶段额度。
 
 ### 3.4 验收 executor 结果
 
-按共享交付契约确认 executor 及后代任务结束，保存原始回执并执行 controller `accept`。脚本绑定 root、当前阶段、implementer 来源、BASE/HEAD、完整 commits、验证与原始双轴证据；失败停止，不把 implementer DONE 当成 ticket DONE。
+按共享交付契约确认 executor 及后代任务结束，保存原始回执，按 report-delivery.md 保存直接派发者的收尾观察，并带 --closure 执行 controller `accept`。脚本绑定 root、当前阶段、implementer 来源、BASE/HEAD、完整 commits、验证与原始双轴证据；失败停止，不把 implementer DONE 当成 ticket DONE。
 
 controller 核对整票交付来源、最终状态、必要 gates 和最后 review 的 HEAD、现场与任务收尾事实；验收与报告有矛盾、缺证或越界迹象时打开相关源码/日志追查。test plan、TDD red、seams 和 acceptance 的日常语义验收由 executor 承担，不再逐 stage 重做。确认误写 primary 时保留现场并停止，不自动还原。
 
@@ -162,7 +162,7 @@ finalizer 默认 `gpt-5.6-terra` / `medium`；复杂证据整合可用 `gpt-5.6-
 
 `prior_finalization` 首次为 `null`；接替或重新运行最终集成时，先读取 `references/recovery-finalizer.md`。
 
-finalizer 按自身指令在同一 attempt 中完成 stage 0 初次最终验证及最多三次代码修复（stage 1..3）。每阶段至多一轮双轴 review；stage 0 的 final/gate 代码失败跳过 review 并消耗当前阶段；stage 1..3 的 fixer 可按 `references/verification.md` 使用最多三次就地 gate 修正机会，额度耗尽后交付候选仍有代码失败才结束阶段；代码导致的完整 blocking review 或 fixer 的 `code_failure` 同样推进下一阶段。中断保留原阶段 BASE、已有 commits/dirty 现场和来源；不另设无进展计数。stage 3 未通过、或遇到环境/spec/seam 等非代码阻塞时停止。最终交付（包括 `BLOCKED`）的 stage report 按 finalizer 指令复制到 root dispatch 报告路径后，controller 才按共享交付契约执行 `accept`。
+finalizer 按自身指令在同一 attempt 中完成 stage 0 初次最终验证及最多三次代码修复（stage 1..3）。每阶段至多一轮双轴 review；stage 0 的 final/gate 代码失败跳过 review 并消耗当前阶段；stage 1..3 的 fixer 可按 `references/verification.md` 使用最多三次就地 gate 修正机会，额度耗尽后交付候选仍有代码失败才结束阶段；代码导致的完整 blocking review 或 fixer 的 `code_failure` 同样推进下一阶段。中断保留原阶段 BASE、已有 commits/dirty 现场和来源；不另设无进展计数。stage 3 未通过、或遇到环境/spec/seam 等非代码阻塞时停止。最终交付（包括 `BLOCKED`）通过 final-execution.md 的 final-deliver 将已选 stage report 原字节交付到 root 后，controller 才按共享交付契约执行 `accept`。
 
 ### 4.3 controller 验收
 

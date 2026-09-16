@@ -55,6 +55,17 @@ def prepare_utility_stage(data):
     return d
 
 
+def closure_source(dispatch, report):
+    import handoff
+    stopped = json.loads(Path(report).read_text()).get('stopped_tasks', True)
+    result = handoff.close(str(dispatch), str(report),
+        {'task_id': 'fixture-task', 'stopped': stopped, 'observed_at': '2026-09-16T00:00:00Z',
+         'evidence': '测试 CLI 已退出', 'unresolved': []})
+    path = Path(dispatch).parent / ('closure-source-' + uuid.uuid4().hex + '.json')
+    path.write_text(json.dumps(result['closure_source']))
+    return path
+
+
 class ControllerTests(unittest.TestCase):
     def setUp(self):
         self.h = ticket_fixture.TicketAcceptanceTests()
@@ -119,6 +130,25 @@ class ControllerTests(unittest.TestCase):
             self.put(receipt, {"status": "BLOCKED", "report_path": str(report_path),
                               "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()})
             d.update(previous_dispatch=str(previous), previous_report=str(report_path), previous_receipt=str(receipt))
+        if role == 'executor' and d['mode'] == 'new' and not getattr(self, 'utility_fixture', True):
+            # 用公开 prepare/accept 构造已核实的准入来源，不以字符串模拟来源绑定。
+            prepared = self.call('prepare', 'preflight', '--input', self.put(self.root / 'preflight-input.json',
+                {'repository_root': str(self.primary), 'parent_id': 'test', 'rules_paths': []}))
+            pd = Path(prepared['dispatch_path'])
+            pr = phase_fixture.PhaseValidatorTests().preflight()
+            plan = phase_fixture.PhaseValidatorTests().plan(d['test_mode'])
+            plan['approved_seams'] = d['approved_seams']; plan['boundary_gates'] = d['required_boundary_gates']
+            pr.update(parent={'id': 'test', 'status': 'open'}, expected_children=[d['ticket_id']],
+                      tickets=[{'id': d['ticket_id'], 'status': 'open', 'test_plan': plan}],
+                      linked_spec=d['linked_spec'], boundary_gates=d['required_boundary_gates'],
+                      workspace={'primary_worktree': str(self.primary), 'implementation_worktree': str(self.wt),
+                                 'branch': 'implement/test', 'observed_head': self.h.head, 'clean': True})
+            rp = pd.parent / 'report.json'; self.put(rp, pr)
+            rr = pd.parent / 'receipt.json'; self.put(rr, {'status': 'READY', 'report_path': str(rp),
+                                                         'report_sha256': hashlib.sha256(rp.read_bytes()).hexdigest()})
+            ap = pd.parent / 'accepted.json'
+            self.call('accept', '--dispatch', pd, '--report', rp, '--receipt', rr, '--output', ap)
+            d['preflight_acceptance'] = {'path': str(ap), 'sha256': hashlib.sha256(ap.read_bytes()).hexdigest()}
         result = self.call("prepare", role, "--input", self.put(self.root / "input.json", d))
         self.dispatch = Path(result["dispatch_path"])
         self.d = json.loads(self.dispatch.read_text())
@@ -151,7 +181,16 @@ class ControllerTests(unittest.TestCase):
     def accept(self, ok=True):
         self.counter += 1
         self.acceptance = self.dispatch.parent / f"acceptance-{self.counter}.json"
-        return self.call("accept", "--dispatch", self.dispatch, "--report", self.report, "--receipt", self.receipt, "--output", self.acceptance, ok=ok)
+        extra = []
+        if self.d.get('finalization_version') == 2 or self.d.get('preflight_acceptance'):
+            import handoff
+            closure = handoff.close(str(self.dispatch), str(self.report),
+                {'task_id': 'fixture-task', 'stopped': json.loads(self.report.read_text()).get('stopped_tasks', True),
+                 'observed_at': '2026-09-16T00:00:00Z', 'evidence': '临时 CLI 已退出', 'unresolved': []})
+            cp = self.dispatch.parent / f'closure-source-{self.counter}.json'
+            self.put(cp, closure['closure_source'])
+            extra = ['--closure', cp]
+        return self.call("accept", "--dispatch", self.dispatch, "--report", self.report, "--receipt", self.receipt, "--output", self.acceptance, *extra, ok=ok)
 
     def ready(self):
         self.prepare("finalizer")

@@ -110,6 +110,9 @@ def finalizer_schema(axis: Dict[str, Any]) -> Dict[str, Any]:
         "workspace": object_schema({"branch": nullable(TEXT), "observed_head": nullable(SHA), "clean": {"type": "boolean"}}),
         "sources": TEXTS, "stopped_tasks": {"type": "boolean"}, "blockers": TEXTS, "remaining_work": TEXTS,
     }, optional=("stage", "attempt_id", "outcome", "stage_sources", "review_sources", "fix_sources"))
+    schema['properties'].update(verification_sources={'type': 'array', 'items': {'type': 'object'}},
+                                verification_notes={'type': 'object'},
+                                verification_issues={'type': 'array', 'items': {'type': 'object'}})
     schema["$schema"] = "http://json-schema.org/draft-07/schema#"
     return schema
 
@@ -215,7 +218,7 @@ def finalizer_failures(report: Dict[str, Any], expected: Dict[str, Any] | None, 
     failures = dispatch_failures("finalizer", expected)
     if failures:
         return failures
-    modern = "stage" in report or (expected is not None and expected.get("finalization_version") == 1)
+    modern = "stage" in report or (expected is not None and expected.get("finalization_version") in (1, 2))
     if modern:
         fields = ("stage", "attempt_id", "outcome", "stage_sources", "review_sources", "fix_sources")
         if any(key not in report for key in fields):
@@ -237,7 +240,10 @@ def finalizer_failures(report: Dict[str, Any], expected: Dict[str, Any] | None, 
                 failures.append(fail(key + "_matches_dispatch"))
         if set(report["expected_children"]) != set(expected.get("expected_children", [])):
             failures.append(fail("children_match_dispatch"))
-        if set(report["required_gates"]) != set(expected.get("required_boundary_gates", [])):
+        gate_match = (set(expected.get('required_boundary_gates', [])) <= set(report['required_gates'])
+                      if expected.get('finalization_version') == 2 and 'stage' not in expected
+                      else set(report['required_gates']) == set(expected.get('required_boundary_gates', [])))
+        if not gate_match:
             failures.append(fail("required_gates_match_dispatch"))
         workspace = report["workspace"]
         if workspace["branch"] != expected.get("branch") or workspace["observed_head"] != report["head_commit"] or (

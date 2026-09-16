@@ -44,14 +44,14 @@ python3 <skill-dir>/scripts/controller.py prepare <preflight|executor|finalizer>
 公共输入：`repository_root`（当前仓库任一 worktree）、`parent_id`、`rules_paths`（适用规则绝对路径列表）。其他字段按角色：
 
 - preflight：重新派发时提供首次固定的 `expected_children`。
-- executor：`ticket_id`、`mode: new|resume`、`test_mode: TDD|direct_verification`、`approved_seams`、`testing_seams_doc`（本 skill 的 references/testing-seams.md 绝对路径；其他契约与项目事实按 `testing-contract.md` 定位）、`linked_spec`、`required_boundary_gates`（本票声明及已补充 gate 下限）、环境/冒烟证据及恢复事实。`resume` 必须额外提供从 start comment 核实的完整 `base_commit`；脚本不会猜测或补写缺失 BASE。
+- executor：`ticket_id`、`mode: new|resume`、`test_mode: TDD|direct_verification`、`approved_seams`、`testing_seams_doc`（本 skill 的 references/testing-seams.md 绝对路径；其他契约与项目事实按 `testing-contract.md` 定位）、`linked_spec`、`required_boundary_gates`（本票声明及已补充 gate 下限）、环境/冒烟证据及恢复事实。新票另提供 preflight_acceptance（已验收 READY preflight 的 acceptance 文件 path/sha256）；prepare 核对 ticket 计划、spec 和 gate 下限，自动保存 plan_source 与 sync_result 的环境来源。`resume` 必须额外提供从 start comment 核实的完整 `base_commit`；脚本不会猜测或补写缺失 BASE。
 - finalizer：`expected_children`、`linked_spec`、`ticket_evidence`、`required_boundary_gates`、`prior_finalization`、已合入 implementation 的完整 `reviewed_main` SHA。`prior_finalization` 首次为 null；接替时按 `recovery-finalizer.md` 准备。
 
 executor prepare 建立整票 root dispatch，返回 `coordinator_model`。`complex_ticket: true` 提高协调与实现起点；controller 不填写 stage/models/prior_reviews，也不传 repair。恢复提供原 root 的 `previous_dispatch` 和完整 BASE；返回原 root，不新建 stage 或重置额度。执行阶段、模型、implementer 和计划适配由 executor 使用 `ticket-execution.md` 的入口管理。
 
 finalizer root dispatch 只建立 attempt 身份；finalizer 再调用 `executor-operations.py final-stage` 建立 stage 0..3。stage 0 没有 fixer；stage 1/2/3 分别派 `gpt-5.6-sol` / `medium`、`gpt-5.6-sol` / `medium`、`gpt-6-astra` / `medium` fixer。每阶段最多一轮完整双轴 review。stage 0 的 final/gate 代码失败跳过 review；后续 fixer 的最多三次就地 gate 修正按 `verification.md` 执行。代码导致的完整 blocking review 或 fixer 正式返回的 `code_failure` 都由 finalizer 组装为 `code_failure` 并以 `repair` 进入下一阶段；外部、环境、需求或 seam 阻塞不推进。stage 3 仍不能通过时停止。
 
-同一 main 基线的 finalizer 重跑必须提供 `prior_finalization.stage_path`，恢复原 attempt，不重置 stage、BASE、历史来源或 dirty 修复现场。只有 main 实际变化或用户明确额外修复授权才传 `new_attempt_reason` 建立新 attempt，且需干净现场。旧格式导入除旧报告外还必须给 `legacy_dispatch`、`legacy_receipt`、全部 `legacy_reviews`，以及有 fixer 时的 dispatch/report/receipt 来源；导入只读取并绑定，不改写旧证据。
+同一 main 基线的 finalizer 重跑必须提供 `prior_finalization.stage_path`，恢复原 attempt，不重置 stage、BASE、历史来源或 dirty 修复现场。只有 main 实际变化或用户明确额外修复授权才传 `new_attempt_reason` 建立新 attempt，且需干净现场。历史 v1 格式读取仍保留；v2 恢复不能缺少严格检查点和实测来源。旧格式导入除旧报告外还必须给 `legacy_dispatch`、`legacy_receipt`、全部 `legacy_reviews`，以及有 fixer 时的 dispatch/report/receipt 来源；导入只读取并绑定，不改写旧证据。
 
 脚本定位 primary、检查 `.worktrees` 已被忽略、生成固定 branch/worktree 路径和唯一 dispatch 目录，写入 `dispatch.json`、报告/回执 schema；executor root 写入 `expected-plan.json`。新票从干净 worktree 记录 BASE；恢复票保留传入 BASE；finalizer 新 attempt 从已合入 main 的干净现场核对传入的 `reviewed_main` 并记录 `start_head`，同阶段恢复按恢复来源保留原值及修复现场。
 
@@ -62,7 +62,7 @@ finalizer root dispatch 只建立 attempt 身份；finalizer 再调用 `executor
 先确认子 agent 及其命令已结束，将其回执原样保存到本轮证据目录。报告路径由 controller 指定，更正报告显式选中。
 
 ```bash
-python3 <skill-dir>/scripts/controller.py accept --dispatch <dispatch.json> --report <report.json> --receipt <receipt.json> --output <acceptance-N.json>
+python3 <skill-dir>/scripts/controller.py accept --dispatch <dispatch.json> --report <report.json> --receipt <receipt.json> --output <acceptance-N.json> --closure <closure-source.json>
 ```
 
 复用现有 verifier 检查报告、回执和身份；executor 另核验整票 root、阶段和 implementer 来源链并执行现有 Git 验收，finalizer 检查实际 branch/HEAD、ancestry、`.beads`，成功状态要求 implementation worktree 干净。非成功报告按原状态规则允许部分证据和未提交工作。成功输出并保存绑定 dispatch/report/receipt hash 的机械验收记录；校验失败不生成通过记录。

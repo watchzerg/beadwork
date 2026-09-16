@@ -61,21 +61,26 @@ python3 <skill-dir>/scripts/verify-worker.py --check-report <role> <report.json>
 
 每组第三条供子 agent 自检，第四条供派发者验收。fixer 的职责见 `../agents/fixer.md`；reviewer 的职责、报告状态见 `../agents/reviewer.md`，两轴验收与 gate 见 `review.md`。
 
-最终阶段由 finalizer 使用下列入口准备和组装；`final-stage` 只创建证据与可选 fixer dispatch，`final-assemble` 不运行验证或派发 agent：
+最终阶段的 stage/fixer 验收、验证来源、检查点与 root 交付统一使用 [final-execution.md](final-execution.md)。新派发使用 finalization_version: 2，不手工复制 stage 报告或修改 receipt。
+
+## 派发者收尾确认
+
+新 ticket、最终阶段 fixer/reviewer 和最终 root 交付，直接派发者先确认任务及其命令结束，再记录观察：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py final-stage --dispatch <root-dispatch.json> --input <stage-facts.json>
-python3 <skill-dir>/scripts/executor-operations.py final-assemble --dispatch <stage-dispatch.json> --draft <draft.json> --output <stage-report.json> [--review <collection.json> ...] --fixers <fix-source-list.json> > <stage-receipt.json>
+python3 <skill-dir>/scripts/executor-operations.py handoff-close --dispatch <child-dispatch.json> --report <child-report.json> --input <observation.json>
 ```
 
-`final-assemble` 的 stdout 就是 `{status, report_path, report_sha256}` 短回执；将它保存为同一阶段目录内的新 `stage-receipt.json`，不要把日志混入此文件。首次 `stage-facts.json` 为 `{}`。`stage-facts.json` 的恢复输入使用 `previous_stage`、`previous_report`、`previous_receipt` 和 `continuation: resume|repair`；`repair` 只接受已验收的 `code_failure` 阶段。`fix-source-list.json` 是 fixer 的 dispatch/report/receipt hash 绑定列表。组装器保留整个 attempt 的来源，stage 报告用于恢复。交还 controller 时（成功或 BLOCKED）将同一份已验收 stage 报告字节复制至 root dispatch 指定的报告路径，并以 root dispatch 重新验收 receipt，供 controller `accept` 使用。
+observation 的字段为 task_id、stopped（布尔值）、observed_at、evidence、unresolved（未结束事项数组）。填写实际宿主观察，不能把收到回执、取消请求已发送或消息静默视作停止。返回 closure_source（path/sha256），将此对象保存到新 JSON 文件。
 
-每个 fixer 来源的形状为 `{dispatch: {path, sha256}, report: {path, sha256}, receipt: {path, sha256}}`；三者均为原文件绝对路径及其 SHA-256。`--review` 和 `--fixers` 传入按执行顺序排列的**全部**已完成来源（包括 dispatch 的 `prior_reviews`/`prior_fixes`），不是只传本阶段增量。draft 的 `verification` 仅填本次 finalizer 新运行的记录；组装器按历史、fixer、当前 finalizer 的顺序合并。
+controller accept、implementer-accept、fixer-accept 增加 `--closure <closure-source.json>`；review selection 的各轴增加 `closure: <closure_source.path>`。绑定必须对应本次 dispatch 和报告。成功或 code_failure 推进需要 stopped: true 且 unresolved 为空；未知停止状态可保存 BLOCKED 交付，但不能据此派接替 writer、合入或清理。收尾事实冲突时先更正来源，旧报告与旧观察保留。
 
-root 交付不重跑组装：原样复制 stage report，复制 stage receipt 并仅把 `report_path` 改为 root 报告绝对路径（字节未变，SHA-256 沿用）。两份目标都使用新文件名，不覆盖已有证据。随后执行：
+这些记录是派发者的观察证据；脚本不探测宿主 agent 是否停止，也不根据旧 PID 终止任务。
+
+## 补充事实与接替
 
 ```bash
-python3 <skill-dir>/scripts/verify-phase.py --check-report finalizer <root-report.json> <root-receipt.json> --expected <root-dispatch.json>
+python3 <skill-dir>/scripts/executor-operations.py context-add --dispatch <root-or-stage-dispatch.json> --input <facts.json>
 ```
 
-验收成功后才返回 root receipt；controller 用同一组路径执行 `accept`。阶段原件继续作为恢复来源。
+facts 只包含非空 reason 和 sources（path/sha256 数组）。事实文件应已写入证据目录且可读取。入口追加绑定链，恢复及 reviewer dispatch 返回 context_sources；不修改原 dispatch、BASE、acceptance/seam 授权或额度。继续原 agent 与接替 agent 都先读取这些来源；发现与原需求冲突时交回派发者处理。

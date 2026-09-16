@@ -1,11 +1,13 @@
 # finalizer 接替
 
-新版 `prior_finalization` 指向最近阶段：`{stage_path: <stage dispatch.json 的绝对路径>}`。同一 `reviewed_main` 且没有 `new_attempt_reason` 时，重新运行是同一 attempt：沿用 `attempt_id`、原始 `start_head`、稳定 `stage_base`、已有 review/fixer/验证来源、commits 与允许的 dirty 现场。先确认旧 writer 和命令结束，再用 `final-stage` 的 `continuation: resume` 接续；有阶段 report 时同时提供其 report/receipt，明确选择更正版本。
+新派发采用 finalization_version: 2。prior_finalization 指向原阶段 dispatch；同一 reviewed_main 恢复原 attempt 和检查点，保留 BASE、stage、fixer/review 的明确选择、累计 gates、commits、dirty 现场及 gate-fix 额度。先确认旧任务结束，再调用 final-stage continuation: resume；返回原 stage、selected_fixer、review_round、selected_review、selected_stage 和 context_sources。
 
-前阶段 `outcome: code_failure` 才能以 `continuation: repair` 进入下一阶段。stage 3 仍失败时停止。报告更正没有新 HEAD 时不增加阶段或 review。不要以新会话、报告缺失、commit 数或“无进展”重新计算额度。
+fixer DONE 已验收时，不重新派 writer；review 已开始时只继续原 round 的缺失轴或同 HEAD 更正。collect 已完成而阶段报告未写出时直接使用已选 collection 组装。collection 写出但检查点未完成时，用原 round 和明确 selection 重新 collect 到新文件。review 准备只有半成品时使用 review-prepare --resume，保留原目录。
 
-只有 `reviewed_main` 实际变化，或用户明确授权一次额外修复，才能带 `new_attempt_reason` 建立新的 attempt；新 attempt 从干净现场开始，旧证据继续保留。
+只有检查点选中的 code_failure 阶段才能 repair 到下一阶段，stage 3 失败停止。更正 review 后旧阶段报告失效，重新组装再决定交付或推进；不因更换会话重新计算额度。
 
-旧格式仍接受 `{fix_used: boolean, review_rounds_used: 0..2, report_path: <旧报告绝对路径>}`。导入时必须同时提供旧 report/receipt、已完成的 collection 来源和（如有）fixer dispatch/report/receipt；旧文件不改写。旧 `fix_used: false/true` 分别对应新版 stage 0/1，代码失败进入后续阶段仍需给出可核实的代码失败依据。
+只有 reviewed_main 实际变化，或用户明确授权额外修复，才通过 new_attempt_reason 创建新 attempt，并要求干净现场。交接已确认的补充边界，旧证据保持原样。
 
-若宿主在 fixer 已交付 report/receipt、但阶段报告尚未写出时中断，先在**旧 stage dispatch** 下用 `final-assemble` 补齐阶段报告：传入全部既有 review/fixer 来源和实际现场，fixer 已完成但尚待 review 时记 `BLOCKED / interrupted`；fixer 确认代码失败则记 `BLOCKED / code_failure`。保存 stdout 为该阶段 receipt，再用这对阶段 report/receipt 恢复。这样 DONE fixer 的提交和精确 HEAD 验证会被继承，脚本不再派同阶段 writer。旧 fixer 也没有可用报告时，先确认其已结束，再在同阶段接续 dirty/commit 现场；新的 fixer 报告须覆盖原阶段 BASE 起的全部提交。
+历史 v1 及更早报告仍可按原格式读取，不批量改写或自动授予 v2 成功。缺少严格检查点、可证明的原 review 选择或运行来源时，新 prepare/恢复给出具体阻塞；保留原 dispatch/report/receipt、额度与现场，不静默重建阶段。不要执行历史文件中已经过时的命令来规避当前检查。
+
+正常交付使用 final-deliver，不手工复制和改 receipt。具体入口见 final-execution.md；收尾和新增事实按 report-delivery.md。

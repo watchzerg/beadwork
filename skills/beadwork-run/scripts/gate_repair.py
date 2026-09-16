@@ -76,6 +76,9 @@ def begin(args):
     if d.get('ticket_execution_version'):
         import ticket_execution
         ticket_execution.require_writer(d)
+    if d.get('finalization_version') == 2 and d['role'] == 'fixer':
+        import finalization
+        finalization.require_writer(d)
     c.topology(d)
     p = root(d)
     c.require(not (p / 'gate-review-started.json').exists() and not any(x.is_dir() for x in p.glob('review-*')), 'review 已开始，不能就地修正')

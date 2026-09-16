@@ -45,7 +45,7 @@ draft 必填：
 stdout 为短回执；executor 确认 implementer 及命令结束，保存到该 implementer 目录下的新 receipt 文件，然后执行：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py implementer-accept --dispatch <stage-dispatch.json> --report <implementer-report.json> --receipt <implementer-receipt.json>
+python3 <skill-dir>/scripts/executor-operations.py implementer-accept --dispatch <stage-dispatch.json> --report <implementer-report.json> --receipt <implementer-receipt.json> --closure <closure-source.json>
 ```
 
 该入口重新校验身份、Git 和验证来源，并将选择追加到 root 检查点。重复验收同一来源幂等。实现的 passed/code_failure 一经验收，不能改报中断来继续旧 writer；已封存阶段不再接受新的实现来源，阶段/审查报告更正仍可在同 HEAD 完成。验收失败按证据/报告问题处理，不消耗 stage。合法部分报告也保留来源，但只有实现 DONE 才可准备 review。
@@ -80,3 +80,5 @@ python3 <skill-dir>/scripts/executor-operations.py ticket-deliver --dispatch <ro
 该入口将明确选中的阶段报告原样复制到 root 目录，重新执行完整验收并返回 root 短回执；不重跑 gates 或 review。stage 0..2 的 code_failure 不允许交付给 controller 作为最终代码失败。controller 使用 root dispatch 和这份报告/回执运行 `accept`；成功后生成 completion 并关闭 ticket。
 
 所有输出使用新文件名。更正只能补事实，不改源码、不增加阶段或 review 次数；原件保留。验证与完整双轴 review 未通过时不能返回 ticket DONE。
+
+必要派发输入来自已验收 preflight：linked_spec 和 required_boundary_gates 必须显式存在（无额外 gate 时 []），plan_source/environment_evidence 保留核实来源。收尾来源及 context-add 的用法见 report-delivery.md；恢复返回的 context_sources 必须交接给当前 implementer。

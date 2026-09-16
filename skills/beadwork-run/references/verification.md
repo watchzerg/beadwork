@@ -1,6 +1,6 @@
-# writer 验证采集
+# 验证采集
 
-implementer/fixer 的 `typecheck`、`test`、`final` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe，参数保持独立。票据要求 `just final <gate>...` 时使用 `--recipe final -- <gate>...` 采集。`fmt` 和 controller 的 `install` 沿用原入口。
+implementer/fixer 与新版 finalizer 的 `typecheck`、`test`、`final` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe，参数保持独立。票据要求 `just final <gate>...` 时使用 `--recipe final -- <gate>...` 采集。`fmt` 和 controller 的 `install` 沿用原入口。
 
 ```bash
 python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
@@ -37,3 +37,5 @@ writer 确认交付失败由代码导致后，在修改前调用上述入口申�
 当前 writer 集中修正，可运行必要的定向验证；提交后以 `--delivery` 重跑受影响的交付 gates。每次修正后的第一次重跑绑定该次候选 HEAD，其余交付 gates 必须使用同一 HEAD。该候选再有代码失败时，有余额则申请下一次修正；三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，不按 recipe 或失败类型增加；环境修复可在同 HEAD 重跑。review 开始后不能申请修正。
 
 机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。finalizer stage 0 没有 writer，不享有机会；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，executor/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。
+
+最终阶段的运行快照、组合 final 参数覆盖、未知/损坏来源和 fixer 完整验收见 final-execution.md。finalizer 不获得 gate-fix 权限；stage 0 代码失败直接进入下一 stage。收尾说明仍不能由 process_group_gone 替代宿主和外部资源观察。

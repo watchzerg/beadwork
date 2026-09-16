@@ -21,6 +21,10 @@ class FinalizationTests(unittest.TestCase):
         self.addCleanup(self.h.doCleanups)
         self.h.prepare("finalizer")
         self.root = self.h.dispatch
+        if not getattr(self, 'strict_contract', False):
+            # 保留 v1 历史文件验收用例；新派发 v2 由 test_handoff 覆盖。
+            self.h.d['finalization_version'] = 1
+            self.h.put(self.root, self.h.d)
         self.serial = 0
 
     def call(self, *args, ok=True):
@@ -64,6 +68,9 @@ class FinalizationTests(unittest.TestCase):
             self.put(receipt, {"status": "COMPLETED", "report_path": str(report_path),
                                "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()})
             sources[axis] = {"report": str(report_path), "receipt": str(receipt)}
+            if identity.get('handoff_required'):
+                cp = controller_fixture.closure_source(raw, report_path)
+                sources[axis]['closure'] = json.loads(cp.read_text())['path']
         round_path = Path(prepared["round_path"])
         selection = round_path.parent / "selection.json"
         self.put(selection, sources)
@@ -319,6 +326,9 @@ class FinalizationTests(unittest.TestCase):
         self.h.prepare("finalizer", prior_finalization={"fix_used": True, "review_rounds_used": 1,
                                                          "report_path": old_dispatch["report_path"]})
         self.root = self.h.dispatch
+        # 历史格式导入能力仍按 v1 检验；缺少实测来源的新 v2 导入应阻塞。
+        self.h.d['finalization_version'] = 1
+        self.h.put(self.root, self.h.d)
         facts = {"legacy_dispatch": str(old_dispatch["dispatch_path"]), "legacy_receipt": str(legacy_receipt),
                  "legacy_reviews": [str(review)], "legacy_fixes": [{"dispatch": self.bind(fixer_dispatch["dispatch_path"]),
                  "report": self.bind(fixer_dispatch["report_path"]), "receipt": self.bind(fixer_receipt)}],

@@ -206,6 +206,8 @@ class EmptyBatchTests(unittest.TestCase):
         f.h.h.git(f.h.primary, "merge", "--ff-only", f.h.h.head)
         f.h.h.base = f.h.h.head
         f.h.prepare("finalizer"); f.root = f.h.dispatch
+        f.h.d['finalization_version'] = 1
+        f.h.put(f.root, f.h.d)
         stage = f.stage()
         evidence = Path(stage).parent / "acceptance.json"
         f.put(evidence, [{"criterion": "parent 全部要求", "evidence": "当前实现与完整验证"}])

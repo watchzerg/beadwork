@@ -4,7 +4,7 @@
 
 ## 输入、现场与恢复
 
-先读取适用仓库规则、`../references/testing-contract.md` 所定位的测试契约、生成的 schema，以及 `../references/report-delivery.md`、`../references/review.md` 和 `../references/recovery-finalizer.md`。使用 implementation worktree 的绝对路径；Beads 和 Git 仅读，不 install、push、reset 或清理。
+先读取适用仓库规则、`../references/testing-contract.md` 所定位的测试契约、生成的 schema，以及 `../references/report-delivery.md`、`../references/review.md` 和 `../references/recovery-finalizer.md`、`../references/final-execution.md`。使用 implementation worktree 的绝对路径；Beads 和 Git 仅读，不 install、push、reset 或清理。
 
 用 `bd show <id> --json` / `bd comments <id> --json` 只读核对 parent、children 和 linked spec；从 ticket 报告汇总验证边界和来源。验证与 review 不和 fixer 写入并行；gates 默认串行，除非仓库契约明确保证资源隔离。
 
@@ -35,7 +35,7 @@ finalizer 本身默认 `gpt-5.6-terra` / `medium`，复杂证据整合可用 `gp
 
 ## 验证、review 与推进
 
-finalizer 从所有 ticket 证据汇总 boundary gates。stage 0 由 finalizer 执行 `just final <boundary-gate>...`；stage 1..3 由 fixer 在修复后执行完整 final/gates，finalizer 验收并引用其结果。执行者记录命令、完整输出、运行 HEAD、各 gate 结果和来源；完整 gates 必须在最终交付 HEAD 通过。同一 HEAD 已通过且证据完整的验证不重跑；缺证、HEAD 不一致或覆盖不足时，由 finalizer 明确需要补充的验证，确认 fixer 已停止写入后再组织执行。
+finalizer 从所有 ticket 证据汇总 boundary gates。stage 0 由 finalizer 通过 run-verification.py --delivery 采集 `just final <boundary-gate>...`；stage 1..3 由 fixer 在修复后执行完整 final/gates，finalizer 验收并引用其结果。执行者记录命令、完整输出、运行 HEAD、各 gate 结果和来源；完整 gates 必须在最终交付 HEAD 通过。同一 HEAD 已通过且证据完整的验证不重跑；缺证、HEAD 不一致或覆盖不足时，由 finalizer 明确需要补充的验证，确认 fixer 已停止写入后再组织执行。
 
 stage 0 的 final/gate 代码失败，或后续 fixer 用尽三次就地修正后返回的代码失败，不派 reviewer，组装 `BLOCKED / code_failure` 阶段报告并以 `continuation: repair` 消耗该阶段进入下一阶段。当 reviewed_main=HEAD 时，按 `../references/baseline-adaptation.md` 提供 parent 全部 acceptance 证据并准备 existing_behavior review；gates 和关闭/清理仍执行。验证通过才按 `review.md` 派发两个独立只读 reviewer：BASE 始终是 `reviewed_main`，HEAD 是当时冻结的当前 HEAD。代码导致的完整 blocking review 同样组装 `BLOCKED / code_failure` 并消耗阶段；非 blocking smells 记录但不派 fixer。review 无法完成、外部阻塞或现场变化则返回 `BLOCKED`，不伪装为代码失败。
 
@@ -45,7 +45,7 @@ fixer 只处理当前阶段 gate 失败或 blocking findings。其 `base_commit`
 
 finalizer 负责修复处置、验证覆盖和 review 的日常语义验收：核对 fixer 改动仅处理本批次阻塞及直接相关问题，验证覆盖全部声明和实际补充的边界，报告与原始 reviewer 证据一致，smells 原样保留。controller 核对最终交付与集成条件，有矛盾、缺证或越界迹象时再追查相关源码和日志。
 
-先保存各 reviewer/fixer 的报告、receipt 和完整验收结果。使用阶段组装入口，它重新读取并 hash 绑定每个来源：
+先保存各 reviewer/fixer 的报告、receipt 和完整验收结果。fixer 用 final-execution.md 的 fixer-assemble/check 交付；你记录实际收尾后执行 fixer-accept，随后才准备 review。使用阶段组装入口，它重新读取并 hash 绑定每个来源：
 
 ```bash
 python3 <skill-dir>/scripts/executor-operations.py final-assemble \
@@ -53,8 +53,11 @@ python3 <skill-dir>/scripts/executor-operations.py final-assemble \
   [--review <collection.json> ...] --fixers <fix-source-list.json> > <stage-receipt.json>
 ```
 
-draft 如实填写 `status`、`outcome`、`verification`、`boundary_gates`、`gate_sources`、`blockers`、`remaining_work`、`stopped_tasks` 和必要来源。传入全部 review/fixer 来源；组装器保留前序 stage、review、fixer、验证与 gate 来源，并检查整个 attempt 的 `start_head..HEAD` 恰好由已绑定 fixer commits 构成。
+draft 如实填写 `status`、`outcome`、`verification_notes`、`boundary_gates`、`gate_sources`、`blockers`、`remaining_work`、`stopped_tasks` 和必要来源；verification 可为 []，运行事实与快照由脚本生成。传入全部 review/fixer 来源；组装器保留前序 stage、review、fixer、验证与 gate 来源，并检查整个 attempt 的 `start_head..HEAD` 恰好由已绑定 fixer commits 构成。
 
-阶段原件用于恢复；controller 的 `accept` 仍从 root dispatch 目录读取。最终交还 controller 时（`READY_TO_MERGE` 或 `BLOCKED`），将已验收 stage report 的字节复制到 root dispatch 指定的 `report_path`，以 root dispatch 重新生成/验收 receipt，再交给 controller。不要改写 stage 原件或用摘要替代来源。
+阶段原件用于恢复；root 交付统一执行 final-execution.md 的 final-deliver。它只复制检查点明确选中的报告并生成回执，重新校验当前现场和全部来源。controller 按 report-delivery.md 记录收尾再验收，不手工复制报告或修改 receipt。
+
 
 仅当最终 gates 在交付 HEAD 通过、最后一轮两轴为 PASS 且覆盖该 HEAD、现场干净、所有任务结束并且没有 blockers/remaining work 时写 `READY_TO_MERGE`。否则 `BLOCKED`，保留恢复入口、已完成 commits 和未提交现场；不为成功而提交未完成代码。
+
+新增验证边界一经确认，立即调用 final-gates 持久化累计下限；恢复读取 context_sources。final_gate_contract 和组合 final 调用的覆盖规则见 final-execution.md。

@@ -4,6 +4,8 @@
 
 本仓库维护 Beadwork skills。人类可审阅的说明使用简体中文；代码标识、接口和 established technical terms 保留英文。目标项目的接入规则位于 `docs/project-contract.md`，不把某个消费项目的 Bun、数据库或业务约束引入本仓库。
 
+需要理解角色关系、判断职责边界或作出架构决策时，可按需阅读 [架构概览](docs/ARCHITECTURE.md)。
+
 ## 源码与本地使用
 
 - `skills/` 是 skill 源码的唯一维护位置。用户级安装入口可以是指向该目录中具体 skill 的 symlink。

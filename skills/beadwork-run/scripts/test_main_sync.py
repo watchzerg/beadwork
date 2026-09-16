@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import hashlib
 
 SCRIPT = Path(__file__).with_name('controller.py')
 
@@ -81,6 +82,31 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
     def commands(self):
         p = self.root / 'commands'
         return p.read_text().splitlines() if p.exists() else []
+
+    def prepare_input(self, data):
+        """同步测试仍通过真实 prepare/accept 交接准入计划。"""
+        import test_verify_phase
+        request = self.root / 'preflight-input.json'
+        request.write_text(json.dumps(dict(repository_root=str(self.primary), parent_id='demo-1', rules_paths=[])))
+        def call(*args):
+            result = subprocess.run([sys.executable, '-B', str(SCRIPT), *map(str, args)], env=self.env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return json.loads(result.stdout)
+        d = call('prepare', 'preflight', '--input', request)
+        folder = Path(d['dispatch_path']).parent
+        r = test_verify_phase.PhaseValidatorTests().preflight()
+        plan = test_verify_phase.PhaseValidatorTests().plan('direct_verification')
+        r.update(parent={'id': 'demo-1', 'status': 'open'}, expected_children=['demo-1.1'],
+                 tickets=[{'id': 'demo-1.1', 'status': 'open', 'test_plan': plan}],
+                 boundary_gates=['gate-browser'], linked_spec='demo-1',
+                 workspace={'primary_worktree': str(self.primary), 'implementation_worktree': str(self.wt),
+                            'branch': 'implement/demo-1', 'observed_head': self.git(self.wt, 'rev-parse', 'HEAD'), 'clean': True})
+        report = folder / 'report.json'; report.write_text(json.dumps(r))
+        receipt = folder / 'receipt.json'
+        receipt.write_text(json.dumps({'status': 'READY', 'report_path': str(report), 'report_sha256': hashlib.sha256(report.read_bytes()).hexdigest()}))
+        accepted = folder / 'accepted.json'
+        call('accept', '--dispatch', d['dispatch_path'], '--report', report, '--receipt', receipt, '--output', accepted)
+        return dict(data, linked_spec='demo-1', preflight_acceptance={'path': str(accepted), 'sha256': hashlib.sha256(accepted.read_bytes()).hexdigest()})
 
     def test_no_change_skips_commands_and_preserves_main(self):
         head = self.git(self.primary, 'rev-parse', 'HEAD')
@@ -181,7 +207,7 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
         data = dict(self.data, ticket_id='demo-1.1', mode='new', test_mode='direct_verification',
                     approved_seams=[], rules_paths=[], testing_seams_doc='/rules/seams.md', sync_result=r['sync_result'])
         p = self.root / 'prepare.json'
-        p.write_text(json.dumps(data))
+        p.write_text(json.dumps(self.prepare_input(data)))
         result = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(p)],
                                 env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
@@ -204,7 +230,7 @@ if sys.argv[3]=='env-facts':
         data = dict(self.data, ticket_id='demo-1.1', mode='new', test_mode='direct_verification',
                     approved_seams=[], rules_paths=[], testing_seams_doc='/rules/seams.md', sync_result=r['sync_result'])
         source = self.root / 'prepare.json'
-        source.write_text(json.dumps(data))
+        source.write_text(json.dumps(self.prepare_input(data)))
         proc = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(source)],
                               env=self.env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -218,7 +244,7 @@ if sys.argv[3]=='env-facts':
         data = dict(self.data, ticket_id='demo-1.1', mode='new', test_mode='direct_verification',
                     approved_seams=[], rules_paths=[], testing_seams_doc='/rules/seams.md', sync_result=str(ready))
         p = self.root / 'prepare.json'
-        p.write_text(json.dumps(data))
+        p.write_text(json.dumps(self.prepare_input(data)))
         args = [sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(p)]
         bad = json.loads(original)
         bad['commands'] = []
@@ -238,7 +264,7 @@ if sys.argv[3]=='env-facts':
         data = dict(self.data, ticket_id='demo-1.1', mode='new', test_mode='direct_verification',
                     approved_seams=[], rules_paths=[], testing_seams_doc='/rules/seams.md', sync_result=r['sync_result'])
         p = self.root / 'prepare.json'
-        p.write_text(json.dumps(data))
+        p.write_text(json.dumps(self.prepare_input(data)))
         args = [sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(p)]
         result = subprocess.run(args, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -258,6 +284,25 @@ if sys.argv[3]=='env-facts':
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('HEAD', result.stderr)
 
+    def test_prepare_requires_verified_plan_and_explicit_inputs(self):
+        r = self.sync()
+        original = self.prepare_input(dict(self.data, ticket_id='demo-1.1', mode='new', test_mode='direct_verification',
+            approved_seams=[], rules_paths=[], testing_seams_doc='/rules/seams.md', sync_result=r['sync_result']))
+        for field in ('linked_spec', 'required_boundary_gates', 'preflight_acceptance'):
+            with self.subTest(field=field):
+                data = dict(original); del data[field]
+                path = self.root / 'missing-input.json'; path.write_text(json.dumps(data))
+                result = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(path)],
+                    env=self.env, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+        accepted = Path(original['preflight_acceptance']['path'])
+        accepted.write_text('{}')
+        path = self.root / 'tampered-input.json'; path.write_text(json.dumps(original))
+        result = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(path)],
+            env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('证据文件已变化', result.stderr)
+
 
     def test_dirty_primary_sync_and_new_prepare_preserve_manual_edits(self):
         target = self.change(self.primary)
@@ -272,7 +317,7 @@ if sys.argv[3]=='env-facts':
                     approved_seams=[], rules_paths=[], testing_seams_doc='/rules/seams.md',
                     sync_result=result['sync_result'])
         source = self.root / 'prepare.json'
-        source.write_text(json.dumps(data))
+        source.write_text(json.dumps(self.prepare_input(data)))
         proc = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(source)],
                               env=self.env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)

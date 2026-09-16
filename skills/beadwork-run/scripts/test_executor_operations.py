@@ -44,6 +44,9 @@ class ExecutorOperationsTests(unittest.TestCase):
             self.h.put(receipt, {"status": "COMPLETED", "report_path": str(report_path),
                 "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()})
             sources[axis] = {"report": str(report_path), "receipt": str(receipt)}
+            if d.get('handoff_required'):
+                cp = controller_fixture.closure_source(d['dispatch_path'], report_path)
+                sources[axis]['closure'] = json.loads(cp.read_text())['path']
         path = Path(prepared["round_path"])
         selection = path.parent / "selection.json"
         self.h.put(selection, sources)
@@ -195,6 +198,9 @@ class ExecutorOperationsTests(unittest.TestCase):
 
     def test_finalizer_uses_reviewed_main(self):
         self.h.prepare("finalizer")
+        # 此工具级用例使用既有 v1 root；v2 的阶段准入由 test_handoff 覆盖。
+        self.h.d['finalization_version'] = 1
+        self.h.put(self.h.dispatch, self.h.d)
         self.dispatch = self.h.dispatch
         collected = self.collect(self.round())
         self.assertEqual(json.loads(collected.read_text())["pair"]["spec"]["reviewed_base"], self.h.h.base)

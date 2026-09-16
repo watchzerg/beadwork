@@ -91,7 +91,8 @@ def resume_root(d):
     if state['selected_stage']:
         _, report = resolve_source(state['selected_stage'])
         c.require(report['status'] != 'DONE', '整票已完成，应验收关闭')
-    return previous
+    import handoff
+    return dict(previous, context_sources=handoff.contexts(previous))
 
 
 def save_dispatch(d, folder, role):
@@ -122,7 +123,8 @@ def stage_result(d, state):
     writer = ops().load(ops().bound(d['implementer_dispatch']))
     rounds = list(Path(d['dispatch_path']).parent.glob('review-*/round.json'))
     c.require(len(rounds) <= 1, '同 stage 出现多个 review round')
-    return {'stage': d['stage'], 'stage_dispatch': d['dispatch_path'], 'implementer_dispatch': writer['dispatch_path'],
+    import handoff
+    return {'context_sources': handoff.contexts(d), 'stage': d['stage'], 'stage_dispatch': d['dispatch_path'], 'implementer_dispatch': writer['dispatch_path'],
             'models': d['models'], 'prior_implementer': selected, 'selected_stage': state['selected_stage'],
             'selected_review': state['selected_review'],
             'review_round': str(rounds[0]) if rounds else None,
@@ -364,7 +366,7 @@ def implementer_assemble(args):
     return implementer_check(args.dispatch, str(output))
 
 
-def accept_implementer(stage_path, report_path, receipt_path):
+def accept_implementer(stage_path, report_path, receipt_path, closure=None):
     d = ops().dispatch(stage_path)
     state, _, _ = checkpoints(d)
     c.require(state['stage_dispatch'] == ops().binding(stage_path), '不是当前 stage')
@@ -372,7 +374,10 @@ def accept_implementer(stage_path, report_path, receipt_path):
     item = source(wpath, report_path, receipt_path)
     w, report = resolve_source(item)
     implementer_check(str(wpath), report_path)
-    c.require(report['stopped_tasks'], 'implementer 任务尚未停止')
+    import handoff
+    handoff.check_close(str(wpath), report_path, closure, required=bool(d.get('preflight_acceptance')))
+    if report['status'] == 'DONE' or report['outcome'] == 'code_failure':
+        c.require(report['stopped_tasks'], 'implementer 任务尚未停止')
     if state['implementer_sources'] and state['implementer_sources'][-1] == item:
         return {'accepted': True, 'source': item}
     if state['selected_stage']:
@@ -384,6 +389,7 @@ def accept_implementer(stage_path, report_path, receipt_path):
         if prior['outcome'] in ('passed', 'code_failure'):
             c.require(report['outcome'] == prior['outcome'], '已验收实现终态不能改报中断或外部阻塞')
     c.require(not (Path(d['gate_repair_root']) / 'gate-review-started.json').exists(), 'review 后只能更正审查/阶段报告')
+    state.setdefault('closures', {})[item['report']['sha256']] = closure
     state['implementer_sources'].append(item)
     state['selected_stage'] = None
     checkpoint(d, state)
@@ -452,6 +458,10 @@ def check_stage(d, report):
         c.require(w['stage'] == d['stage'] and w['gate_repair_root'] == d['gate_repair_root'], '实现来源不属于本阶段')
         worker('--check-report', item['report']['path'], item['receipt']['path'], '--expected', w['dispatch_path'])
         check_implementation(w, implementation)
+        import handoff
+        all_states = checkpoints(d)[0]
+        closure = all_states.get('closures', {}).get(item['report']['sha256'])
+        handoff.check_close(w['dispatch_path'], item['report']['path'], closure, required=bool(w.get('preflight_acceptance')))
     if sources:
         c.require(implementation['head_commit'] == report['head_commit'], '阶段 HEAD 与最后实现交付不符')
         c.require(all(row in report['verification'] for row in implementation['verification']), '阶段报告丢失实现验证')

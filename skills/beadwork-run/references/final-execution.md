@@ -1,0 +1,63 @@
+# 最终阶段交接
+
+新派发使用 `finalization_version: 2`。controller 管 root 与集成，finalizer 管 attempt 检查点；fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收 fixer、唯一 round、selected_review、selected_stage、累计 gates 和来源。旧格式读取见 recovery-finalizer.md。
+
+## 准备与恢复
+
+```bash
+python3 <skill-dir>/scripts/executor-operations.py final-stage --dispatch <root-dispatch.json> --input <facts.json>
+```
+
+首次 facts 为 `{}`；恢复使用 `continuation: resume`，推进使用 `continuation: repair`。已有检查点时脚本使用明确选择；显式 previous_stage 必须匹配当前阶段。repair 只接受已选 code_failure，最多 stage 3。同阶段恢复返回原 dispatch、selected_fixer、review_round、selected_review、selected_stage 和 context_sources，不重新分配额度。
+
+fixer DONE 已验收或 review 已开始时，不再派 writer。恢复前先由派发者确认旧 agent 和命令结束；未知停止状态不会授予接替 writer。gate-fix 继续使用 verification.md 的三次额度。
+
+## 验证与补充边界
+
+stage 0 由 finalizer 用 run-verification.py 采集 `final`/边界 gates，交付验证加 `--delivery`。stage 1..3 由 fixer 采集；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
+
+最终成功依据 started/result/output.log 的绑定、正常退出码、相同干净 HEAD 和进程组结束事实。相同 gate 在交付 HEAD 取最新结果，较早成功不能覆盖较晚失败。未知结果需要实际收尾说明；日志损坏时可以组装 BLOCKED/blocked 或 interrupted，组装器自动保留 verification_issues，不能据此通过或推进代码修复。
+
+`final_gate_contract` 可由 controller 在 root 输入提供，形状为 `{source: {path, sha256}, boundary_parameters: true}`。source 指向本批已核实的项目 final recipe 覆盖说明。只有该契约有效时，成功的 `just final <gate>...` 计入明确传入参数的边界覆盖；否则只计 final，边界需独立采集。不得手填 passed 或从命令文字猜子 gate 结果。
+
+新增边界一经确认，立即持久化，不等待成功报告：
+
+```bash
+python3 <skill-dir>/scripts/executor-operations.py final-gates --dispatch <stage-dispatch.json> --input <gates.json>
+```
+
+gates.json 为 `{names: ["gate-example"], sources: [{gate: "gate-example", source: "新增原因及依据"}]}`。累计下限继承到下一 stage/fixer、最终报告与接替者；同 attempt 不自动删减。final-gates 由 finalizer 调用，fixer 通过消息提交新增边界；fixer 报告验收也会合并实际边界。
+
+## fixer 交付
+
+```bash
+python3 <skill-dir>/scripts/executor-operations.py fixer-assemble --dispatch <fixer-dispatch.json> --draft <draft.json> --output <report.json>
+python3 <skill-dir>/scripts/executor-operations.py fixer-check --dispatch <fixer-dispatch.json> --report <report.json>
+python3 <skill-dir>/scripts/executor-operations.py fixer-accept --dispatch <stage-dispatch.json> --report <report.json> --receipt <receipt.json> --closure <closure-source.json>
+```
+
+draft 提供 status、outcome、dispositions（source/action）、boundary_gates、gate_sources（gate/source）、verification_notes（运行目录到说明）、stopped_tasks、uncommitted_files、blockers、remaining_work。未知验证的收尾说明也放 verification_notes。身份、HEAD、完整 fix_commits、worktree_clean、verification、verification_sources 和 verification_issues 由脚本生成。stdout 是短回执，保存原件。
+
+DONE 需当前 HEAD 的完整 final/gates；code_failure 需三次 gate-fix 已用尽及第三次候选正常非零交付结果。blocked/interrupted 可保留部分证据，不伪造成功。直接派发者先按 report-delivery.md 记录收尾，再 accept；验收会保存 fixer 选择。成功或代码失败终态不能改报中断继续写入。
+
+## review 与阶段报告
+
+按 review.md 派两轴；review-prepare 校验验证来源及 fixer 选择，并固定唯一 round。只剩半成品准备时使用 `review-prepare --resume`；已完成 round 从 final-stage 返回值恢复。review-collect 同时保存 selected_review。同 round 更正使原 selected_stage 失效，重新组装后才可交付或推进。
+
+```bash
+python3 <skill-dir>/scripts/executor-operations.py final-assemble --dispatch <stage-dispatch.json> --draft <draft.json> --output <stage-report.json> --fixers <fix-source-list.json> [--review <collection.json> ...]
+```
+
+draft 提供 status、outcome、boundary_gates、gate_sources、verification_notes、blockers、remaining_work、stopped_tasks、sources；verification 可填 []，实际记录由组装器生成。--fixers 是按执行顺序排列的全部已选 dispatch/report/receipt 绑定数组；--review 提供 prior_reviews 加 selected_review，不得省略、更换或重开 round。组装器生成阶段 receipt 并追加 selected_stage；stdout 同样为短回执。
+
+stage 0 的实测代码失败或完整代码类 blocking review 允许推进；修复阶段无完整 blocking review 时，必须由本阶段 fixer 的 code_failure 支撑推进。非代码阻塞停留原 stage。
+
+## root 交付
+
+```bash
+python3 <skill-dir>/scripts/executor-operations.py final-deliver --dispatch <root-dispatch.json> --output <root-report.json>
+```
+
+入口只交付检查点选中的阶段报告：保持原字节，生成同目录 `<root-report-stem>-receipt.json` 并重新完整验收。不运行 gates、不派 review；stage 0..2 的 code_failure 先继续内部修复，stage 3 用尽才交还 controller。
+
+交付中断后保留已有文件，换新文件名重试；不得覆盖或手改 receipt。controller 记录 finalizer 的收尾来源后执行 accept。成功需当前 HEAD 和完整来源一致，BLOCKED 保留恢复指针，未知停止状态不能授权后续写入或集成。

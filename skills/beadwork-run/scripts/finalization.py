@@ -3,6 +3,8 @@ from pathlib import Path
 import sys
 import uuid
 import controller as c
+import final_state as fs
+import final_verification as fv
 
 
 def ops():
@@ -23,9 +25,12 @@ def prepare_attempt(d, head):
     previous = None
     if prior and "stage_path" in prior:
         previous = c.read(prior["stage_path"])
-        c.require(previous.get("finalization_version") == 1, "需要有效的旧最终阶段")
+        c.require(previous.get("finalization_version") in (1, 2), "需要有效的旧最终阶段")
         for key in ("repository_root", "worktree", "branch", "parent_id", "expected_children"):
             c.require(previous[key] == d[key], "恢复批次身份变化")
+        if fs.strict(previous):
+            _, selection = fs.selected(previous)
+            d['required_boundary_gates'] = list(dict.fromkeys(d['required_boundary_gates'] + selection['gates']))
         changed_main = previous["reviewed_main"] != d["reviewed_main"]
         if not changed_main and not d.get("new_attempt_reason"):
             d.update(attempt_id=previous["attempt_id"], attempt_path=previous["attempt_path"],
@@ -35,6 +40,8 @@ def prepare_attempt(d, head):
             c.require(not c.status(d["worktree"]) or previous["stage"] > 0, "仅修复阶段可接续 dirty 现场")
         else:
             c.require(not c.status(d["worktree"]), "新集成尝试必须从干净现场开始")
+            d['historical_finalization'] = prior
+            d['prior_finalization'] = None
     elif prior:
         # 保留旧调用契约；导入时再核对原始报告和 fixer/collection 来源。
         c.require(all(k in prior for k in ("fix_used", "review_rounds_used", "report_path")), "旧恢复信息不完整")
@@ -52,7 +59,7 @@ def prepare_attempt(d, head):
                 old = c.read(path)
                 c.require(old.get("reviewed_main") != d["reviewed_main"],
                           "已有同基线最终阶段，重新调用须提供 prior_finalization.stage_path")
-    d["finalization_version"] = 1
+    d["finalization_version"] = 2
 
 
 def read_stage_report(stage, report_path, receipt_path):
@@ -84,10 +91,29 @@ def models(stage, previous, facts):
 def prepare_stage(dispatch_path, facts):
     o = ops()
     root = o.dispatch(dispatch_path)
-    c.require(root["role"] == "finalizer" and root.get("finalization_version") == 1, "需要新版 finalizer dispatch")
+    c.require(root["role"] == "finalizer" and root.get("finalization_version") in (1, 2), "需要新版 finalizer dispatch")
     c.topology(root)
     head = c.sha(root["worktree"], "HEAD")
     c.git(root["worktree"], "merge-base", "--is-ancestor", root["reviewed_main"], head)
+    if fs.strict(root):
+        value, _, _ = fs.state(root)
+        if value['current'] is not None:
+            chosen = value['stages'][str(value['current'])]
+            path = str(o.bound(chosen['dispatch']))
+            c.require(not facts.get('previous_stage') or facts['previous_stage'] == path, '必须恢复当前最终阶段')
+            old = o.dispatch(path)
+            if facts.get('continuation', 'resume') == 'resume':
+                if chosen['report']:
+                    prior = c.read(o.bound(chosen['report']['report']))
+                    c.require(prior['outcome'] in ('blocked', 'interrupted'), '已完成或代码失败阶段不能作为中断恢复')
+                return fs.result(old)
+            c.require(chosen['report'], '推进阶段需要明确选中的报告')
+            facts = dict(facts, previous_stage=path,
+                         previous_report=str(o.bound(chosen['report']['report'])),
+                         previous_receipt=str(o.bound(chosen['report']['receipt'])))
+        elif root.get('prior_finalization'):
+            c.require(root.get('resume_stage') and c.read(root['resume_stage']).get('finalization_version') == 2,
+                      '历史 attempt 缺少严格检查点；保留原件，需补齐可证明的选择与验证来源后恢复')
     previous_path = facts.get("previous_stage", root.get("resume_stage"))
     continuation = facts.get("continuation", "resume")
     c.require(continuation in ("resume", "repair"), "continuation 必须为 resume 或 repair")
@@ -166,9 +192,13 @@ def prepare_stage(dispatch_path, facts):
     c.require(0 <= stage <= 3, "四阶段已用尽，停止并保留现场")
     c.require(not c.status(root["worktree"]) or stage > 0, "首次验收不能包含 dirty 现场")
     c.git(root["worktree"], "merge-base", "--is-ancestor", base, head)
+    gates = list(root['required_boundary_gates'])
+    if fs.strict(root) and previous:
+        _, selected = fs.selected(previous)
+        gates = list(dict.fromkeys(gates + selected['gates']))
     directory = Path(root["attempt_path"]) / ("stage-" + uuid.uuid4().hex)
     directory.mkdir()
-    d = {**root, "stage": stage, "stage_base": base, "previous_stages": history,
+    d = {**root, "required_boundary_gates": gates, "stage": stage, "stage_base": base, "previous_stages": history,
          "prior_reviews": reviews, "prior_fixes": fixes, "prior_verification": verification,
          "prior_gate_sources": gate_sources, "models": models(stage, previous, facts),
          "dispatch_path": str(directory / "dispatch.json"), "report_path": str(directory / "report.json"),
@@ -201,12 +231,18 @@ def prepare_stage(dispatch_path, facts):
         for name, flag in (("report_schema_path", "--schema"), ("receipt_schema_path", "--receipt-schema")):
             c.write(fd[name], o.load_command([sys.executable, "-B", c.SCRIPTS / "verify-worker.py", flag, "fixer"]))
         fd["self_check_argv"] = [sys.executable, "-B", str(c.SCRIPTS / "verify-worker.py"), "--check-report", "fixer", fd["report_path"], "--expected", fd["dispatch_path"], "--emit-receipt"]
+        if fs.strict(d):
+            fd['self_check_argv'] = [sys.executable, '-B', str(c.SCRIPTS / 'executor-operations.py'),
+                                    'fixer-check', '--dispatch', fd['dispatch_path'], '--report', fd['report_path']]
         c.write(fd["dispatch_path"], fd)
         fixer_path = fd["dispatch_path"]
+    if fs.strict(d):
+        fs.start(d, fixer_path)
+        return fs.result(d)
     return {"stage_path": d["dispatch_path"], "stage": stage, "models": d["models"], "fixer_dispatch": fixer_path}
 
 
-def read_fixer(source, current):
+def read_fixer(source, current, tolerate_verification=False):
     o = ops()
     paths = {key: str(o.bound(source[key])) for key in ("dispatch", "report", "receipt")}
     d, r = c.read(paths["dispatch"]), c.read(paths["report"])
@@ -221,8 +257,18 @@ def read_fixer(source, current):
         c.require(Path(paths[key]).parent == Path(paths["dispatch"]).parent, "fixer 报告不在派发目录")
     checked = o.load_command([sys.executable, "-B", c.SCRIPTS / "verify-worker.py", "--check-report", "fixer",
                              paths["report"], paths["receipt"], "--expected", paths["dispatch"]])
-    c.require(checked["ok"], "fixer 验收失败")
-    c.require(r["stopped_tasks"], "fixer 交付必须确认任务停止")
+    verification_failed = not checked['ok']
+    c.require(checked['ok'] or (tolerate_verification and checked.get('failures')
+        and all(f.startswith('fixer_verification: ') for f in checked['failures'])), 'fixer 验收失败')
+    if r['status'] == 'DONE' or r.get('outcome') == 'code_failure':
+        c.require(r["stopped_tasks"], "fixer 交付必须确认任务停止")
+    if fs.strict(current):
+        c.require(fs.strict(d), '严格阶段不能复用未校验运行来源的 fixer')
+        if not verification_failed:
+            fv.check(d, r)
+        import handoff
+        _, selection = fs.selected(stage_dispatch, current=False)
+        handoff.check_close(paths['dispatch'], paths['report'], selection['closures'].get(source['report']['sha256']))
     head = r["head_commit"]
     commits = r.get("fix_commits", [r["fix_commit"]] if r.get("fix_commit") else [])
     if head:
@@ -233,13 +279,19 @@ def read_fixer(source, current):
 
 
 def check_report(expected, report):
-    if expected.get("finalization_version") != 1:
+    if expected.get("finalization_version") not in (1, 2):
         return
     o = ops()
     c.require(report.get("attempt_id") == expected["attempt_id"] and report.get("stage_sources"), "缺少最终阶段身份或来源")
     stages = [o.dispatch(str(o.bound(source))) for source in report["stage_sources"]]
     d = stages[-1]
     same_attempt(expected, d)
+    if fs.strict(expected):
+        c.require(fs.strict(d), '最终交付协议版本不符')
+        fs.check_sources(d, report)
+        fv.check(d, report)
+        if 'stage' not in expected:
+            fs.check_delivery(expected, report)
     c.require(report["stage"] == d["stage"], "阶段编号不符")
     if "stage" in expected:
         c.require(expected["dispatch_path"] == d["dispatch_path"], "报告不属于指定阶段")
@@ -267,7 +319,11 @@ def check_report(expected, report):
     reviews, fixes = report["review_sources"], report["fix_sources"]
     c.require(reviews[:len(d["prior_reviews"])] == d["prior_reviews"], "丢失历史 review")
     c.require(fixes[:len(d["prior_fixes"])] == d["prior_fixes"], "丢失历史 fixer 交付")
-    c.require(report["verification"][:len(d["prior_verification"])] == d["prior_verification"], "丢失历史验证")
+    historical_verification = d['prior_verification']
+    if fs.strict(d) and report.get('verification_issues'):
+        unavailable_dirs = {Path(issue['dispatch']['path']).parent for issue in report['verification_issues']}
+        historical_verification = [v for v in historical_verification if Path(v['log_path']).parent.parent not in unavailable_dirs]
+    c.require(report['verification'][:len(historical_verification)] == historical_verification, '丢失历史验证')
     c.require(all(g in report["gate_sources"] for g in d["prior_gate_sources"]), "丢失 gate 来源")
     c.require(len(reviews) == len(report["review_rounds"]) <= 4, "review 历史数量不符")
     c.require(len(reviews) <= len(d["prior_reviews"]) + 1, "每阶段最多新增一轮 review")
@@ -297,14 +353,25 @@ def check_report(expected, report):
         code_failure_evidence |= any(f["blocking"] for axis in report["review_rounds"][-1].values() for f in axis["findings"])
     commits = []
     for source in fixes:
-        fd, fr, fc = read_fixer(source, d)
+        fd, fr, fc = read_fixer(source, d, tolerate_verification=report['outcome'] in ('blocked', 'interrupted'))
         if source not in d["prior_fixes"] and fr.get("outcome") == "code_failure":
             code_failure_evidence = True
             c.require(report["outcome"] == "code_failure", "fixer 代码失败不能伪装成中断")
         for commit in fc:
             if commit not in commits:
                 commits.append(commit)
-        c.require(all(v in report["verification"] for v in fr["verification"]), "遗漏 fixer 验证")
+        unavailable = any(issue['dispatch'] == source['dispatch'] for issue in report.get('verification_issues', []))
+        c.require(unavailable or all(v in report["verification"] for v in fr["verification"]), "遗漏 fixer 验证")
+    if fs.strict(d) and report['outcome'] == 'code_failure':
+        new_blocking = len(reviews) > len(d['prior_reviews']) and any(f['blocking'] for axis in report['review_rounds'][-1].values() for f in axis['findings'])
+        if not new_blocking:
+            if d['stage'] == 0:
+                rows = fv.check(d, report)
+                code_failure_evidence = any(row[4] and row[3]['exit_code'] > 0
+                    and row[2]['dispatch_path'] == d['dispatch_path'] and row[2]['before']['head'] == report['head_commit'] for row in rows)
+            else:
+                code_failure_evidence = bool(fixes and c.read(o.bound(fixes[-1]['dispatch']))['stage'] == d['stage']
+                    and c.read(o.bound(fixes[-1]['report']))['outcome'] == 'code_failure')
     if report["outcome"] == "code_failure":
         c.require(code_failure_evidence, "代码失败须有当前阶段失败验证或 blocking review/fixer 依据")
     c.require(report["fix"]["commits"] == commits, "最终 fix commits 与原始报告不符")
@@ -321,7 +388,7 @@ def check_report(expected, report):
 def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
     o = ops()
     d = o.dispatch(dispatch_path)
-    c.require(d.get("finalization_version") == 1 and "stage" in d, "需要最终阶段 dispatch")
+    c.require(d.get("finalization_version") in (1, 2) and "stage" in d, "需要最终阶段 dispatch")
     r = c.read(draft_path)
     head = c.sha(d["worktree"], "HEAD")
     r.update(parent_id=d["parent_id"], expected_children=d["expected_children"], reviewed_main=d["reviewed_main"],
@@ -330,6 +397,11 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
              review_sources=[o.binding(path) for path in reviews], fix_sources=fixes,
              review_rounds=[o.collection(path, dispatch_path)[0] for path in reviews],
              workspace={"branch": d["branch"], "observed_head": head, "clean": not c.status(d["worktree"])})
+    if fs.strict(d):
+        fs.gates(d, r['boundary_gates'], r['gate_sources'])
+        _, chosen = fs.selected(d)
+        r['boundary_gates'] = chosen['gates']
+        r['gate_sources'] = chosen['gate_sources']
     current_verification = r["verification"]
     r["verification"] = list(d["prior_verification"])
     for item in d["prior_gate_sources"]:
@@ -337,7 +409,7 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
             r["gate_sources"].append(item)
     commits, dispositions = [], []
     for source in fixes:
-        _, fr, fc = read_fixer(source, d)
+        _, fr, fc = read_fixer(source, d, tolerate_verification=r['outcome'] in ('blocked', 'interrupted'))
         commits += [commit for commit in fc if commit not in commits]
         dispositions += [item["source"] + "：" + item["action"] for item in fr["dispositions"]]
         for v in fr["verification"]:
@@ -349,10 +421,146 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
         r["boundary_gates"] = list(dict.fromkeys(r["boundary_gates"] + fr["boundary_gates"]))
     r["verification"].extend(current_verification)
     r["fix"] = {"used": d["stage"] > 0, "commits": commits, "dispositions": dispositions}
+    if fs.strict(d):
+        inherited = []
+        for source in fixes:
+            fr = c.read(o.bound(source['report']))
+            inherited += [s for s in fr['verification_sources'] if s not in inherited]
+            r.setdefault('verification_notes', {}).update(fr.get('verification_notes', {}))
+        if d.get('previous_result'):
+            prior = c.read(o.bound(d['previous_result']))
+            inherited = prior['verification_sources'] + [s for s in inherited if s not in prior['verification_sources']]
+            r.setdefault('verification_notes', {}).update(prior.get('verification_notes', {}))
+        fv.populate(d, r, inherited)
     check_report(d, r)
     output = o.output_path(output_path, Path(dispatch_path).parent)
     c.write(output, r)
     checked = c.verifier("finalizer", "--check-report", output, "--expected", dispatch_path)
     result = {"status": r["status"], "report_path": str(output), "report_sha256": checked["report_sha256"]}
-    c.write(output.parent / ("result-" + uuid.uuid4().hex + ".json"), result)
+    receipt_path = output.parent / ("result-" + uuid.uuid4().hex + ".json")
+    c.write(receipt_path, result)
+    if fs.strict(d):
+        fs.select_report(d, output, receipt_path)
     return result
+
+
+def require_writer(d):
+    stage = c.read(ops().bound(d['stage_dispatch']))
+    _, item = fs.selected(stage)
+    c.require(item['fixer'] == ops().binding(d['dispatch_path']), '不是当前 fixer')
+    c.require(not item['round_path'], 'review 已开始，fixer 不可继续写入')
+    if item['fixes'] and item['fixes'][-1]['dispatch'] == item['fixer']:
+        prior = c.read(ops().bound(item['fixes'][-1]['report']))
+        c.require(prior['outcome'] in ('blocked', 'interrupted'), 'fixer 已交付终态')
+        c.require(prior['stopped_tasks'], '旧 fixer 任务未确认停止')
+
+
+def fixer_check(dispatch_path, report_path, receipt_path=None, live=True):
+    o = ops()
+    d = o.dispatch(dispatch_path)
+    c.require(d['role'] == 'fixer' and fs.strict(d), '需要新版 fixer dispatch')
+    c.require(Path(report_path).parent == Path(dispatch_path).parent, 'fixer 报告目录不符')
+    argv = [sys.executable, '-B', str(c.SCRIPTS / 'verify-worker.py'), '--check-report', 'fixer', report_path]
+    if receipt_path:
+        c.require(Path(receipt_path).parent == Path(dispatch_path).parent, 'fixer 回执目录不符')
+        argv.append(receipt_path)
+    checked = o.load_command(argv + ['--expected', dispatch_path])
+    c.require(checked['ok'], 'fixer 报告校验失败：' + str(checked.get('failures')))
+    r = c.read(report_path)
+    fv.check(d, r, live)
+    actual = c.git(d['worktree'], 'rev-list', '--reverse', d['base_commit'] + '..' + r['head_commit']).splitlines()
+    c.require(actual == r['fix_commits'], 'fixer 提交列表不完整')
+    c.check_batch_beads(d['worktree'], d['base_commit'], r['head_commit'])
+    if live:
+        c.topology(d)
+        c.require(c.sha(d['worktree'], 'HEAD') == r['head_commit'], 'fixer 交付 HEAD 已变化')
+        c.require(r['status'] != 'DONE' or not c.status(d['worktree']), 'fixer 成功需要干净现场')
+    return {'status': r['status'], 'report_path': str(report_path), 'report_sha256': c.digest(report_path)}
+
+
+def fixer_assemble(dispatch_path, draft_path, output):
+    d = ops().dispatch(dispatch_path)
+    c.require(d['role'] == 'fixer' and fs.strict(d), '需要新版 fixer dispatch')
+    r = c.read(draft_path)
+    head = c.sha(d['worktree'], 'HEAD')
+    r.update(stage=d['stage'], attempt_id=d['attempt_id'], parent_id=d['parent_id'], branch=d['branch'],
+             base_commit=d['base_commit'], head_commit=head,
+             fix_commits=c.git(d['worktree'], 'rev-list', '--reverse', d['base_commit'] + '..' + head).splitlines(),
+             worktree_clean=not c.status(d['worktree']))
+    r.pop('fix_commit', None)
+    fv.populate(d, r)
+    target = ops().output_path(output, Path(dispatch_path).parent)
+    c.write(target, r)
+    return fixer_check(dispatch_path, str(target))
+
+
+def accept_fixer(stage_path, report_path, receipt_path, closure=None):
+    d = ops().dispatch(stage_path)
+    value, item = fs.selected(d)
+    c.require(item['fixer'], '本阶段没有 fixer')
+    path = str(ops().bound(item['fixer']))
+    fixer_check(path, report_path, receipt_path)
+    import handoff
+    handoff.check_close(path, report_path, closure)
+    source = {k: ops().binding(str(p)) for k, p in
+              (('dispatch', path), ('report', report_path), ('receipt', receipt_path))}
+    if source in item['fixes']:
+        return {'accepted': True, 'source': source}
+    c.require(not item['round_path'], 'review 后不能重新选择 fixer')
+    r = c.read(report_path)
+    if item['fixes'] and item['fixes'][-1]['dispatch'] == item['fixer']:
+        prior = c.read(ops().bound(item['fixes'][-1]['report']))
+        if prior['outcome'] in ('passed', 'code_failure'):
+            c.require(prior['head_commit'] == r['head_commit'] and prior['outcome'] == r['outcome'], 'fixer 终态不能改报中断或改变 HEAD')
+    item['fixes'].append(source)
+    item['closures'][source['report']['sha256']] = closure
+    item['report'] = None
+    fs.save(d, value)
+    fs.gates(d, r['boundary_gates'], r['gate_sources'])
+    return {'accepted': True, 'source': source}
+
+
+def review_ready(d):
+    _, item = fs.selected(d)
+    c.require(item['round'] is None, '本阶段已有 review；复用原 round')
+    head = c.sha(d['worktree'], 'HEAD')
+    if d['stage']:
+        c.require(item['fixes'], 'review 需要已验收 fixer')
+        source = item['fixes'][-1]
+        fd, report, _ = read_fixer(source, d)
+        c.require(fd['stage'] == d['stage'] and report['status'] == 'DONE' and report['head_commit'] == head,
+                  '当前 fixer 未通过或 HEAD 不符')
+    # 同 HEAD 的 finalizer 补充验证与 fixer 验证共同形成覆盖。
+    r = {'status': 'READY_TO_MERGE', 'outcome': 'passed', 'head_commit': head,
+         'boundary_gates': item['gates'], 'stage_sources': d['previous_stages'] + [ops().binding(d['dispatch_path'])],
+         'fix_sources': item['fixes'], 'verification_notes': {}}
+    inherited = []
+    for source in item['fixes']:
+        fr = c.read(ops().bound(source['report']))
+        inherited += [s for s in fr['verification_sources'] if s not in inherited]
+        r['verification_notes'].update(fr.get('verification_notes', {}))
+    fv.populate(d, r, inherited)
+    fv.check(d, r, live=True)
+
+
+def deliver(root_path, output):
+    root = ops().dispatch(root_path)
+    c.require(fs.strict(root) and 'stage' not in root, 'final-deliver 需要 root dispatch')
+    value, _, _ = fs.state(root)
+    c.require(value['current'] is not None, '尚无最终阶段')
+    source = value['stages'][str(value['current'])]['report']
+    c.require(source, '尚无已选阶段报告')
+    report = ops().bound(source['report'])
+    stage = ops().dispatch(str(ops().bound(source['dispatch'])))
+    read_stage_report(stage, str(report), str(ops().bound(source['receipt'])))
+    r = c.read(report)
+    c.require(r['outcome'] != 'code_failure' or r['stage'] == 3, '代码失败需在四阶段用尽后交付 controller')
+    check_report(root, r)
+    c.require(c.sha(root['worktree'], 'HEAD') == r['head_commit'], '交付 HEAD 已变化')
+    target = ops().output_path(output, Path(root_path).parent)
+    target.write_bytes(report.read_bytes())
+    receipt = {'status': r['status'], 'report_path': str(target), 'report_sha256': c.digest(target)}
+    receipt_path = target.with_name(target.stem + '-receipt.json')
+    c.write(receipt_path, receipt)
+    c.inspect(root_path, str(target), str(receipt_path))
+    return receipt

@@ -6,7 +6,7 @@
 
 `review_kind: existing_behavior` 时读取 dispatch 的 hash 绑定 `acceptance_evidence`：审查本票（finalizer 为 parent）的已有实现和完整验收证据；BASE=HEAD 不意味着自动 PASS。Standards 仅检查本范围相关的明确规则，Spec 核实全部 acceptance。其他情况沿用 change 审查。
 
-核对 Git 引用、BASE ancestry、当前 HEAD 与派发一致；change 使用固定 SHA 的 diff 和 commit 列表，existing_behavior 使用固定 HEAD 的实现与验收证据。为核实本轮范围可读取相关调用方、实现和测试，报告范围内的问题。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；最终审查才检查整个批次的完整性。真正的来源冲突须引用双方原文并报告阻塞。
+从 dispatch 的 writer_source、verification_sources、stage_source、required_boundary_gates/gate_sources 和 context_sources 读取实现与覆盖证据；复审的历史判断来源使用本轴 prior_axis_source。核对 Git 引用、BASE ancestry、当前 HEAD 与派发一致；change 使用固定 SHA 的 diff 和 commit 列表，existing_behavior 使用固定 HEAD 的实现与验收证据。为核实本轮范围可读取相关调用方、实现和测试，报告范围内的问题。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；最终审查才检查整个批次的完整性。真正的来源冲突须引用双方原文并报告阻塞。
 
 按 `../references/testing-contract.md` 定位共享测试契约与项目事实：检查测试模式或计划时读 `testing-plan.md`；检查测试观察接口及授权时读 `testing-seams.md`；核查 TDD red 证据时读 `testing-tdd.md`；检查命令、收集范围或验证覆盖时读 `testing-gates.md`。这些条件由本轮需求、diff 和证据触发，不以已有 finding 为前提；所需规则不可读取时报告 BLOCKED。
 
