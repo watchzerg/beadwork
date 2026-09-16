@@ -52,3 +52,23 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 - **验证由当前执行者负责。** ticket gates 由 implementer 执行；最终 stage 0 由 finalizer 执行，修复阶段由 fixer 执行。相同 HEAD 的完整有效结果复用。
 - **报告可追溯。** 使用文件报告、短回执及 SHA-256 来源绑定；直接派发者验收子角色。报告与更正 append-only，最终阶段检查点固定 fixer/review/阶段报告选择；验证绑定原始运行，补充 gates 累计继承。派发者记录收尾观察，回执不替代任务停止确认。详见 [交付协议](../skills/beadwork-run/references/report-delivery.md)。
 - **源码与协议各有入口。** `skills/` 是 skill 源码；[scripts/](../skills/beadwork-run/scripts/) 实现身份、计数、状态和证据校验，不派发 agent；[共享测试契约](../skills/beadwork-run/references/testing-contract.md) 定义测试规则，目标项目的 `justfile` 定义实际验证命令。本文不复制这些协议。
+
+## 脚本入口与内部依赖
+
+公开 CLI 保持稳定，内部按事实、状态、报告和操作分组。下表用于源码维护；命令参数仍以 skill 引用的执行协议为准。
+
+| 分组 | 入口与实现 | 职责 |
+| --- | --- | --- |
+| 顶层入口 | [controller.py](../skills/beadwork-run/scripts/controller.py)、[executor-operations.py](../skills/beadwork-run/scripts/executor-operations.py) → [executor_operations.py](../skills/beadwork-run/scripts/executor_operations.py) | 批次验收与集成；多角色命令路由、现场检查 |
+| 操作编排 | [ticket_execution.py](../skills/beadwork-run/scripts/ticket_execution.py)、[finalization.py](../skills/beadwork-run/scripts/finalization.py)、[review_operations.py](../skills/beadwork-run/scripts/review_operations.py) | 阶段准备、验收后选择、review 准备与收集、最终交付 |
+| 状态 | [ticket_state.py](../skills/beadwork-run/scripts/ticket_state.py)、[final_state.py](../skills/beadwork-run/scripts/final_state.py)、[gate_repair.py](../skills/beadwork-run/scripts/gate_repair.py) | 检查点、当前 writer、来源选择、冻结和额度 |
+| 报告与只读来源 | [ticket_reports.py](../skills/beadwork-run/scripts/ticket_reports.py)、[implementer_reports.py](../skills/beadwork-run/scripts/implementer_reports.py)、[fixer_reports.py](../skills/beadwork-run/scripts/fixer_reports.py)、[review_evidence.py](../skills/beadwork-run/scripts/review_evidence.py) | 组装候选报告并校验字段、Git 事实和原始来源；不推进阶段 |
+| 验证 | [run-verification.py](../skills/beadwork-run/scripts/run-verification.py)、[ticket_verification.py](../skills/beadwork-run/scripts/ticket_verification.py)、[final_verification.py](../skills/beadwork-run/scripts/final_verification.py) | 运行采集与报告读取分开；ticket/final 各自判断覆盖 |
+| 基础契约 | [evidence.py](../skills/beadwork-run/scripts/evidence.py)、[repository.py](../skills/beadwork-run/scripts/repository.py)、[dispatch_contract.py](../skills/beadwork-run/scripts/dispatch_contract.py)、[report_io.py](../skills/beadwork-run/scripts/report_io.py) | 文件绑定、仓库事实、dispatch 身份与计划、固定 verifier 调用；不依赖阶段编排 |
+| 其他独立入口 | [preflight-operations.py](../skills/beadwork-run/scripts/preflight-operations.py)、[graph.py](../skills/beadwork-run/scripts/graph.py)、[tracker_operations.py](../skills/beadwork-run/scripts/tracker_operations.py)、[batch_evidence.py](../skills/beadwork-run/scripts/batch_evidence.py) | 准入、依赖图、controller 专用 tracker 写入、批次证据 |
+
+报告校验入口保留为 [verify-ticket.py](../skills/beadwork-run/scripts/verify-ticket.py)、[verify-phase.py](../skills/beadwork-run/scripts/verify-phase.py) 和 [verify-worker.py](../skills/beadwork-run/scripts/verify-worker.py)。[maintenance_check.py](../skills/beadwork-run/scripts/maintenance_check.py) 提供本仓库检查入口。
+
+`handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排。`test_module_boundaries.py` 检查 import 回路、依赖方向、schema 冷启动和安装 symlink 入口。
+
+源码拆分的范围与验证结果见[实施方案](script-modularization-plan.md)及[验收记录](script-modularization-acceptance.md)。`batch_initialize.py` 仍为辅助入口，默认初始化路线继续以现行 controller 协议为准。

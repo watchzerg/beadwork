@@ -343,9 +343,8 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, sys.argv[1])
-import controller as c
 import review_operations
-o = c.executor_ops()
+o = review_operations
 original = review_operations.evidence.write
 def fail(path, value):
     if Path(path).name == 'round.json': raise OSError('模拟 round 写出前中断')
@@ -356,6 +355,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         failed = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS), str(self.sd)],
                                 text=True, capture_output=True, env=self.h.env)
         self.assertNotEqual(failed.returncode, 0)
+        self.assertIn('模拟 round 写出前中断', failed.stderr)
         before = set(self.sd.parent.glob('review-*'))
         resumed = self.cli('executor-operations.py', 'review-prepare', '--dispatch', self.sd, '--resume')
         self.assertEqual(set(self.sd.parent.glob('review-*')), before)

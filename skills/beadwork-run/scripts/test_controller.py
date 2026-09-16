@@ -9,61 +9,12 @@ import sys
 import unittest
 import uuid
 
+from fixture_support import prepare_utility_stage, closure_source
+
 import test_verify_ticket as ticket_fixture
 import test_verify_phase as phase_fixture
 
 SCRIPT = Path(__file__).with_name("controller.py")
-
-
-def prepare_utility_stage(data):
-    """为既有工具级测试构造 stage 输入；真实 root 调度另由公开 CLI 套件覆盖。"""
-    import controller as c
-    import gate_repair
-    d = dict(data)
-    d.pop("primary_snapshot_path", None)
-    c.require(all(k in d for k in ("repository_root", "parent_id", "ticket_id", "mode", "test_mode", "approved_seams", "testing_seams_doc", "rules_paths")), "缺少必填字段")
-    root = c.primary(d["repository_root"])
-    d.update(repository_root=root, branch="implement/" + d["parent_id"],
-             worktree=str(Path(root) / ".worktrees" / d["parent_id"]),
-             skill_dir=str(SCRIPT.parent.parent), role="executor", execution_contract=2)
-    c.topology(d)
-    head = c.sha(d["worktree"], "HEAD")
-    if d["mode"] == "new":
-        c.require(not c.status(d["worktree"]), "新票需要干净现场")
-        d["base_commit"] = head
-    else:
-        c.require(d.get("base_commit"), "恢复需要 BASE")
-        c.git(d["worktree"], "merge-base", "--is-ancestor", d["base_commit"], head)
-    previous = c.read(d["previous_dispatch"]) if d.get("previous_dispatch") else None
-    if previous:
-        c.validate_plan(previous)
-        if previous.get("plan_adjustment"):
-            c.require(d["test_mode"] == previous["test_mode"] and d["approved_seams"] == previous["approved_seams"], "恢复须沿用已调整计划")
-            d["plan_adjustment"] = previous["plan_adjustment"]
-        d["verification_dispatches"] = list(dict.fromkeys(previous.get("verification_dispatches", []) + [d["previous_dispatch"]]))
-    c.prepare_stage(d, head)
-    folder = Path(root) / ".worktrees/.evidence" / d["parent_id"] / uuid.uuid4().hex
-    folder.mkdir(parents=True)
-    d.update(dispatch_path=str(folder / "dispatch.json"), report_path=str(folder / "report.json"),
-             report_schema_path=str(folder / "report-schema.json"), receipt_schema_path=str(folder / "receipt-schema.json"),
-             expected_plan_path=str(folder / "expected-plan.json"))
-    gate_repair.inherit(d, previous)
-    c.write(d["expected_plan_path"], {"mode": d["test_mode"], "approved_seams": d["approved_seams"]})
-    c.write(d["report_schema_path"], c.verifier("executor", "--schema"))
-    c.write(d["receipt_schema_path"], c.verifier("executor", "--receipt-schema"))
-    c.write(d["dispatch_path"], d)
-    return d
-
-
-def closure_source(dispatch, report):
-    import handoff
-    stopped = json.loads(Path(report).read_text()).get('stopped_tasks', True)
-    result = handoff.close(str(dispatch), str(report),
-        {'task_id': 'fixture-task', 'stopped': stopped, 'observed_at': '2026-09-16T00:00:00Z',
-         'evidence': '测试 CLI 已退出', 'unresolved': []})
-    path = Path(dispatch).parent / ('closure-source-' + uuid.uuid4().hex + '.json')
-    path.write_text(json.dumps(result['closure_source']))
-    return path
 
 
 class ControllerTests(unittest.TestCase):

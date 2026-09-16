@@ -1,90 +1,43 @@
 #!/usr/bin/env python3
 """controller 的确定性操作；用 --help 查看入口。只使用标准库。"""
+
 from __future__ import annotations
 
+from pathlib import Path
 import argparse
 import json
-import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import uuid
-import evidence
-import workflow_policy
 
 sys.dont_write_bytecode = True
+
+import dispatch_contract
+import evidence
+import finalization
+import handoff
+import report_io
+import repository
+import ticket_execution
+import ticket_reports
+import workflow_policy
+
+
 SCRIPTS = Path(__file__).resolve().parent
 
 
-def require(condition, message):
-    if not condition:
-        raise ValueError(message)
-
-
-def read(path):
-    return evidence.read(path)
-
-
-def digest(path):
-    return evidence.digest(path)
-
-
-def write(path, value):
-    evidence.write(path, value)
-
-
-def run(args, cwd=None):
-    result = subprocess.run([str(x) for x in args], cwd=cwd, capture_output=True, text=True)
-    require(result.returncode == 0, f"命令失败 {args[0]} {args[1:]}：{result.stderr.strip()}")
-    return result.stdout.rstrip("\n")
-
-
-def git(root, *args):
-    return run(["git", "-C", root, *args])
-
-
-def status(root):
-    return git(root, "status", "--porcelain=v1", "--untracked-files=all")
-
-
-def sha(root, ref):
-    result = git(root, "rev-parse", "--verify", ref)
-    require(re.fullmatch(r"[0-9a-f]{40}", result), "需要完整 commit SHA")
-    require(git(root, "cat-file", "-t", result) == "commit", "引用必须指向 commit")
-    return result
-
-
-def primary(root):
-    entries = git(root, "worktree", "list", "--porcelain").split("\n\n")
-    matches = [entry.splitlines()[0][9:] for entry in entries if "branch refs/heads/main" in entry.splitlines()]
-    require(len(matches) == 1, "必须有唯一 checkout main 的 primary worktree")
-    return str(Path(matches[0]).resolve())
-
-
-def topology(d, allow_missing=False):
-    root = d["repository_root"]
-    require(primary(root) == root, "primary worktree 已变化")
-    expected = Path(root) / ".worktrees" / d["parent_id"]
-    require(Path(d["worktree"]) == expected, "worktree 不符合固定布局")
-    require(d["branch"] == "implement/" + d["parent_id"], "branch 不符合固定布局")
-    if allow_missing and not expected.exists():
-        return
-    require(str(expected.resolve()) == str(expected), "worktree 路径不能经过 symlink")
-    require(git(expected, "rev-parse", "--show-toplevel") == str(expected), "目标不是预期 worktree")
-    require(git(expected, "symbolic-ref", "--short", "HEAD") == d["branch"], "implementation branch 不符")
-    require(git(root, "rev-parse", "--path-format=absolute", "--git-common-dir") == git(expected, "rev-parse", "--path-format=absolute", "--git-common-dir"), "worktree 不属于同一仓库")
-
-
-def verifier(role, option, *args, cwd=None):
-    script = "verify-ticket.py" if role == "executor" else "verify-phase.py"
-    command = [sys.executable, "-B", SCRIPTS / script, option]
-    if role != "executor":
-        command.append(role)
-    output = json.loads(run(command + list(args), cwd))
-    if option == "--check-report":
-        require(output.get("ok") is True, "报告校验失败：" + json.dumps(output, ensure_ascii=False))
-    return output
+require = repository.require
+read = evidence.read
+digest = evidence.digest
+write = evidence.write
+run = repository.run
+git = repository.git
+status = repository.status
+sha = repository.sha
+primary = repository.primary
+topology = repository.topology
+verifier = report_io.verifier
 
 
 # 阶段 0 为首次实现，1..5 为修复；矩阵是派发模型的单一来源。
@@ -92,145 +45,9 @@ MODEL_LEVELS = workflow_policy.MODEL_LEVELS
 STAGE_MODELS = workflow_policy.STAGE_MODELS
 FINAL_STAGE_MODELS = workflow_policy.FINAL_STAGE_MODELS
 MODEL_ROLES = workflow_policy.MODEL_ROLES
-
-
-def executor_ops():
-    import executor_operations
-    return executor_operations
-
-
-def prepare_stage(d, head):
-    previous = None
-    report = None
-    stage = 0
-    prior_reviews = []
-    continuation = d.get("continuation", "resume")
-    require(continuation in ("resume", "repair"), "continuation 必须为 resume 或 repair")
-    if d["mode"] == "new":
-        require(not any(d.get(k) for k in ("previous_dispatch", "previous_report", "previous_receipt"))
-                and continuation == "resume", "新票不能携带恢复输入")
-    else:
-        require(d.get("previous_dispatch"), "恢复必须提供前次 dispatch")
-        previous = read(d["previous_dispatch"])
-        keys = ("repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
-        require(previous.get("role") == "executor" and all(previous.get(k) == d[k] for k in keys),
-                "前次 dispatch 不属于同票同 BASE")
-        require(previous.get("dispatch_path") == str(Path(d["previous_dispatch"]).resolve()), "前次 dispatch 路径不符")
-        require(bool(d.get("previous_report")) == bool(d.get("previous_receipt")), "前次报告和回执必须成对提供")
-        if d.get("previous_report"):
-            for key in ("previous_report", "previous_receipt"):
-                require(Path(d[key]).resolve().parent == Path(d["previous_dispatch"]).resolve().parent,
-                        "前次报告和回执必须位于原 dispatch 目录")
-            verifier("executor", "--check-report", d["previous_report"], d["previous_receipt"])
-            report = read(d["previous_report"])
-            require(report["base_commit"] in (None, d["base_commit"]), "前次报告 BASE 不符")
-            if report["head_commit"]:
-                git(d["worktree"], "merge-base", "--is-ancestor", report["head_commit"], head)
-            require(report["status"] != "DONE", "已完成报告应验收关闭，不再派发 writer")
-        if "stage" in previous:
-            stage = previous["stage"]
-            prior_reviews = previous["prior_reviews"]
-            if report:
-                check_stage_report(previous, report)
-                prior_reviews = (report.get("review") or {}).get("sources", [])
-            if continuation == "repair":
-                require(report is not None and report["outcome"] == "code_failure",
-                        "下一修复阶段需要前阶段 code_failure 报告")
-                stage += 1
-            elif report:
-                require(len(prior_reviews) == len(previous["prior_reviews"]),
-                        "本阶段已有完整 review，保留报告并更正/验收或进入下一修复阶段")
-                require(report["outcome"] in ("interrupted", "blocked"),
-                        "代码失败必须进入下一阶段，不能作为中断恢复")
-        else:
-            # 旧 executor 最多初审和一次复审；原始报告及 collection 保持不变。
-            require(report is not None, "旧 dispatch 恢复需要原始报告和回执")
-            review = report.get("review")
-            expected = [] if review is None else ([review["initial"]] if "initial" in review else []) + [review["final"]]
-            paths = d.get("legacy_reviews", [])
-            require(len(paths) == len(expected), "必须显式提供旧报告的全部 review collections")
-            ops = executor_ops()
-            prior_reviews = [ops.binding(path) for path in paths]
-            for item, pair in zip(prior_reviews, expected):
-                require(ops.collection(item["path"], d["previous_dispatch"])[0] == pair,
-                        "旧 collection 与原报告不符")
-            stage = max(0, len(expected) - 1)
-            if continuation == "repair":
-                require(report["status"] == "BLOCKED" and d.get("legacy_code_failure_reason"),
-                        "旧报告进入修复须说明代码失败依据")
-                require(review is None or review["gate"] == "BLOCKED", "旧 PASS 不进入修复")
-                stage += 1
-        d["previous_dispatch_sha256"] = digest(d["previous_dispatch"])
-        if report:
-            d["previous_report_sha256"] = digest(d["previous_report"])
-    require(type(stage) is int and 0 <= stage < len(STAGE_MODELS), "六阶段已用尽，停止并保留现场")
-    levels = dict(zip(MODEL_ROLES, STAGE_MODELS[stage]))
-    if d.get("complex_ticket"):
-        levels["executor"] = max(levels["executor"], 2)
-        levels["standards"] = max(levels["standards"], 1)
-    if previous and "models" in previous:
-        for role in MODEL_ROLES:
-            levels[role] = max(levels[role], MODEL_LEVELS.index(previous["models"][role]))
-    overrides = d.get("model_overrides", {})
-    require(isinstance(overrides, dict) and set(overrides) <= set(MODEL_ROLES), "model_overrides 角色无效")
-    if overrides:
-        require(isinstance(d.get("model_override_reason"), str) and d["model_override_reason"].strip(),
-                "提前升级必须记录理由")
-        for role, model in overrides.items():
-            require(model in MODEL_LEVELS and MODEL_LEVELS.index(model) >= levels[role], "模型只能升级，不能降档")
-            levels[role] = MODEL_LEVELS.index(model)
-    d.update(stage=stage, start_head=head, prior_reviews=prior_reviews,
-             models={role: MODEL_LEVELS[level] for role, level in levels.items()})
-
-
-def check_stage_report_core(d, report):
-    if d.get("execution_contract") != 2:
-        require("delivery_kind" not in report, "旧 dispatch 不接受新交付分支")
-    elif report["status"] == "DONE":
-        require(report.get("delivery_kind") in ("changed", "already_satisfied"), "新契约完成报告需要 delivery_kind")
-    validate_plan(d)
-    if "stage" not in d:
-        return  # 历史报告继续使用原校验，原文件不迁移。
-    require(report.get("stage") == d["stage"] and report.get("outcome") in
-            ("passed", "code_failure", "interrupted", "blocked"), "报告阶段或 outcome 不符")
-    review = report.get("review")
-    sources = review.get("sources", []) if review else []
-    prior = d["prior_reviews"]
-    require(sources[:len(prior)] == prior, "报告丢失或改写前序 review")
-    require(len(sources) <= len(prior) + 1 and len(sources) <= d["stage"] + 1,
-            "每阶段最多新增一轮 review")
-    if review:
-        require("rounds" in review and len(sources) == len(review["rounds"]), "需要完整 review rounds 和来源")
-        ops = executor_ops()
-        for source, pair in zip(sources, review["rounds"]):
-            path = ops.bound(source)
-            actual, _ = ops.collection(str(path), d["dispatch_path"])
-            require(actual == pair, "报告轮次与原始 collection 不符")
-        if len(sources) > len(prior):
-            item = read(sources[-1]["path"])
-            origin = read(ops.bound(read(ops.bound(item["round"]))["dispatch"]))
-            require(origin.get("stage") == d["stage"], "新增 review 不属于当前阶段")
-    if len(sources) > len(prior) and review["gate"] == "BLOCKED":
-        require(report["outcome"] in ("code_failure", "blocked"), "完整 BLOCKED review 必须明确代码失败或非代码阻塞")
-    if report["outcome"] == "passed":
-        require(report["status"] == "DONE" and len(sources) == len(prior) + 1, "完成需要当前阶段的 review")
-    elif report["outcome"] == "code_failure":
-        require(report["status"] == "BLOCKED", "代码失败必须为 BLOCKED")
-        if len(sources) > len(prior):
-            require(review["gate"] == "BLOCKED", "当前 review PASS 不能标为代码失败")
-    else:
-        require(report["status"] != "DONE", "未完成阶段不能返回 DONE")
-
-
-def check_stage_report(d, report):
-    if d.get("ticket_execution_version"):
-        import ticket_execution
-        if d.get("ticket_scope") == "root":
-            return ticket_execution.check_ticket(d, report)
-        else:
-            return ticket_execution.check_stage(d, report)
-    else:
-        check_stage_report_core(d, report)
+prepare_stage = ticket_execution.prepare_legacy_stage
+check_stage_report_core = ticket_reports.check_stage_report_core
+check_stage_report = ticket_reports.check_stage_report
 
 
 def sync_main(args):
@@ -271,7 +88,6 @@ def prepare(args):
                 require(d.get("sync_result"), "新 ticket 需要 sync-main 返回的 sync_result")
                 main_sync.check_result(d, d["sync_result"])
                 d["base_commit"] = head
-                import handoff
                 handoff.preflight_input(d)
             else:
                 require(re.fullmatch(r"[0-9a-f]{40}", d.get("base_commit", "")), "恢复必须提供 start comment 中的完整 BASE")
@@ -290,7 +106,6 @@ def prepare(args):
             seams = plan["approved_seams"]
             require(isinstance(seams, list) and all(isinstance(s, str) and s for s in seams) and len(set(seams)) == len(seams), "seams 无效")
             require(plan["mode"] != "TDD" or bool(seams), "TDD 需要 approved seams")
-            import ticket_execution
             if d["mode"] == "resume":
                 require(d.get("previous_dispatch"), "恢复需要原 executor root dispatch")
                 return ticket_execution.resume_root(d)
@@ -302,7 +117,6 @@ def prepare(args):
             d["required_boundary_gates"] = list(dict.fromkeys(
                 gate for gate in d["required_boundary_gates"] if gate not in ("gate-unit", "gate-full")))
             require("prior_finalization" in d, "必须明确 prior_finalization，首次为 null")
-            import finalization
             finalization.prepare_attempt(d, head)
     else:
         d.update(expected_branch=branch, expected_worktree=d["worktree"])
@@ -333,88 +147,15 @@ def prepare(args):
             **({"coordinator_model": d["coordinator_model"]} if args.role == "executor" else {})}
 
 
-def adapt_plan(args):
-    """记录已核准的执行计划；新单票由 ticket-adapt-plan 调用并更新检查点。"""
-    ops = executor_ops()
-    d = ops.dispatch(args.dispatch)
-    require(d["role"] == "executor" and d.get("execution_contract") == 2, "需要新契约 executor")
-    if d.get("ticket_execution_version"):
-        require(d.get("ticket_scope") == "stage", "整票 root 不适配计划；由 executor 使用 ticket-adapt-plan 更新当前 stage")
-    ops.workspace(d)
-    directory = Path(args.dispatch).parent
-    require(not (directory / "gate-review-started.json").exists()
-            and not any(x.is_dir() for x in directory.glob("review-*")) and not Path(d["report_path"]).exists(),
-            "计划适配须在当前阶段 review/交付前完成")
-    facts = read(args.input)
-    require(set(facts) == {"reason", "acceptance", "verification", "boundary_gates", "mode"}, "计划适配字段不符")
-    require(isinstance(facts["reason"], str) and facts["reason"].strip(), "需要基线适配原因")
-    require(facts["mode"] in ("TDD", "direct_verification"), "执行模式无效")
-    old_plan = read(d["expected_plan_path"])
-    require(facts["mode"] != old_plan["mode"], "执行模式未变化")
-    for key, fields in (("acceptance", {"criterion", "evidence"}), ("verification", {"command", "result"})):
-        require(isinstance(facts[key], list) and facts[key] and all(
-            isinstance(x, dict) and set(x) == fields and all(isinstance(v, str) and v.strip() for v in x.values())
-            for x in facts[key]), key + " 需要实测证据")
-    require(isinstance(facts["boundary_gates"], list) and all(isinstance(x, str) and x.startswith("gate-") for x in facts["boundary_gates"]), "boundary gates 无效")
-    require(set(d.get("required_boundary_gates", [])).issubset(facts["boundary_gates"]), "计划调整丢失 gate 下限")
-    require(facts["mode"] != "TDD" or bool(old_plan["approved_seams"]), "恢复 TDD 需要既有 approved seams")
-    target = directory.parent / uuid.uuid4().hex
-    target.mkdir()
-    record = {**facts, "kind": "execution-plan-adjustment", "dispatch": ops.binding(args.dispatch),
-              "base_commit": d["base_commit"], "observed_head": sha(d["worktree"], "HEAD"),
-              "original_plan": old_plan, "effective_plan": {**old_plan, "mode": facts["mode"]}}
-    write(target / "plan-adjustment.json", record)
-    result = dict(d, mode="resume", dispatch_path=str(target / "dispatch.json"), report_path=str(target / "report.json"),
-                  report_schema_path=str(target / "report-schema.json"), receipt_schema_path=str(target / "receipt-schema.json"),
-                  expected_plan_path=str(target / "expected-plan.json"), test_mode=facts["mode"],
-                  plan_adjustment=ops.binding(str(target / "plan-adjustment.json")),
-                  required_boundary_gates=facts["boundary_gates"],
-                  verification_dispatches=list(dict.fromkeys(d.get("verification_dispatches", []) + [args.dispatch])))
-    # 保留 BASE、stage、models、prior_reviews；不是新的 writer 或阶段。
-    write(result["expected_plan_path"], record["effective_plan"])
-    write(result["report_schema_path"], verifier("executor", "--schema"))
-    write(result["receipt_schema_path"], verifier("executor", "--receipt-schema"))
-    write(result["dispatch_path"], result)
-    return result
-
-
-def validate_plan(d):
-    if d.get('plan_source'):
-        executor_ops().bound(d['plan_source']['report'])
-    for source in d.get('environment_evidence', []):
-        executor_ops().bound(source)
-    if d.get("ticket_execution_version") and d.get("expected_plan_path"):
-        require(read(d["expected_plan_path"]) == {"mode": d["test_mode"], "approved_seams": d["approved_seams"]}, "执行计划文件与 dispatch 不符")
-    if not d.get("plan_adjustment"):
-        return
-    ops = executor_ops()
-    record = read(ops.bound(d["plan_adjustment"]))
-    previous = read(ops.bound(record["dispatch"]))
-    keys = ("repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
-    require(all(d.get(k) == previous.get(k) for k in keys), "计划调整属于其他 ticket 或 BASE")
-    validate_plan(previous)
-    require(record["original_plan"] == read(previous["expected_plan_path"]), "原执行计划已变化")
-    require(record["effective_plan"] == read(d["expected_plan_path"]), "实际执行计划与调整记录不符")
-    require(record["effective_plan"]["approved_seams"] == record["original_plan"]["approved_seams"], "计划调整不得改变 seam")
-    require(set(record["boundary_gates"]).issubset(d.get("required_boundary_gates", [])), "恢复丢失 gate 下限")
-
-
-def check_batch_beads(wt, main, head):
-    commit_range = main + ".." + head
-    # 普通提交仍逐个检查，不能用后续还原掩盖本批次写入。
-    require(not git(wt, "log", "--full-history", "--no-merges", "-1", "--format=%H",
-                    commit_range, "--", ".beads"), "批次包含 .beads commit")
-    for line in git(wt, "rev-list", "--min-parents=2", "--parents", commit_range).splitlines():
-        commit, *parents = line.split()
-        # 合入 main 时允许继承该父提交的 .beads；其余 merge 沿用第一父提交。
-        upstream = [parent for parent in parents if git(wt, "merge-base", parent, main) == parent]
-        source = upstream[-1] if upstream else parents[0]
-        require(not git(wt, "diff", "--name-only", source, commit, "--", ".beads"),
-                "merge 引入非 main 来源的 .beads 改动：" + commit)
+adapt_plan = ticket_execution.adapt_plan_dispatch
+validate_plan = dispatch_contract.validate_plan
+check_batch_beads = repository.check_batch_beads
 
 
 def inspect(dispatch_path, report_path, receipt_path):
     d = read(dispatch_path)
+    if d["role"] == "finalizer":
+        return finalization.inspect_delivery(dispatch_path, report_path, receipt_path)
     directory = Path(dispatch_path).resolve().parent
     for path in (report_path, receipt_path):
         require(Path(path).resolve().parent == directory, "报告和回执必须位于 dispatch 证据目录")
@@ -430,19 +171,6 @@ def inspect(dispatch_path, report_path, receipt_path):
         head = r["head_commit"] or sha(d["worktree"], "HEAD")
         checked = json.loads(run([sys.executable, "-B", SCRIPTS / "verify-ticket.py", d["branch"], d["base_commit"], head, r["status"], report_path, d_plan["expected_plan_path"]], d["worktree"]))
         require(checked.get("ok") and checked["report_sha256"] == result["report_sha256"], "Git 验收失败：" + json.dumps(checked, ensure_ascii=False))
-    elif role == "finalizer":
-        import finalization
-        finalization.check_report(d, r)
-        topology(d)
-        root, wt = d["repository_root"], d["worktree"]
-        head = sha(wt, "HEAD")
-        require(r["head_commit"] is None or head == r["head_commit"], "实际 HEAD 与报告不符")
-        git(wt, "merge-base", "--is-ancestor", d["start_head"], head)
-        check_batch_beads(wt, d["reviewed_main"], head)
-        require(not git(wt, "status", "--porcelain=v1", "--untracked-files=no", "--", ".beads"), ".beads 有未提交改动")
-        if r["status"] == "READY_TO_MERGE":
-            require(not status(wt), "最终 implementation worktree 必须干净")
-            git(wt, "merge-base", "--is-ancestor", d["reviewed_main"], head)
     require(digest(report_path) == result["report_sha256"], "验收期间报告发生变化")
     return d, r, result
 
@@ -450,7 +178,6 @@ def inspect(dispatch_path, report_path, receipt_path):
 def accept(args):
     require(Path(args.output).resolve().parent == Path(args.dispatch).resolve().parent, "验收记录必须留在 dispatch 证据目录")
     d, r, result = inspect(args.dispatch, args.report, args.receipt)
-    import handoff
     closure = read(args.closure) if getattr(args, 'closure', None) else None
     handoff.check_close(str(args.dispatch), str(args.report), closure,
                         required=d.get('finalization_version') == 2 or bool(d.get('preflight_acceptance')))
@@ -471,7 +198,6 @@ def accepted(path):
     for kind in ("dispatch", "report", "receipt"):
         require(digest(a[kind + "_path"]) == a[kind + "_sha256"], "已验收证据发生变化：" + kind)
     d, r, _ = inspect(a["dispatch_path"], a["report_path"], a["receipt_path"])
-    import handoff
     handoff.check_close(a['dispatch_path'], a['report_path'], a.get('closure_source'),
                         required=d.get('finalization_version') == 2 or bool(d.get('preflight_acceptance')))
     require(r["status"] in ("DONE", "READY_TO_MERGE"), "只有成功报告可生成完成记录或合入")
@@ -494,15 +220,15 @@ def comment(args):
         lines += ["受审行为已在基线满足；本次无新增提交。"]
     if not final:
         if d.get("ticket_execution_version"):
-            d = read(executor_ops().bound(r["execution"]["stage_dispatch"]))
+            d = read(evidence.bound(r["execution"]["stage_dispatch"]))
             gates = list(d.get("required_boundary_gates", []))
             for item in r["execution"]["implementers"]:
-                implementation = read(executor_ops().bound(item["report"]))
+                implementation = read(evidence.bound(item["report"]))
                 gates += implementation["required_boundary_gates"]
             lines += ["Boundary gates：" + json.dumps(list(dict.fromkeys(gates)), ensure_ascii=False),
                       "阶段与实现来源：" + json.dumps(r["execution"], ensure_ascii=False)]
         if d.get("plan_adjustment"):
-            adjustment = read(executor_ops().bound(d["plan_adjustment"]))
+            adjustment = read(evidence.bound(d["plan_adjustment"]))
             lines += ["执行计划调整：" + adjustment["original_plan"]["mode"] + " → " + adjustment["effective_plan"]["mode"],
                       "调整原因：" + adjustment["reason"], "调整证据：" + json.dumps(d["plan_adjustment"], ensure_ascii=False)]
         if "stage" in d:
@@ -517,9 +243,9 @@ def comment(args):
         if "stage" in r:
             lines += ["交付阶段：" + str(r["stage"]), "阶段证据：", json.dumps(r["stage_sources"], ensure_ascii=False)]
         lines.extend(r["sources"])
-    for evidence in args.evidence:
-        require(Path(evidence).is_file(), "补证文件不存在")
-        lines.append(str(Path(evidence).resolve()))
+    for evidence_path in args.evidence:
+        require(Path(evidence_path).is_file(), "补证文件不存在")
+        lines.append(str(Path(evidence_path).resolve()))
     write(args.output, "\n".join(lines) + "\n")
     return {"comment_path": str(Path(args.output).resolve()), "metadata": metadata}
 
@@ -528,12 +254,7 @@ def bd(root, *args):
     return json.loads(run(["bd", *args, "--readonly", "--json"], root))
 
 
-def primary_writable(root):
-    require(primary(root) == root, "primary 必须 checkout main")
-    require(not status(root), "primary 有未提交改动，暂不能更新 main")
-    for name in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer"):
-        path = git(root, "rev-parse", "--path-format=absolute", "--git-path", name)
-        require(not Path(path).exists(), "primary 存在未完成 Git 操作：" + path)
+primary_writable = repository.primary_writable
 
 
 def update_main(args):

@@ -1,9 +1,24 @@
 """ticket 与 final review 共用的 append-only 文件和双轴输入机制。"""
+
 from pathlib import Path
+import sys
+import uuid
 
+import dispatch_contract
 import evidence
+import final_state
+import final_verification
+import finalization
+import gate_repair
+import handoff
+import report_io
+import repository
+import review_evidence
+import ticket_execution
+import ticket_state
 
-AXES = ("standards", "spec")
+
+AXES = review_evidence.AXES
 
 
 def publish_or_match(path, value):
@@ -15,9 +30,131 @@ def publish_or_match(path, value):
         evidence.write(path, value)
 
 
-def require_axis_sources(sources):
-    if not isinstance(sources, dict) or set(sources) != set(AXES):
-        raise ValueError("必须明确提供两个轴的报告与回执")
+require_axis_sources = review_evidence.require_axis_sources
+
+
+def review_inputs(d, axis):
+    writer = None
+    prior = d.get('prior_reviews', [])
+    if d.get('ticket_execution_version'):
+        value, _, _ = ticket_state.checkpoints(d)
+        writer = value['implementer_sources'][-1] if value['implementer_sources'] else None
+    elif d.get('finalization_version') == 2:
+        _, final_selection = final_state.selected(d)
+        writer = final_selection['fixes'][-1] if final_selection['fixes'] else None
+    previous_axis = None
+    if prior:
+        collection = evidence.read(evidence.bound(prior[-1]))
+        previous_axis = collection['sources'][axis]
+        for item in previous_axis.values():
+            evidence.bound(item)
+    if writer:
+        for item in writer.values():
+            evidence.bound(item)
+        wd, report = evidence.read(evidence.bound(writer['dispatch'])), evidence.read(evidence.bound(writer['report']))
+        repository.require(wd['worktree'] == d['worktree'] and report['head_commit'] == repository.sha(d['worktree'], 'HEAD'), 'review writer 现场不符')
+    verification = list(report.get('verification_sources', [])) if writer else []
+    gates = list(d.get('required_boundary_gates', []))
+    gate_sources = []
+    if writer:
+        gates = list(dict.fromkeys(gates + report.get('required_boundary_gates', report.get('boundary_gates', []))))
+    if d.get('finalization_version') == 2:
+        verification += [s for s in final_verification.snapshot(d) if s not in verification]
+        gates, gate_sources = final_selection['gates'], final_selection['gate_sources']
+    return {'writer_source': writer, 'prior_axis_source': previous_axis,
+            'plan_source': d.get('plan_source'), 'plan_adjustment': d.get('plan_adjustment'),
+            'expected_children': d.get('expected_children', []), 'context_sources': handoff.contexts(d),
+            'verification_sources': verification,
+            'stage_source': evidence.binding(d['dispatch_path']), 'required_boundary_gates': gates, 'gate_sources': gate_sources,
+            'scope': 'ticket' if d['role'] == 'executor' else 'batch'}
+
+
+def reviewed_state(d, base, head):
+    repository.topology(d)
+    wt = d["worktree"]
+    repository.require(repository.sha(wt, "HEAD") == head, "受审 HEAD 已变化")
+    repository.require(repository.sha(wt, base) == base, "需要完整 BASE SHA")
+    repository.git(wt, "merge-base", "--is-ancestor", base, head)
+    repository.require(not repository.status(wt), "review 要求 worktree 干净")
+    if not repository.git(wt, "diff", base + "..." + head):
+        repository.require(d.get("execution_contract") == 2 and base == head, "review diff 为空")
+        if d["role"] == "executor":
+            repository.require(evidence.read(d["expected_plan_path"])["mode"] == "direct_verification", "无提交完成需要 direct_verification")
+
+
+def prepare_review(args):
+    d = dispatch_contract.dispatch(args.dispatch)
+    ticket_review = bool(d.get("ticket_execution_version"))
+    if ticket_review:
+        repository.require(d.get("ticket_scope") == "stage", "review 由 stage executor 派发")
+        ticket_execution.review_ready(d)
+    if final_state.strict(d):
+        finalization.review_ready(d)
+    base = d["base_commit"] if d["role"] == "executor" else d["reviewed_main"]
+    head = repository.sha(d["worktree"], "HEAD")
+    reviewed_state(d, base, head)
+    review_kind = "existing_behavior" if base == head else "change"
+    acceptance_source = None
+    if review_kind == "existing_behavior":
+        repository.require(getattr(args, "evidence", None), "已有行为审查需要 acceptance 证据文件")
+        acceptance_source = evidence.binding(args.evidence)
+        entries = evidence.read(evidence.bound(acceptance_source))
+        repository.require(isinstance(entries, list) and entries and all(
+            isinstance(x, dict) and set(x) == {"criterion", "evidence"} and
+            all(isinstance(v, str) and v.strip() for v in x.values()) for x in entries), "acceptance 证据无效")
+    if "stage" in d:
+        gate_repair.freeze(d)
+    directory = (final_state.reserve_review(d, getattr(args, 'resume', False)) if final_state.strict(d)
+                 else ticket_state.reserve_review(d, getattr(args, 'resume', False)) if ticket_review
+                 else evidence.absolute(args.dispatch).parent / ("review-" + uuid.uuid4().hex))
+    directory.mkdir(exist_ok=True)
+    record = {"dispatch": evidence.binding(args.dispatch), "reviewed_base": base,
+              "reviewed_head": head, "axes": {}, "review_kind": review_kind, "acceptance_evidence": acceptance_source}
+    commits = repository.git(d["worktree"], "log", "--format=%H %s", base + ".." + head)
     for axis in AXES:
-        if set(sources[axis]) not in ({"report", "receipt"}, {"report", "receipt", "closure"}):
-            raise ValueError("每轴需要 report/receipt 及可选 closure")
+        folder = directory / axis
+        folder.mkdir(exist_ok=True)
+        identity = {"review_kind": review_kind, "acceptance_evidence": acceptance_source, "axis": axis, "reviewed_base": base, "reviewed_head": head,
+                    "skill_dir": d["skill_dir"], "worktree": d["worktree"],
+                    "rules_paths": d["rules_paths"], "parent_id": d["parent_id"],
+                    "ticket_id": d.get("ticket_id"), "linked_spec": d.get("linked_spec"),
+                    "dispatch_path": str(folder / "dispatch.json"),
+                    "report_path": str(folder / "report.json"),
+                    "report_schema_path": str(folder / "report-schema.json"),
+                    "receipt_schema_path": str(folder / "receipt-schema.json"),
+                    "commits": commits,
+                    "diff_argv": ["git", "-C", d["worktree"], "diff", base + "..." + head]}
+        identity.update(review_inputs(d, axis))
+        identity['handoff_required'] = bool(d.get('preflight_acceptance')) or final_state.strict(d)
+        if "stage" in d:
+            identity.update(stage=d["stage"], **d["models"][axis])
+        identity["self_check_argv"] = [sys.executable, "-B", str(report_io.SCRIPTS / "verify-worker.py"),
+            "--check-report", "reviewer", identity["report_path"], "--expected", identity["dispatch_path"], "--emit-receipt"]
+        publish_or_match(identity["report_schema_path"], report_io.reviewer("--schema"))
+        publish_or_match(identity["receipt_schema_path"], report_io.reviewer("--receipt-schema"))
+        publish_or_match(identity["dispatch_path"], identity)
+        record["axes"][axis] = evidence.binding(identity["dispatch_path"])
+    path = directory / "round.json"
+    publish_or_match(path, record)
+    if final_state.strict(d):
+        final_state.bind_round(d, path)
+    if ticket_review:
+        ticket_state.bind_review_round(d, path)
+    return {"round_path": str(path), "axes": {axis: item["path"] for axis, item in record["axes"].items()}}
+
+
+def collect_review(args):
+    path = evidence.absolute(args.round)
+    sources = evidence.read(evidence.absolute(args.input))
+    record, d, pair, gate = review_evidence.pair_from_sources(path, sources)
+    reviewed_state(d, record["reviewed_base"], record["reviewed_head"])
+    result = {"round": evidence.binding(path), "sources": {
+        axis: {key: evidence.binding(value) for key, value in sources[axis].items()} for axis in AXES},
+        "pair": pair, "gate": gate}
+    output = dispatch_contract.output_path(args.output, path.parent)
+    evidence.write(output, result)
+    if d.get("ticket_execution_version"):
+        ticket_state.select_review(d, output)
+    if final_state.strict(d):
+        final_state.select_review(d, output)
+    return {"collection_path": str(output), "gate": gate}

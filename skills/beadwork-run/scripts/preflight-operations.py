@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """一次采集 preflight 事实，并从语义草稿组装原有报告；仅写 dispatch 证据目录。"""
+
 from __future__ import annotations
 
+from pathlib import Path
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
 import time
 
-import controller as c
+import evidence
 import graph
+import report_io
+import repository
+
 
 RECIPES = ('check-toolchain', 'install', 'typecheck', 'test', 'gate-unit',
            'gate-full', 'env-facts', 'fmt', 'smoke', 'final')
@@ -19,33 +23,35 @@ SEMANTIC = ('spec_and_test_plans', 'recovery')
 
 def load_dispatch(path):
     path = Path(path).resolve()
-    d = c.read(path)
-    c.require(d.get('role') == 'preflight' and d.get('dispatch_path') == str(path),
+    d = evidence.read(path)
+    repository.require(d.get('role') == 'preflight' and d.get('dispatch_path') == str(path),
               '需要当前 preflight dispatch')
-    c.require(d['expected_worktree'] == str(Path(d['repository_root']) / '.worktrees' / d['parent_id'])
+    repository.require(d['expected_worktree'] == str(Path(d['repository_root']) / '.worktrees' / d['parent_id'])
               and d['expected_branch'] == 'implement/' + d['parent_id'], '固定布局不符')
     return d, path.parent
 
 
-def collect(args):
-    d, directory = load_dispatch(args.dispatch)
-    folder = directory / 'facts'
-    folder.mkdir()  # 同一 dispatch 只采集一次；部分输出也保留。
-    started = time.time()
-    bindings, checks, problems = [], [], []
+class FactsCollector:
+    """单次事实采集的文件来源、检查和错误；不作语义准入判断。"""
+    def __init__(self, dispatch, folder):
+        self.dispatch = dispatch
+        self.folder = folder
+        self.bindings = []
+        self.checks = []
+        self.problems = []
 
-    def save(name, value):
-        path = folder / (name + '.json')
-        c.write(path, value)
-        bindings.append({'path': str(path), 'sha256': c.digest(path)})
+    def save(self, name, value):
+        path = self.folder / (name + '.json')
+        evidence.write(path, value)
+        self.bindings.append({'path': str(path), 'sha256': evidence.digest(path)})
         return str(path)
 
-    def run(name, argv, cwd=None):
+    def run(self, name, argv, cwd=None):
         begin = time.time()
         try:
-            p = subprocess.run([str(x) for x in argv], cwd=cwd or d['repository_root'],
+            p = subprocess.run([str(x) for x in argv], cwd=cwd or self.dispatch['repository_root'],
                                capture_output=True, text=True)
-            result = dict(argv=list(map(str, argv)), cwd=cwd or d['repository_root'],
+            result = dict(argv=list(map(str, argv)), cwd=cwd or self.dispatch['repository_root'],
                           exit_code=p.returncode, stdout=p.stdout, stderr=p.stderr)
         except OSError as error:
             result = dict(argv=list(map(str, argv)), exit_code=None, stdout='', stderr=str(error))
@@ -54,152 +60,185 @@ def collect(args):
         if name == 'config' and result['exit_code'] == 0:
             try:
                 items = json.loads(result['stdout'])
-                c.require(isinstance(items, list), '配置不是数组')
+                repository.require(isinstance(items, list), '配置不是数组')
                 result['stdout'] = json.dumps([x for x in items if x.get('key') in ('export.auto', 'export.git-add')])
             except (ValueError, AttributeError) as error:
                 result.update(exit_code=None, stdout='', stderr=str(error))
-        path = save(name, result)
-        c.require(result['exit_code'] == 0, '命令失败，见 ' + path)
+        path = self.save(name, result)
+        repository.require(result['exit_code'] == 0, '命令失败，见 ' + path)
         return result['stdout'], path
 
-    def bd(name, argv):
-        raw, path = run(name, ['bd', *argv, '--readonly', '--json'])
+    def bd(self, name, argv):
+        raw, path = self.run(name, ['bd', *argv, '--readonly', '--json'])
         return graph.parse_bd_json(raw, name), path
 
-    def check(name, operation):
+    def check(self, name, operation):
         try:
             evidence = operation()
-            checks.append(dict(name=name, passed=True, evidence=evidence))
+            self.checks.append(dict(name=name, passed=True, evidence=evidence))
         except (Exception, SystemExit) as error:
-            checks.append(dict(name=name, passed=False, evidence=str(error) or '检查失败，见 facts'))
+            self.checks.append(dict(name=name, passed=False, evidence=str(error) or '检查失败，见 facts'))
 
-    parent, children, comments = None, [], []
-    child_source = None
-    try:
-        rows, _ = bd('parent', ['show', d['parent_id']])
-        c.require(isinstance(rows, list), 'parent 查询不是数组')
-        parent = next(x for x in rows if x.get('id') == d['parent_id'])
-    except (Exception, SystemExit) as error:
-        problems.append('parent 不可读取：' + str(error))
-    try:
-        rows, child_source = bd('children', ['list', '--parent', d['parent_id'], '--all', '--limit', '0'])
-        c.require(isinstance(rows, list), 'children 查询不是数组')
-        for row in rows:
-            graph.validate_issue(row, 'child')
-        c.require(len({x['id'] for x in rows}) == len(rows), 'children ID 重复')
-        children = rows
-        if 'expected_children' in d:
-            c.require(set(d['expected_children']) == {x['id'] for x in children}, 'children 范围变化')
-    except (Exception, SystemExit) as error:
-        problems.append('children 不可用于准入：' + str(error))
-    try:
-        comments, _ = bd('comments', ['comments', d['parent_id']])
-        c.require(isinstance(comments, list), 'comments 查询不是数组')
-    except (Exception, SystemExit) as error:
-        problems.append('恢复 comments 不可读取：' + str(error))
 
-    def require_fact(condition, explanation):
-        c.require(condition, explanation)
-        return explanation
+    def tracker_inputs(self):
+        d = self.dispatch
+        parent, children, comments = None, [], []
+        child_source = None
+        try:
+            rows, _ = self.bd('parent', ['show', d['parent_id']])
+            repository.require(isinstance(rows, list), 'parent 查询不是数组')
+            parent = next(x for x in rows if x.get('id') == d['parent_id'])
+        except (Exception, SystemExit) as error:
+            self.problems.append('parent 不可读取：' + str(error))
+        try:
+            rows, child_source = self.bd('children', ['list', '--parent', d['parent_id'], '--all', '--limit', '0'])
+            repository.require(isinstance(rows, list), 'children 查询不是数组')
+            for row in rows:
+                graph.validate_issue(row, 'child')
+            repository.require(len({x['id'] for x in rows}) == len(rows), 'children ID 重复')
+            children = rows
+            if 'expected_children' in d:
+                repository.require(set(d['expected_children']) == {x['id'] for x in children}, 'children 范围变化')
+        except (Exception, SystemExit) as error:
+            self.problems.append('children 不可用于准入：' + str(error))
+        try:
+            comments, _ = self.bd('comments', ['comments', d['parent_id']])
+            repository.require(isinstance(comments, list), 'comments 查询不是数组')
+        except (Exception, SystemExit) as error:
+            self.problems.append('恢复 comments 不可读取：' + str(error))
 
-    check('parent_state', lambda: require_fact(parent is not None and parent.get('status') in ('open', 'in_progress', 'closed'),
-          'parent 状态见 facts/parent.json；closed 必须由 recovery 确认仅按合入后恢复规则处理'))
-    check('children_nonempty', lambda: require_fact(bool(children), 'direct children 必须非空'))
-    check('ready_labels', lambda: require_fact(bool(children) and all(x['status'] == 'closed' or 'ready-for-agent' in x.get('labels', []) for x in children),
-          '全部未关闭 child 必须具有 ready-for-agent'))
+        return parent, children, comments
 
-    def flat():
-        edges, _ = bd('parent-child-edges', ['dep', 'list', *(x['id'] for x in children),
-                                             '--direction=up', '--type=parent-child'])
-        value = graph.flat_result(children, edges)
-        path = save('flat', value)
-        c.require(value.get('flat') is True, '图未平铺，见 ' + path)
-        return path
-    check('flat_graph', flat)
+    def repository_checks(self, parent, children):
+        d = self.dispatch
+        def require_fact(condition, explanation):
+            repository.require(condition, explanation)
+            return explanation
 
-    def config():
-        rows, path = bd('config', ['config', 'show'])
-        values = {x['key']: x['value'] for x in rows}
-        c.require(len(rows) == 2 and set(values) == {'export.auto', 'export.git-add'}
-                  and all(x is False or x == 'false' for x in values.values()), 'Beads export 配置缺失或非 false')
-        return path
-    check('beads_config', config)
-    check('primary_worktree', lambda: require_fact(c.primary(d['repository_root']) == d['repository_root'], 'primary 必须仍指向 dispatch.repository_root'))
-    check('worktree_ignored', lambda: run('ignored', ['git', 'check-ignore', '-q', '--', '.worktrees/probe'])[1])
-    check('branch_name', lambda: run('branch-name', ['git', 'check-ref-format', '--branch', d['expected_branch']])[1])
+        self.check('parent_state', lambda: require_fact(parent is not None and parent.get('status') in ('open', 'in_progress', 'closed'),
+              'parent 状态见 facts/parent.json；closed 必须由 recovery 确认仅按合入后恢复规则处理'))
+        self.check('children_nonempty', lambda: require_fact(bool(children), 'direct children 必须非空'))
+        self.check('ready_labels', lambda: require_fact(bool(children) and all(x['status'] == 'closed' or 'ready-for-agent' in x.get('labels', []) for x in children),
+              '全部未关闭 child 必须具有 ready-for-agent'))
 
-    def beads_clean():
-        raw, path = run('beads-status', ['git', 'status', '--short', '--', '.beads'])
-        c.require(not raw.strip(), '.beads 有 tracked diff，见 ' + path)
-        return path
-    check('beads_clean', beads_clean)
+        def flat():
+            edges, _ = self.bd('parent-child-edges', ['dep', 'list', *(x['id'] for x in children),
+                                                 '--direction=up', '--type=parent-child'])
+            value = graph.flat_result(children, edges)
+            path = self.save('flat', value)
+            repository.require(value.get('flat') is True, '图未平铺，见 ' + path)
+            return path
+        self.check('flat_graph', flat)
 
-    wt = Path(d['expected_worktree'])
-    recovery_facts = dict(worktree_exists=wt.exists(), branch_exists=None)
-    workspace = dict(primary_worktree=d['repository_root'], implementation_worktree=str(wt),
-                     branch=d['expected_branch'], observed_head=None, clean=None)
-    try:
-        run('primary-status', ['git', 'status', '--porcelain=v1', '--untracked-files=all'])
-        run('primary-head', ['git', 'rev-parse', 'HEAD'])
-        run('worktrees', ['git', 'worktree', 'list', '--porcelain'])
-        raw, _ = run('implementation-ref', ['git', 'for-each-ref', '--format=%(refname)', 'refs/heads/' + d['expected_branch']])
-        recovery_facts['branch_exists'] = 'refs/heads/' + d['expected_branch'] in raw.splitlines()
-        if wt.exists():
-            c.topology(d)
-            raw, _ = run('implementation-head', ['git', 'rev-parse', 'HEAD'], str(wt))
-            workspace['observed_head'] = raw.strip()
-            raw, _ = run('implementation-status', ['git', 'status', '--porcelain=v1', '--untracked-files=all'], str(wt))
-            workspace['clean'] = not raw.strip()
-    except Exception as error:
-        problems.append('Git 恢复现场不可确认：' + str(error))
-    checkout = str(wt) if wt.exists() else d['repository_root']
-    check('toolchain', lambda: run('toolchain', ['just', '--one', '--', 'check-toolchain'], checkout)[1])
-    recipes = []
+        def config():
+            rows, path = self.bd('config', ['config', 'show'])
+            values = {x['key']: x['value'] for x in rows}
+            repository.require(len(rows) == 2 and set(values) == {'export.auto', 'export.git-add'}
+                      and all(x is False or x == 'false' for x in values.values()), 'Beads export 配置缺失或非 false')
+            return path
+        self.check('beads_config', config)
+        self.check('primary_worktree', lambda: require_fact(repository.primary(d['repository_root']) == d['repository_root'], 'primary 必须仍指向 dispatch.repository_root'))
+        self.check('worktree_ignored', lambda: self.run('ignored', ['git', 'check-ignore', '-q', '--', '.worktrees/probe'])[1])
+        self.check('branch_name', lambda: self.run('branch-name', ['git', 'check-ref-format', '--branch', d['expected_branch']])[1])
 
-    def just_recipes():
-        nonlocal recipes
-        raw, path = run('recipes', ['just', '--summary'], checkout)
-        recipes = raw.split()
-        c.require(set(RECIPES).issubset(recipes), '缺少 recipes：' + ', '.join(sorted(set(RECIPES) - set(recipes))))
-        return path + '；实际边界能力由 spec_and_test_plans 核对'
-    check('just_recipes', just_recipes)
+        def beads_clean():
+            raw, path = self.run('beads-status', ['git', 'status', '--short', '--', '.beads'])
+            repository.require(not raw.strip(), '.beads 有 tracked diff，见 ' + path)
+            return path
+        self.check('beads_clean', beads_clean)
 
-    def schemas():
-        for script, role in [('verify-ticket.py', None), ('verify-phase.py', 'preflight'), ('verify-phase.py', 'finalizer'),
-                             ('verify-worker.py', 'reviewer'), ('verify-worker.py', 'fixer')]:
-            raw, _ = run('schema-' + (role or 'executor'), [sys.executable, '-B', c.SCRIPTS / script, '--schema', *([role] if role else [])])
-            c.require(isinstance(json.loads(raw), dict), 'schema 不是对象')
-        return 'facts/schema-*.json：全部 schema 已生成'
-    check('review_schema', schemas)
 
-    # list 已含正文时不重复 show；closed 票只交接状态。
-    pending = []
-    for row in children:
-        if row['status'] == 'closed':
-            continue
-        if not isinstance(row.get('description'), str):
-            try:
-                rows, _ = bd('ticket-' + str(len(pending)), ['show', row['id']])
-                current = next(x for x in rows if x['id'] == row['id'])
-                c.require(current.get('status') == row['status'], '补查正文时 ticket 状态变化')
-                row = current
-                c.require(isinstance(row.get('description'), str), '缺少 ticket 正文')
-            except (Exception, SystemExit) as error:
-                problems.append('ticket 正文不可读取：' + str(error))
-        pending.append(row)
-    inputs = save('semantic-inputs', dict(parent=parent, pending_tickets=pending, comments=comments,
+    def workspace_facts(self):
+        d = self.dispatch
+        wt = Path(d['expected_worktree'])
+        recovery_facts = dict(worktree_exists=wt.exists(), branch_exists=None)
+        workspace = dict(primary_worktree=d['repository_root'], implementation_worktree=str(wt),
+                         branch=d['expected_branch'], observed_head=None, clean=None)
+        try:
+            self.run('primary-status', ['git', 'status', '--porcelain=v1', '--untracked-files=all'])
+            self.run('primary-head', ['git', 'rev-parse', 'HEAD'])
+            self.run('worktrees', ['git', 'worktree', 'list', '--porcelain'])
+            raw, _ = self.run('implementation-ref', ['git', 'for-each-ref', '--format=%(refname)', 'refs/heads/' + d['expected_branch']])
+            recovery_facts['branch_exists'] = 'refs/heads/' + d['expected_branch'] in raw.splitlines()
+            if wt.exists():
+                repository.topology(d)
+                raw, _ = self.run('implementation-head', ['git', 'rev-parse', 'HEAD'], str(wt))
+                workspace['observed_head'] = raw.strip()
+                raw, _ = self.run('implementation-status', ['git', 'status', '--porcelain=v1', '--untracked-files=all'], str(wt))
+                workspace['clean'] = not raw.strip()
+        except Exception as error:
+            self.problems.append('Git 恢复现场不可确认：' + str(error))
+        checkout = str(wt) if wt.exists() else d['repository_root']
+        return workspace, recovery_facts, checkout
+
+    def toolchain_facts(self, checkout):
+        d = self.dispatch
+        self.check('toolchain', lambda: self.run('toolchain', ['just', '--one', '--', 'check-toolchain'], checkout)[1])
+        recipes = []
+
+        def just_recipes():
+            nonlocal recipes
+            raw, path = self.run('recipes', ['just', '--summary'], checkout)
+            recipes = raw.split()
+            repository.require(set(RECIPES).issubset(recipes), '缺少 recipes：' + ', '.join(sorted(set(RECIPES) - set(recipes))))
+            return path + '；实际边界能力由 spec_and_test_plans 核对'
+        self.check('just_recipes', just_recipes)
+
+        def schemas():
+            for script, role in [('verify-ticket.py', None), ('verify-phase.py', 'preflight'), ('verify-phase.py', 'finalizer'),
+                                 ('verify-worker.py', 'reviewer'), ('verify-worker.py', 'fixer')]:
+                raw, _ = self.run('schema-' + (role or 'executor'), [sys.executable, '-B', report_io.SCRIPTS / script, '--schema', *([role] if role else [])])
+                repository.require(isinstance(json.loads(raw), dict), 'schema 不是对象')
+            return 'facts/schema-*.json：全部 schema 已生成'
+        self.check('review_schema', schemas)
+
+        return recipes
+
+    def pending_tickets(self, children):
+        d = self.dispatch
+        # list 已含正文时不重复 show；closed 票只交接状态。
+        pending = []
+        for row in children:
+            if row['status'] == 'closed':
+                continue
+            if not isinstance(row.get('description'), str):
+                try:
+                    rows, _ = self.bd('ticket-' + str(len(pending)), ['show', row['id']])
+                    current = next(x for x in rows if x['id'] == row['id'])
+                    repository.require(current.get('status') == row['status'], '补查正文时 ticket 状态变化')
+                    row = current
+                    repository.require(isinstance(row.get('description'), str), '缺少 ticket 正文')
+                except (Exception, SystemExit) as error:
+                    self.problems.append('ticket 正文不可读取：' + str(error))
+            pending.append(row)
+        return pending
+
+
+def collect(args):
+    d, directory = load_dispatch(args.dispatch)
+    folder = directory / 'facts'
+    folder.mkdir()  # 同一 dispatch 只采集一次；部分输出也保留。
+    started = time.time()
+    capture = FactsCollector(d, folder)
+
+    parent, children, comments = capture.tracker_inputs()
+    capture.repository_checks(parent, children)
+    workspace, recovery_facts, checkout = capture.workspace_facts()
+    recipes = capture.toolchain_facts(checkout)
+    pending = capture.pending_tickets(children)
+    inputs = capture.save('semantic-inputs', dict(parent=parent, pending_tickets=pending, comments=comments,
                  recipes=recipes, checkout=checkout, workspace=workspace, recovery_facts=recovery_facts))
-    snapshot = dict(dispatch={'path': d['dispatch_path'], 'sha256': c.digest(d['dispatch_path'])},
+    snapshot = dict(dispatch={'path': d['dispatch_path'], 'sha256': evidence.digest(d['dispatch_path'])},
                     parent={'id': parent.get('id'), 'status': parent.get('status')} if parent else {'id': None, 'status': None},
                     expected_children=[x['id'] for x in children],
                     tickets=[dict(id=x['id'], status=x['status']) for x in children], workspace=workspace, recovery_facts=recovery_facts,
-                    checks=checks, blockers=problems, recipes=recipes, inputs=inputs, sources=bindings,
+                    checks=capture.checks, blockers=capture.problems, recipes=recipes, inputs=inputs, sources=capture.bindings,
                     collection_started_at=started, collection_finished_at=time.time())
     path = directory / 'facts.json'
-    c.write(path, snapshot)
-    return dict(facts_path=str(path), facts_sha256=c.digest(path), semantic_inputs_path=inputs,
+    evidence.write(path, snapshot)
+    return dict(facts_path=str(path), facts_sha256=evidence.digest(path), semantic_inputs_path=inputs,
                 pending_ids=[x['id'] for x in pending], expected_children=snapshot['expected_children'],
-                failed_checks=[x for x in checks if not x['passed']], blockers=problems,
+                failed_checks=[x for x in capture.checks if not x['passed']], blockers=capture.problems,
                 collection_seconds=snapshot['collection_finished_at'] - started)
 
 
@@ -207,19 +246,19 @@ def assemble(args):
     started = time.time()
     d, directory = load_dispatch(args.dispatch)
     facts_path = directory / 'facts.json'
-    c.require(c.digest(facts_path) == args.facts_sha256, '采集快照 hash 不符')
-    f = c.read(facts_path)
-    c.require(f['dispatch'] == {'path': d['dispatch_path'], 'sha256': c.digest(d['dispatch_path'])}, '采集 dispatch 不符')
+    repository.require(evidence.digest(facts_path) == args.facts_sha256, '采集快照 hash 不符')
+    f = evidence.read(facts_path)
+    repository.require(f['dispatch'] == {'path': d['dispatch_path'], 'sha256': evidence.digest(d['dispatch_path'])}, '采集 dispatch 不符')
     for source in f['sources']:
-        c.require(Path(source['path']).resolve().parent == directory / 'facts'
-                  and c.digest(source['path']) == source['sha256'], '原始采集证据已变化')
-    draft = c.read(args.draft)
+        repository.require(Path(source['path']).resolve().parent == directory / 'facts'
+                  and evidence.digest(source['path']) == source['sha256'], '原始采集证据已变化')
+    draft = evidence.read(args.draft)
     fields = {'status', 'plans', 'linked_spec', 'resume_evidence', 'sources', 'suggested_route', 'checks', 'blockers', 'remaining_work'}
-    c.require(set(draft) == fields, '语义草稿字段不符')
-    c.require({x['name'] for x in draft['checks']} == set(SEMANTIC) and len(draft['checks']) == 2,
+    repository.require(set(draft) == fields, '语义草稿字段不符')
+    repository.require({x['name'] for x in draft['checks']} == set(SEMANTIC) and len(draft['checks']) == 2,
               '语义草稿只能填写 spec_and_test_plans 与 recovery')
     unresolved = {x['id'] for x in f['tickets'] if x['status'] != 'closed'}
-    c.require(set(draft['plans']).issubset(unresolved), '计划含未知或已关闭 ticket')
+    repository.require(set(draft['plans']).issubset(unresolved), '计划含未知或已关闭 ticket')
     tickets = [dict(x, test_plan=draft['plans'].get(x['id'])) for x in f['tickets']]
     gates = sorted({g for x in tickets if x['test_plan'] for g in x['test_plan']['boundary_gates']})
     blockers = list(f['blockers']) + draft['blockers']
@@ -245,12 +284,12 @@ def assemble(args):
                   workspace=f['workspace'], checks=checks, blockers=blockers,
                   sources=[str(facts_path), *(s['path'] for s in f['sources']), *draft['sources']])
     output = Path(args.output).resolve()
-    c.require(output.parent == directory, '报告必须位于 dispatch 目录')
-    c.require(not output.exists() and not output.with_suffix('.timing.json').exists(), '保留已有交付文件，请使用新文件名')
-    c.write(output, report)
-    receipt = json.loads(c.run([sys.executable, '-B', c.SCRIPTS / 'verify-phase.py', '--check-report', 'preflight',
+    repository.require(output.parent == directory, '报告必须位于 dispatch 目录')
+    repository.require(not output.exists() and not output.with_suffix('.timing.json').exists(), '保留已有交付文件，请使用新文件名')
+    evidence.write(output, report)
+    receipt = json.loads(repository.run([sys.executable, '-B', report_io.SCRIPTS / 'verify-phase.py', '--check-report', 'preflight',
                                str(output), '--expected', d['dispatch_path'], '--emit-receipt']))
-    c.write(output.with_suffix('.timing.json'), dict(
+    evidence.write(output.with_suffix('.timing.json'), dict(
         facts_sha256=args.facts_sha256, report_sha256=receipt['report_sha256'],
         collection_seconds=f['collection_finished_at'] - f['collection_started_at'],
         semantic_and_wait_seconds=max(0, started - f['collection_finished_at']),

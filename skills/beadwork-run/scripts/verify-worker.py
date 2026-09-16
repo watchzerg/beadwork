@@ -9,17 +9,23 @@
 输出紧凑 JSON；ok:false 表示验收失败，非零退出表示输入或命令失败。
 不写入源码、Git、Beads 或报告；Git 现场由直接派发者验收。
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sys
-import schema_validation
-import review_schema
-import workflow_policy
 
 sys.dont_write_bytecode = True
+
+import final_verification
+import implementer_reports
+import review_schema
+import schema_validation
 import verify_ticket as v
+import workflow_policy
+
+
 TEXT, SHA, TEXTS, obj = (schema_validation.TEXT, schema_validation.SHA,
                          schema_validation.TEXTS, schema_validation.object_schema)
 ROLES = ("fixer", "reviewer", "implementer")
@@ -36,8 +42,7 @@ def receipt_schema(role):
 
 def report_schema(role, axis_schema):
     if role == "implementer":
-        import ticket_execution
-        return ticket_execution.implementer_schema(v)
+        return implementer_reports.implementer_schema()
     if role == "reviewer":
         # 成功报告保留本流程 AxisReport；无法完成审查时使用本地失败报告，不伪造 findings。
         return {"oneOf": [axis_schema, obj({
@@ -79,8 +84,7 @@ def dispatch_schema(role):
 
 def validate(role, report, axis_schema, expected):
     if role == "implementer":
-        import ticket_execution
-        return ticket_execution.implementer_errors(report, expected, v)
+        return implementer_reports.implementer_errors(report, expected)
     problems = v.schema_errors(expected, dispatch_schema(role))
     if problems:
         return ["dispatch_schema: " + problem for problem in problems]
@@ -103,7 +107,6 @@ def validate(role, report, axis_schema, expected):
         if report["fix_commits"] and report["fix_commits"][-1] != report["head_commit"]:
             failures.append("fixer_commit_head")
     if expected.get('finalization_version') == 2:
-        import final_verification
         try:
             final_verification.check(expected, report)
         except Exception as error:
