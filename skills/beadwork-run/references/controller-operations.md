@@ -1,6 +1,14 @@
 # controller 脚本入口
 
-controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent、不写 Beads。controller 负责交付契约验收、异常证据追查、writer 收尾确认和全部 tracker 写入；单票实现与测试的日常语义验收由 executor 负责。
+controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent。除本文件明确列出的 `tracker_operations.py` 外，其余脚本不写 Beads；tracker 入口也只能由 controller 在前置证据完整时调用。controller 负责交付契约验收、异常证据追查和 writer 收尾确认；单票实现与测试的日常语义验收由 executor 负责。
+
+## 初始化、tracker 与恢复事实
+
+新批次可用 `batch_initialize.py prepare/execute` 绑定 READY preflight acceptance、固定 children、main SHA、安装输入和 boundary gates。它以 append-only step/result/log 执行 worktree 创建、`install`、`env-facts`、`smoke` 和 parent claim；恢复必须复用原 intent。已有 branch 但缺 worktree、dirty worktree 或步骤结果不成功时停止，不重置现场。
+
+`tracker_operations.py prepare/execute` 仅支持 `claim`、`comment`、`close`。每次操作先保存 intent，写入后用只读 `show/comments` 读回；comment 带 intent hash marker，close 必须绑定成功前置来源。未知结果先读回协调，不盲目重发。claim 已由其他 assignee 完成时拒绝采用。
+
+`batch_evidence.py inspect` 只读汇总 Git、worktree、checkpoint 与未完成 intent；多个候选报告冲突，不按时间选择。`manifest` 从固定 children 的 ticket acceptance 生成 gate/commit 边界，`summary` 将机器事实与 controller 提供的原因、不确定性和建议组合成待核对文本；这些命令不写 tracker。
 
 使用 `python3 <skill-dir>/scripts/controller.py <command>`。成功 stdout 为 JSON；失败非零退出并在 stderr 返回原因，按 SKILL.md 停止处理。证据文件使用新文件名，不覆盖历史。所有输入路径使用绝对路径；输入 JSON 由 controller 根据已核实事实编写，不执行历史记录中的命令。
 

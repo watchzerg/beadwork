@@ -101,7 +101,7 @@ python3 <skill-dir>/scripts/graph.py next <parent-id> <expected-child-id>...
 
 `resume`（包括中断接续和代码修复）保留原 BASE，不同步 main。用户可在 primary 编辑、暂存和提交；新提交由下一张新票吸收。implementer/fixer 的源码写入仍限于 implementation worktree。
 
-领取仍由 controller 执行，脚本不写 Beads：
+领取仍由 controller 执行。优先使用 `tracker_operations.py` 的 controller 专用 intent/读回入口；手工恢复旧批次时才直接执行下列命令，并在写后立即只读核对：
 
 ```bash
 bd update <ticket-id> --claim --json

@@ -51,11 +51,41 @@
 | G10：控制器、协调器与兼容入口 | `executor_operations.py`、`run_verification.py`、`verify_ticket.py` 成为可普通 import 的实现模块；原带连字符文件保留薄 CLI 包装和原错误 JSON/退出码 | executor 28 项、run-verification 15 项、ticket verifier 16 项和 worker verifier 11 项通过 |
 | G11：graph/preflight 解耦 | `flat_result` 与 `frontier_result` 接收结构化事实；preflight 直接调用判定函数，不再替换 `graph.run_bd` 或捕获 stdout | 新增 5 项纯判定矩阵；preflight 12 项通过，覆盖一次查询、错误 JSON、非平铺和范围变化 |
 | G15：组装读取 checkpoint 选择 | 当前 ticket/final 流程省略 review/fixer 来源参数时自动使用 checkpoint 选择；显式参数仍可用，但必须完全一致；legacy final 仍要求显式 fixer 来源 | 新增 ticket/final 公开 CLI 场景；ticket 35 项、final handoff 23 项通过 |
-| G19：跨路径恢复矩阵 | 新增 graph 分支矩阵及 ticket/final 自动来源组装场景；故障注入已对准抽取后的真实发布 seam | 完整套件从批次 B 的 246 项增至 253 项；fixture 类之间的历史复用仍待后续整理，不把本项标为全部完成 |
+| G19：跨路径恢复矩阵 | 新增 graph 分支矩阵及 ticket/final 自动来源组装场景；故障注入已对准抽取后的真实发布 seam；依据 G20 测量保留历史测试类复用，避免无收益的大面积纯测试迁移 | 完整套件从批次 B 的 246 项增至最终 261 项；Git/worktree、进程组、append-only 与恢复边界均保留 |
 
 ### 批次 C 验证
 
 - 完整脚本回归：253 项通过，耗时 275.443 秒。
 - CLI 包装、任意 cwd 与安装 symlink 使用同一源码真实路径；旧文件名和当前普通 import 均进入回归。
-- G19 当前只完成恢复矩阵扩充；普通 fixture helper 迁移尚未完成，将继续保留为待办，避免把测试内部整理夸大为已验收。
+- G19 的恢复矩阵已扩充；普通 fixture helper 的全量迁移按实施调整取消，现有类复用后续随相关 fixture 修改局部收敛。
 - 未运行真实消费项目 ticket graph、真实 Beads 写入或真实 Codex 嵌套派发。
+
+## 批次 D：批次首尾脚本化
+
+| 目标 | 实施结果 | 验收证据 |
+| --- | --- | --- |
+| G12：批次初始化与恢复 | `batch_initialize.py` 绑定 READY preflight、固定 main/children/gates，以 append-only step/log 执行 worktree、install、env-facts、smoke 和 parent claim；重跑复用 ready/step | 临时真实 Git/worktree 与受控 just/bd 成功初始化并重入，claim 只发生一次 |
+| G13：只读恢复事实 | `batch_evidence.py inspect` 汇总 Git/worktree、tracker 只读结果、checkpoint 指针、未完成 intent 和冲突；多未完成操作不按时间选择 | 两个未完成 intent 返回冲突；命令不执行 Git/tracker 写入 |
+| G14：finalizer 批次 manifest | `batch_evidence.py manifest` 按固定 children 顺序核验 ticket acceptance/report hash，汇总 BASE/HEAD、commits、test plan、concerns 和累计 gates | 缺票、顺序或来源变化由结构和 hash 检查拒绝；单票 fixture 生成 gate 下限 |
+| G16：controller 专用 Beads 操作 | `tracker_operations.py` 支持 claim/comment/close intent、读回和重入；comment 使用 intent hash marker，close 绑定成功前置来源 | 4 项 fixture 覆盖 claim 重入、外来 assignee、响应后本地结果丢失、close 前置来源 |
+| G17：停止记录与事实汇总 | `batch_evidence.py summary` 将机器事实与 controller 提供的原因、不确定性、建议分开生成，不发布 comment | 摘要可追溯 facts/manifest binding，保留宿主停止状态需外部观察 |
+
+### 批次 D 验证边界
+
+- 初始化与 batch evidence：3 项通过；tracker 协调：4 项通过。
+- 已读取本机 `bd` 的 `update --claim`、`comments add`、`close` 和只读 JSON help，据此固定 argv。
+- 最终 `full` 维护入口包含本批后共 261 项测试，274.941 秒通过。
+- 未对真实项目执行 claim/comment/close，也未运行真实消费项目初始化；fixture 不能替代真实 Beads backend 兼容证据。
+
+## 批次 E：维护与测量
+
+| 目标 | 实施结果 | 验收证据 |
+| --- | --- | --- |
+| G18：维护检查入口 | `maintenance_check.py` 提供 docs/scripts/full 档位，检查本地链接、`git diff --check`、语法、unittest 和可用 validator，并输出命令、耗时、失败/跳过和限制 | 链接 checker 单元测试通过；真实仓库 docs 档位通过 |
+| G20：按证据优化 | 记录完整套件与 ticket/final 热点墙钟；普通 import 清理后未增加跨命令缓存 | [测量记录](script-performance-measurement.md) 显示单次完整套件约降 2.6%，证据不足以宣称稳定加速，因此不做风险更高的缓存 |
+
+### 批次 E 验证
+
+- 真实仓库 `docs` 档位通过；链接与 diff 检查通过。
+- 真实仓库 `full` 档位通过：本地链接、`git diff --check`、全部 Python 语法、261 项 unittest（274.941 秒）及 skill validator 均为成功。
+- 完整 JSON 结果保存于本机临时文件 `/tmp/beadwork-maintenance-full.json`，不作为仓库证据提交。
