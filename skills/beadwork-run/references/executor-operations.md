@@ -22,8 +22,8 @@ python3 <skill-dir>/scripts/executor-operations.py check-layer --dispatch <dispa
 
 `layer.json` 仅包含 `files`（本次提交的 worktree 相对文件路径数组）和 `message`（实际 commit message）。路径逐项填写，允许删除；重命名填写旧、新两个路径，不能使用 glob、目录简写或 `..`。该清单只约束本次提交。
 
-implementer 先选择本层范围；对仍存在且按项目契约适用的文件执行 `just fmt`，无适用文件时跳过，避免无参数扩大到全仓。检查格式化后的 diff，通过现有采集入口完成验证，显式暂存并核对 staged diff，再运行本入口。
+implementer 只选择当前 ticket 的代码、测试和必要文档，排除 `.beads` 与无关改动；对仍存在且按项目契约适用的文件执行 `just fmt`，无适用文件时跳过，避免无参数扩大到全仓。检查格式化后的 diff，通过 verification.md 的采集入口实测 `just typecheck` 和覆盖本层的最窄相关验证（不得以零匹配为通过），显式暂存并核对 staged diff，再运行本入口。
 
-检查 staged 集合非空且与 files 完全一致、不含 `.beads`，本层路径没有未暂存内容，message 含完整 ticket ID，并复查 Git 身份。返回实际 HEAD、staged 路径及本层之外仍未提交的路径；后者允许保留，由 implementer 判断本层是否依赖它们。
+检查 staged 集合非空且与 files 完全一致、不含 `.beads`，本层路径没有未暂存内容，message 含完整 ticket ID；实际 message 另说明交付范围与验证状态，并复查 Git 身份。返回实际 HEAD、staged 路径及本层之外仍未提交的路径；后者允许保留，由 implementer 判断本层是否依赖它们。
 
 检查通过后由 implementer 执行普通 commit，核对实际 SHA 和提交内容。脚本不判断层是否可独立验证、覆盖是否充分，也不将 HEAD/status 相同视为内容相同。验证后源码变化需重跑受影响验证；检查后改变暂存范围需重新检查。

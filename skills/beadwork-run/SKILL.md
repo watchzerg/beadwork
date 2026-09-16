@@ -29,7 +29,7 @@ worktree: .worktrees/<full-parent-id>
 - controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；运行 BASE smoke 或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
 - Beads 读取结构化结果使用 `--json`；未列出的命令语法按需查询 CLI 帮助。
 - controller 将 `<skill-dir>` 解析为本 skill 的绝对目录。内置脚本使用 python3 ≥ 3.9（仅标准库），在待检查 repository/worktree 中运行；正常调用无需读取源码。stdout 为 JSON，非零退出按停止处理，不能当作空结果。executor 的命令采集入口另按 `references/verification.md` 区分验证失败（可核对 TDD red）、记录器异常和中断。
-- 项目安装与验证经目标仓库的 `just` recipes 执行，缺失或失败按对应步骤处理。recipe 检查由 preflight 负责。
+- 项目安装与验证经目标仓库的 `just` recipes 执行，recipe 检查由 preflight 负责。Beads 的 claim/comment/close 统一使用 controller-operations.md 的 tracker intent/读回入口。
 - controller 派发前读取 `references/report-delivery.md` 与 `references/controller-operations.md`；后者定义准备、机械验收、comment 生成、合入和清理命令。
 
 ## 宿主能力
@@ -79,7 +79,7 @@ bd worktree create .worktrees/<parent-id> --branch implement/<parent-id>
 4. 在新 worktree 中运行 `bd worktree info --json` 和 `bd where`，确认它属于当前仓库并共享 primary `.beads` workspace。
 5. 在 implementation worktree 运行 `just install`；失败时停止。
 6. BASE gate 冒烟：运行 `just env-facts` 和 `just smoke <boundary-gate>...`，boundary gates 为未关闭 children 的 `Boundary gates` 字段所列 recipe 的去重集合（`none` 不作为参数）。冒烟失败时保留现场并停止，报告失败命令与环境缺项；修复基线或补齐环境后重跑，通过前不派发 executor。
-7. 使用 `bd update <parent-id> --claim --json` 领取 parent。
+7. 使用 tracker claim 领取 parent。
 8. 给 parent 添加一条中文批次 comment，记录 branch、worktree、批次基线完整 HEAD SHA、`just env-facts` 输出与冒烟通过的命令和结果；写入成功后才能领取 child。
 
 ## 3. 串行 ticket 循环
@@ -101,11 +101,7 @@ python3 <skill-dir>/scripts/graph.py next <parent-id> <expected-child-id>...
 
 `resume`（包括中断接续和代码修复）保留原 BASE，不同步 main。用户可在 primary 编辑、暂存和提交；新提交由下一张新票吸收。implementer/fixer 的源码写入仍限于 implementation worktree。
 
-领取仍由 controller 执行。优先使用 `tracker_operations.py` 的 controller 专用 intent/读回入口；手工恢复旧批次时才直接执行下列命令，并在写后立即只读核对：
-
-```bash
-bd update <ticket-id> --claim --json
-```
+领取由 controller 使用 tracker claim 执行；成功读回后才建立恢复点。
 
 ### 3.2 建立恢复点
 
@@ -117,7 +113,7 @@ bd update <ticket-id> --claim --json
 
 `prepare executor` 返回整票 root dispatch 和 `coordinator_model`；按该模型派发一个负责整张 ticket 的 executor，要求先读取 `<skill-dir>/agents/ticket-executor.md`。提供已验收 READY preflight 的 preflight_acceptance 来源绑定；交接 linked spec、已验证环境和冒烟证据、实际进度通信目标、规则与 schema 路径；不复制 ticket 正文。
 
-executor 内部管理 stage 0..3、实现模型和双轴 review；implementer 内部管理同 stage 最多三次 gate-fix。controller 不组织单票修复、不逐次判读 gate 日志、不审批范围内的执行计划适配。收到阶段进度时继续等待；只有最终整票交付或中断/外部阻塞才进入验收。恢复时派发原 root 上的 executor，不新建四阶段额度。
+executor 负责内部实现、阶段修复和双轴 review。controller 收到进度继续等待，只验收 root 最终交付；恢复沿用原 root，不重新授予额度。
 
 ### 3.4 验收 executor 结果
 
@@ -136,11 +132,7 @@ controller 核对整票交付来源、最终状态、必要 gates 和最后 revi
 验收成功后：
 
 1. 执行 controller 脚本的 `comment` 生成中文 completion，提供交付摘要和补证路径；核对生成的 test mode、seams、commits、验证、review、原始 smells 与证据后写入 ticket。
-2. 用明确 reason 关闭 ticket：
-
-```bash
-bd close <ticket-id> --reason "<完成内容与验证摘要>" --json
-```
+2. 使用 tracker close 关闭 ticket，绑定成功 acceptance，reason 概括完成内容与验证；先确认 completion 已成功写入。
 
 3. 回到 3.1，重新计算 frontier。
 
@@ -162,7 +154,7 @@ finalizer 默认 `gpt-5.6-terra` / `medium`；复杂证据整合可用 `gpt-5.6-
 
 `prior_finalization` 首次为 `null`；接替或重新运行最终集成时，先读取 `references/recovery-finalizer.md`。
 
-finalizer 按自身指令在同一 attempt 中完成 stage 0 初次最终验证及最多三次代码修复（stage 1..3）。每阶段至多一轮双轴 review；stage 0 的 final/gate 代码失败跳过 review 并消耗当前阶段；stage 1..3 的 fixer 可按 `references/verification.md` 使用最多三次就地 gate 修正机会，额度耗尽后交付候选仍有代码失败才结束阶段；代码导致的完整 blocking review 或 fixer 的 `code_failure` 同样推进下一阶段。中断保留原阶段 BASE、已有 commits/dirty 现场和来源；不另设无进展计数。stage 3 未通过、或遇到环境/spec/seam 等非代码阻塞时停止。最终交付（包括 `BLOCKED`）通过 final-execution.md 的 final-deliver 将已选 stage report 原字节交付到 root 后，controller 才按共享交付契约执行 `accept`。
+finalizer 自行管理最终验证、修复和 review；controller 等待 final-deliver 生成的 root 交付，包括 BLOCKED，并按共享交付契约保存收尾观察后执行 accept。中断与基线变化按 recovery-finalizer.md 区分，不自行重置 attempt。
 
 ### 4.3 controller 验收
 
@@ -185,11 +177,7 @@ finalizer 按自身指令在同一 attempt 中完成 stage 0 初次最终验证�
 3. 仅 `merged: true` 后继续；`REVIEWED_HEAD` 使用脚本返回的 `reviewed_head`。
 
 4. 给 parent 添加中文 completion comment，只记录已合入的 `REVIEWED_HEAD` 和对应 `integration-ready` comment 的 ID；完整验证、review 和 smells 证据通过该引用读取，不再复制。已有对应 completion comment 则复用。
-5. 关闭 parent，并在中文 reason 中概括 children、验证和最终 review：
-
-```bash
-bd close <parent-id> --reason "<批次完成摘要>" --json
-```
+5. 确认 completion 已写入后，使用 tracker close 关闭 parent，绑定成功 merge checkpoint；reason 概括 children、验证和最终 review。
 
 ## 6. 安全清理
 

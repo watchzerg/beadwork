@@ -1,6 +1,6 @@
 # 验证采集
 
-implementer/fixer 与新版 finalizer 的 `typecheck`、`test`、`final` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe，参数保持独立。票据要求 `just final <gate>...` 时使用 `--recipe final -- <gate>...` 采集。`fmt` 和 controller 的 `install` 沿用原入口。
+implementer/fixer 与 v2 finalizer 的 `typecheck`、`test`、`final` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe，参数保持独立。票据要求 `just final <gate>...` 时使用 `--recipe final -- <gate>...` 采集。`fmt` 和 controller 的 `install` 沿用原入口。
 
 ```bash
 python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>

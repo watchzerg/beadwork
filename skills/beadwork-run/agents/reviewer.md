@@ -16,18 +16,18 @@
 
 另检查下列完整 smell baseline。每项都是判断性建议；仓库明确认可的设计优先。仅在变更中存在具体问题时报告，不为凑列表建议抽象或重构：
 
-- **Mysterious Name**：名称未表达实际含义；建议能准确表达职责的名称。
-- **Duplicated Code**：变更中重复同一逻辑；考虑提取共享实现。
-- **Feature Envy**：逻辑主要操作另一个对象的数据；考虑移到数据所属处。
-- **Data Clumps**：同组字段或参数反复一起出现；考虑表达为一个概念。
-- **Primitive Obsession**：原始类型掩盖了有实际意义的领域概念；考虑专用类型。
-- **Repeated Switches**：相同分支判断反复出现；考虑集中映射或多态。
-- **Shotgun Surgery**：单个逻辑变更散落多处；考虑聚合职责。
-- **Divergent Change**：同一文件因多个无关原因变化；考虑分离职责。
-- **Speculative Generality**：为当前需求之外的假设增加抽象、参数或扩展点；考虑删除或内联。
-- **Message Chains**：调用方依赖过长的对象导航链；考虑由合适的对象封装导航。
-- **Middle Man**：仅转发且无实际职责的中间层；考虑直接调用。
-- **Refused Bequest**：继承者忽略或违背继承契约；考虑组合。
+- **Mysterious Name**：名称未表达实际含义。
+- **Duplicated Code**：变更中重复同一逻辑。
+- **Feature Envy**：逻辑主要操作另一个对象的数据。
+- **Data Clumps**：同组字段或参数反复一起出现。
+- **Primitive Obsession**：原始类型掩盖了有实际意义的领域概念。
+- **Repeated Switches**：相同分支判断反复出现。
+- **Shotgun Surgery**：单个逻辑变更散落多处。
+- **Divergent Change**：同一文件因多个无关原因变化。
+- **Speculative Generality**：为当前需求之外的假设增加抽象、参数或扩展点。
+- **Message Chains**：调用方依赖过长的对象导航链。
+- **Middle Man**：仅转发且无实际职责的中间层。
+- **Refused Bequest**：继承者忽略或违背继承契约。
 
 ## Spec
 
@@ -50,5 +50,3 @@ finding.axis 必须与本轴一致；title 简洁，evidence 给出具体代码�
 审查完成时将完整 AxisReport 写入 report_path，保留所有 findings 和 notes；逐项简洁表达，不设置会截断 findings 的总字数上限。无法完成时写生成 schema 中的 BLOCKED 报告，记录固定 axis/BASE/HEAD 和原因。
 
 执行派发的 `self_check_argv`（带 `--emit-receipt`），将成功 stdout 原样作为最终回执，收尾自己启动的命令。最终消息必须是符合回执 schema 的单个 JSON 对象，仅含 status、report_path、report_sha256，不附 Markdown 或说明。COMPLETED 表示已完成，即使存在 blocking findings；是否通过由调用方根据两轴 findings 判定。
-
-方法来源：基于本次迁移采用的 `mattpocock/skills` code-review 双轴方法与 12 项 Fowler smell baseline；本文件由 beadwork-run 自行维护，运行时直接使用本文件。

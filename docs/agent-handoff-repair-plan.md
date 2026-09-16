@@ -147,7 +147,7 @@ python3 <skill-dir>/scripts/executor-operations.py final-deliver \
 | 4 | 必要 dispatch 输入、reviewer 证据与恢复事实补充 | 从前述检查点自动生成来源，减少人工转填 |
 | 5 | final-deliver、收尾确认与协议文档收敛 | 依赖稳定的选择/验收入口；完成 controller 全链路负例 |
 
-每步同时更新相关脚本测试和对应角色/参考文档，避免中间交付出现“文档已要求、CLI 尚不支持”。不创建真实 Beads tickets，不改变消费项目配置。正式修改 skill 源码前，先解析本地安装真实路径并确认相关运行已停止；本方案文档不改变当前 skill 执行。
+每步同时更新相关脚本测试和对应角色/参考文档，避免中间交付出现“文档已要求、CLI 尚不支持”。不创建真实 Beads tickets，不改变消费项目配置。正式修改 skill 源码前，先解析本地安装真实路径；本方案文档不改变当前 skill 执行。
 
 **历史证据与协议过渡**
 

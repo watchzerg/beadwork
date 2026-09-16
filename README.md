@@ -85,7 +85,9 @@ AGENTS.md 的接入片段不会自动安装工具、初始化 Beads 或实现目
 
 源码在本仓库的 `skills/beadwork-run/` 维护。本机 skill 发现目录中的 `beadwork-run` 可以用整个目录的 symlink 指向这里，使开发和使用共享同一份文件。
 
-修改后即可在下一次读取时使用磁盘内容，无需先 commit 或 push。本地 commit 用于保存可回退的版本，push 频率独立决定。正在运行的 agent 可能已经读取旧指令，因此在一次执行结束或确认停止后修改，再开始下一轮验证。
+修改后即可在下一次读取时使用磁盘内容，无需先 commit 或 push。本地 commit 用于保存可回退的版本，push 频率独立决定。
+
+维护者注意：正在运行的 agent 可能已经读取旧指令，后续读取又可能取得修改后的内容。是否避开正在进行的运行，由维护者自行判断；这不是 AI 修改源码前需要核实或请求确认的条件。
 
 从仓库根目录运行现有脚本回归测试：
 
@@ -99,4 +101,4 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s skills/beadwork-run
 
 ## 来源与致谢
 
-Beadwork 的部分工程方法参考并衔接 [mattpocock/skills](https://github.com/mattpocock/skills)。Beadwork 自行维护 ticket graph 执行、验证、证据交付和恢复控制逻辑。
+Beadwork 的部分工程方法参考并衔接 [mattpocock/skills](https://github.com/mattpocock/skills)。Beadwork 自行维护 ticket graph 执行、验证、证据交付和恢复控制逻辑。内置 reviewer 采用 Standards / Spec 双轴方法与 12 项 Fowler smell baseline；运行时直接读取本仓库的角色指令。

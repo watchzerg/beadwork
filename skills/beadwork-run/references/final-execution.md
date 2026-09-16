@@ -45,10 +45,10 @@ DONE 需当前 HEAD 的完整 final/gates；code_failure 需三次 gate-fix 已�
 按 review.md 派两轴；review-prepare 校验验证来源及 fixer 选择，并固定唯一 round。只剩半成品准备时使用 `review-prepare --resume`；已完成 round 从 final-stage 返回值恢复。review-collect 同时保存 selected_review。同 round 更正使原 selected_stage 失效，重新组装后才可交付或推进。
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py final-assemble --dispatch <stage-dispatch.json> --draft <draft.json> --output <stage-report.json> --fixers <fix-source-list.json> [--review <collection.json> ...]
+python3 <skill-dir>/scripts/executor-operations.py final-assemble --dispatch <stage-dispatch.json> --draft <draft.json> --output <stage-report.json>
 ```
 
-draft 提供 status、outcome、boundary_gates、gate_sources、verification_notes、blockers、remaining_work、stopped_tasks、sources；verification 可填 []，实际记录由组装器生成。--fixers 是按执行顺序排列的全部已选 dispatch/report/receipt 绑定数组；--review 提供 prior_reviews 加 selected_review，不得省略、更换或重开 round。组装器生成阶段 receipt 并追加 selected_stage；stdout 同样为短回执。
+draft 提供 status、outcome、boundary_gates、gate_sources、verification_notes、blockers、remaining_work、stopped_tasks、sources 和 verification（通常 []）。v2 组装器从检查点读取已选 fixer 与 prior_reviews/selected_review，生成运行记录、review_rounds、阶段 receipt 并追加 selected_stage；stdout 为短回执。不手工拼接来源数组。历史显式参数见 recovery-finalizer.md。
 
 stage 0 的实测代码失败或完整代码类 blocking review 允许推进；修复阶段无完整 blocking review 时，必须由本阶段 fixer 的 code_failure 支撑推进。非代码阻塞停留原 stage。
 

@@ -2,15 +2,41 @@
 
 controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent。除本文件明确列出的 `tracker_operations.py` 外，其余脚本不写 Beads；tracker 入口也只能由 controller 在前置证据完整时调用。controller 负责交付契约验收、异常证据追查和 writer 收尾确认；单票实现与测试的日常语义验收由 executor 负责。
 
-## 初始化、tracker 与恢复事实
+## Beads 写入
 
-新批次可用 `batch_initialize.py prepare/execute` 绑定 READY preflight acceptance、固定 children、main SHA、安装输入和 boundary gates。它以 append-only step/result/log 执行 worktree 创建、`install`、`env-facts`、`smoke` 和 parent claim；恢复必须复用原 intent。已有 branch 但缺 worktree、dirty worktree 或步骤结果不成功时停止，不重置现场。
+claim、start/completion/stop comment、close 均通过 controller 专用入口，先核对当前步骤前置条件：
 
-`tracker_operations.py prepare/execute` 仅支持 `claim`、`comment`、`close`。每次操作先保存 intent，写入后用只读 `show/comments` 读回；comment 带 intent hash marker，close 必须绑定成功前置来源。未知结果先读回协调，不盲目重发。claim 已由其他 assignee 完成时拒绝采用。
+```bash
+python3 <skill-dir>/scripts/tracker_operations.py prepare --input <operation.json> --output <intent.json>
+python3 <skill-dir>/scripts/tracker_operations.py execute --intent <intent.json>
+```
 
-`batch_evidence.py inspect` 只读汇总 Git、worktree、checkpoint 与未完成 intent；多个候选报告冲突，不按时间选择。`manifest` 从固定 children 的 ticket acceptance 生成 gate/commit 边界，`summary` 将机器事实与 controller 提供的原因、不确定性和建议组合成待核对文本；这些命令不写 tracker。
+operation 公共字段为 repository_root（primary 绝对路径）、parent_id、issue_id、kind；按操作补充：
 
-使用 `python3 <skill-dir>/scripts/controller.py <command>`。成功 stdout 为 JSON；失败非零退出并在 stderr 返回原因，按 SKILL.md 停止处理。证据文件使用新文件名，不覆盖历史。所有输入路径使用绝对路径；输入 JSON 由 controller 根据已核实事实编写，不执行历史记录中的命令。
+| kind | 输入与 controller 前置核对 |
+| --- | --- |
+| claim | expected_assignee：实际领取身份；parent 需 install/smoke 通过，child 需刷新后的 claim frontier 与 sync_result |
+| comment | body：核对后的完整正文；completion/integration-ready 使用 controller comment 生成正文，保留其 JSON 身份块 |
+| close | reason、prerequisite（path/sha256）；child 绑定成功 acceptance，parent 绑定成功 merge checkpoint；controller 另核对对应 completion 已写入 |
+
+脚本保存 intent，写后读回 show/comments；它验证 prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。execute 成功返回 before/after、already_applied 和 write_exit_code；comment 的实际 ID 由 controller 用 `bd comments <id> --json` 按正文中的 `beadwork-operation:<intent SHA-256>` marker 唯一读回，再用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。
+
+未知结果使用原 intent 重试，先读回协调；不创建新 intent 盲目重发。claim 竞争失败重新计算 frontier；已由其他身份领取时不采用。旧批次没有 intent 的已完成操作先读回确认，不重复发布。
+
+## 初始化与恢复事实
+
+新批次按 SKILL.md 第 2 节唯一的初始化路线执行：bd worktree 创建及 workspace 核对、install/env-facts/smoke、tracker claim/comment。现有 batch_initialize.py 尚未核对共享 Beads workspace，不作为默认替代入口；已有该脚本 intent 时保留来源，按 recovery-batch.md 核对实际完成步骤。
+
+必要时使用只读事实入口，不能用它替代明确报告选择或宿主停止观察：
+
+```bash
+python3 <skill-dir>/scripts/batch_evidence.py --output <facts.json> inspect --repository-root <primary> --parent-id <parent-id>
+python3 <skill-dir>/scripts/batch_evidence.py --output <manifest.json> manifest --input <manifest-input.json>
+```
+
+manifest-input 为 parent_id、固定 expected_children、按该顺序一一对应的成功 ticket acceptance bindings。输出 tickets 和 required_boundary_gates；controller 核对实际补充边界，并继续交接原始 ticket/completion pointers，不能用 manifest 替代 review findings 或顺序执行记录。历史批次缺 acceptance 时保留原始成功证据，不伪造 binding。
+
+以下 controller.py 命令成功 stdout 为 JSON，非零退出停止；证据使用新文件名，输入路径均为绝对路径。
 
 ## 更新 primary 的本地 main
 
@@ -57,7 +83,7 @@ python3 <skill-dir>/scripts/controller.py prepare <preflight|executor|finalizer>
 
 executor prepare 建立整票 root dispatch，返回 `coordinator_model`。`complex_ticket: true` 提高协调与实现起点；controller 不填写 stage/models/prior_reviews，也不传 repair。恢复提供原 root 的 `previous_dispatch` 和完整 BASE；返回原 root，不新建 stage 或重置额度。执行阶段、模型、implementer 和计划适配由 executor 使用 `ticket-execution.md` 的入口管理。
 
-finalizer root dispatch 只建立 attempt 身份；finalizer 再调用 `executor-operations.py final-stage` 建立 stage 0..3。stage 0 没有 fixer；stage 1/2/3 分别派 `gpt-5.6-sol` / `medium`、`gpt-5.6-sol` / `medium`、`gpt-6-astra` / `medium` fixer。每阶段最多一轮完整双轴 review。stage 0 的 final/gate 代码失败跳过 review；后续 fixer 的最多三次就地 gate 修正按 `verification.md` 执行。代码导致的完整 blocking review 或 fixer 正式返回的 `code_failure` 都由 finalizer 组装为 `code_failure` 并以 `repair` 进入下一阶段；外部、环境、需求或 seam 阻塞不推进。stage 3 仍不能通过时停止。
+finalizer root dispatch 建立 attempt 身份；finalizer 使用 final-stage 管理阶段、模型及修复，controller 等待 root 终态。具体流程由 agents/finalizer.md 和 final-execution.md 定义。
 
 同一 main 基线的 finalizer 重跑必须提供 `prior_finalization.stage_path`，恢复原 attempt，不重置 stage、BASE、历史来源或 dirty 修复现场。只有 main 实际变化或用户明确额外修复授权才传 `new_attempt_reason` 建立新 attempt，且需干净现场。历史 v1 格式读取仍保留；v2 恢复不能缺少严格检查点和实测来源。旧格式导入除旧报告外还必须给 `legacy_dispatch`、`legacy_receipt`、全部 `legacy_reviews`，以及有 fixer 时的 dispatch/report/receipt 来源；导入只读取并绑定，不改写旧证据。
 
@@ -75,7 +101,7 @@ python3 <skill-dir>/scripts/controller.py accept --dispatch <dispatch.json> --re
 
 复用现有 verifier 检查报告、回执和身份；executor 另核验整票 root、阶段和 implementer 来源链并执行现有 Git 验收，finalizer 检查实际 branch/HEAD、ancestry、`.beads`，成功状态要求 implementation worktree 干净。非成功报告按原状态规则允许部分证据和未提交工作。成功输出并保存绑定 dispatch/report/receipt hash 的机械验收记录；校验失败不生成通过记录。
 
-`mechanical_acceptance` 不等于语义验收通过；controller 仍按 SKILL.md 核对代码、日志、需求和 reviewer 证据。
+`mechanical_acceptance` 不等于语义验收通过；controller 按 SKILL.md 核对交付与集成条件；仅在矛盾、缺证或越界时追查源码、日志和原始 reviewer 证据。
 
 ## 生成完成 comment
 
@@ -85,7 +111,7 @@ controller 完成交付验收后调用：
 python3 <skill-dir>/scripts/controller.py comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
 ```
 
-只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、验证记录、review 次数、当前阶段及模型、原始非阻塞 smells 和证据路径。controller 用 `--evidence` 加入更正前的报告、补证或 fetch fallback 等额外证据，核对正文并补足本轮必要说明后，用 `bd comments add <id> -f <completion-N.md> --json` 写入。integration-ready 中的 JSON 身份块保持原样。
+只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、验证记录、review 次数、当前阶段及模型、原始非阻塞 smells 和证据路径。controller 用 `--evidence` 加入更正前的报告、补证或 fetch fallback 等额外证据，核对正文并补足本轮必要说明后，将全文作为 tracker comment 的 body 写入。integration-ready 中的 JSON 身份块保持原样。
 
 ## 合入本地 main
 

@@ -15,4 +15,6 @@
 - 尚无该记录：仅在 worktree 干净、没有本批次 child start comment 且没有 `in_progress` child 时，按初始化未完成处理。从当前 HEAD 重跑 SKILL.md 第 2 节第 6 步；通过后，parent 为 `open` 则执行 SKILL.md 第 2 节第 7 步，已由本次领取则跳过 claim，再补 SKILL.md 第 2 节第 8 步。
 - 其他状态不一致或已有 ticket 工作却缺少基线证据：保留现场并停止。
 
+已有 batch_initialize.py intent 的批次先核对原步骤记录与实时现场，并补查 `bd worktree info --json` / `bd where` 的共享 workspace。ready.json 不能替代这项核对或批次 comment；失败/不明步骤保留原件，按上述初始化未完成条件处理，不盲目重放 claim。
+
 已有冒烟通过的批次在下一次 `claim` 前仍执行 `sync-main`；它自动恢复 `main-sync/` 下未完成的同步，不以 main 已在当前历史中替代验证。先确认旧同步命令已结束，再按 `controller-operations.md` 使用原同步输入恢复。存在 merge 冲突时保留现场并停止，解决并提交后恢复；当前票 `resume` 不进入同步。

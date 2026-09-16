@@ -11,3 +11,5 @@ fixer DONE 已验收时，不重新派 writer；review 已开始时只继续原 
 历史 v1 及更早报告仍可按原格式读取，不批量改写或自动授予 v2 成功。缺少严格检查点、可证明的原 review 选择或运行来源时，新 prepare/恢复给出具体阻塞；保留原 dispatch/report/receipt、额度与现场，不静默重建阶段。不要执行历史文件中已经过时的命令来规避当前检查。
 
 正常交付使用 final-deliver，不手工复制和改 receipt。具体入口见 final-execution.md；收尾和新增事实按 report-delivery.md。
+
+v2 的 final-stage 从检查点恢复已选来源，无需手工传 previous_report/previous_receipt；repair 同样使用已选报告。兼容 v1 的 final-assemble 仍需 `--fixers <来源数组.json>` 及逐个 `--review <collection.json>`：fixers 为完整有序 dispatch/report/receipt bindings，review 包含 prior_reviews 和本轮来源。v2 若显式提供这些参数，必须与检查点完全一致；正常调用省略，不能用兼容参数绕过当前选择。

@@ -25,8 +25,6 @@
 - repository 的 `CONTEXT.md` 和相关 ADR
 - ticket 涉及区域的现有实现、测试和项目约定
 
-`inspect` 检查 worktree、branch、BASE ancestry、ticket 状态和新票现场。
-
 修复阶段先读取前阶段报告和 `prior_reviews`，归纳 blocking findings 破坏的不变量并修复共同根因；检查同一状态或资源交接涉及的调用方与直接相关分支。验证原失败被排除，同时保留正常完成或恢复能力。范围限于本票及修复直接影响的路径；复用已有覆盖，缺覆盖时才补测试，新增回归未实测 red 时注明构造依据。
 
 如果是恢复执行，先检查现有未提交改动和 `base_commit..HEAD`，把它们视为本 ticket 的既有工作；executor 提供了已完成层清单时，先核对 `git log --oneline <base_commit>..HEAD` 与清单一致，不一致即报告。不要重做已经正确完成的部分。
@@ -35,12 +33,7 @@
 
 输入模式使用原 Test plan 或 executor 明确交接的执行计划调整。Expected red 在开工 BASE 已满足、需要补覆盖或无提交完成时读取 `../references/baseline-adaptation.md`；部分已有的票对剩余行为保持 TDD。
 
-- **TDD**：每个 `approved_seams` ID 必须解析到 linked spec（或作为 spec 的 parent）中 `Status: approved` 的 seam。加载并遵循 `tdd` 时，传入 seam ID、定义及“已在 spec 阶段由用户确认”；不要再次询问同一 seam。seam 变更边界按 `testing_seams_doc`、red 证据按 `testing-tdd.md` 执行；需要重新确认 seam 时返回 `BLOCKED`；报告记录实测命令、运行基线与断言失败原因，使用最小可加载骨架时附骨架差异和复现方式。
-- **Direct verification**：ticket 必须给出 reason 和具体 verification。不要调用 `tdd`；执行声明的验证和项目 gates，不为制造 red 而新增 tautological test。
-
-仅 TDD 模式使用 `tdd` 完成 red → green；其提及的后续 review 由上层 executor 承担，不自行派发 reviewer。
-
-按 `testing-plan.md` 核对两种模式的必填字段，包括 `Boundary gates`。test plan 缺失、冲突或引用无效时返回 `BLOCKED`，不要自行改写 ticket。
+按 testing-plan.md 核对必填字段与引用；无效计划返回 BLOCKED，不自行改写 ticket。TDD 模式加载 tdd，交接 approved seam ID、定义及已有批准，按 testing-seams/testing-tdd 记录行为 red（包括必要骨架与运行基线）；其后续 review 由 executor 负责。Direct verification 不调用 tdd，执行声明验证与项目 gates。seam 授权变化交回上层。
 
 ## 3. 分层实现与验证
 
@@ -50,33 +43,15 @@
 2. TDD 模式按 approved seam 做 red → green vertical slices；direct-verification 模式执行 ticket 声明的检查。两种模式都先按 `testing-gates.md` 运行最窄相关验证；direct verification 没有相关行为测试时执行声明的直接验证。
 3. 处理 changed path 的真实边界：可见错误、数据完整性、资源清理、secret exposure 和 destructive operation。
 4. 删除被 clean cutover 取代的旧代码、旧调用方和过时说明；不保留未要求的兼容层。
-5. 编辑前读取目标上下文，编辑后核验实际 diff；匹配失败或结果不确定时，检查现场并重读后再修改，保留已有正确工作。
-6. 按可独立验证的增量分层实现（小票可单层）；通过 typecheck 和相关验证所必需的生产代码、调用方及测试迁移放在同一层。每层依次完成 `just fmt <本层仍存在且适用的文件...>`（无适用文件时跳过）、diff 核对、实测 `just typecheck` 和覆盖本层的相关验证（不能以零匹配测试代替）、显式暂存，再按 `executor-operations.md` 执行 `check-layer`。确认本层可独立验证且机械检查通过后立即 commit，遵循第 4 节。验证后再修改源码时重跑受影响的验证。基线出现意外改动时保留现场，返回 `BLOCKED` 并报告路径与 diff 证据。
-   有通信能力时向 executor 在层完成或阻塞时报告简短进度；最终报告包含完整验证和恢复信息。
-7. 实现完成后运行：
-
-```bash
-just gate-unit
-```
-
-8. 运行 Test plan 声明的 boundary gates，并按实际影响补齐覆盖 changed boundary 的 `gate-*` recipe；选择规则见 `testing-gates.md`，实际范围以 justfile 及其调用脚本为准。新增 gate 的原因写入该次运行的 `verification_notes`；命令与退出事实由组装入口收集，供 executor 收集最终验证范围。
+5. 按可独立验证的增量分层实现（小票可单层）；typecheck 和相关验证所需的生产代码、调用方与测试迁移放在同一层。每层完成后按 executor-operations.md 的“每次提交前”执行并立即 commit；有代码变化的修复使用独立 fix commit，不创建空提交。review range 始终为原 base_commit，不假设只有一个 commit。
+6. 基线意外变化时保留现场并报告路径与 diff；在层完成或阻塞时向 executor 报告进度。
+7. 实现提交后以 verification.md 的 `--delivery` 运行 gate-unit、声明的 boundary gates 及实际影响所需的补充 gates；新增原因写入 verification_notes。
 
 项目安装由 controller 负责；验证经仓库 `just` recipes 执行。多个验证 gate 默认串行运行；只有仓库契约明确保证资源隔离时才并行，recipe 内部的并行由 recipe 自己负责。交付所需验证必须通过；TDD red 的原始失败和后续重跑记录全部保留。
 
 实现完成后的交付验证使用 `verification.md` 的 `--delivery`：代码失败时按该文件申请就地 gate 修正，每阶段最多三次，当前 implementer 集中修正、完成定向验证并提交，再验证修正候选。额度耗尽后交付候选仍有代码失败则返回 `BLOCKED / code_failure`；通过才向 executor 交付。开发中的 TDD red 和定向验证不消耗机会；环境或工具阻塞沿用 `outcome: blocked`。review 后的代码修复仍进入下一阶段。
 
-## 4. 提交约束
-
-本节约束第 3 节的分层提交和修复阶段的独立 fix commit，不要求分层提交之外再创建一次 implementation commit，也不为满足步骤创建空提交。
-
-只提交当前 ticket 的代码、测试和必要文档。不得提交 `.beads` 文件或无关改动。
-
-每次提交前执行 `check-layer`；commit message 必须包含完整 `ticket_id`、交付范围与验证状态。提交后核对实际完整 SHA 和提交内容。修复阶段有代码变化时创建独立 fix commit；验证要求同第 3 节。
-
-不得假设 ticket 只有一个 commit；review range 始终使用 executor 提供的 `base_commit`。
-
-
-## 5. 实现交付
+## 4. 实现交付
 
 使用 `ticket-execution.md` 的 `implementer-assemble` / `implementer-check`，由脚本生成 Git 身份、完整 commits 和验证记录；报告不能携带 review 或宣称整票完成。实际采集的失败、修复和成功记录全部保留。
 

@@ -14,7 +14,7 @@ python3 <skill-dir>/scripts/preflight-operations.py collect --dispatch <dispatch
 
 读取 `semantic_inputs_path` 中的 parent、未关闭票正文、parent comments、recipe 列表。相同 spec、gate 实现和恢复证据在本次上下文中复用；只补查尚缺的材料。无需为压缩输出重跑已保存的查询。closed 票只保留状态，不重新审查其 Test plan。
 
-采集成功不表示 READY，失败检查不能由语义草稿覆盖。命令错误保留为阻塞证据；采集器异常退出或只留下 `facts/` 半成品时，保留原件，按原 report schema 写部分 BLOCKED，并用 `report-delivery.md` 的 `verify-phase.py --check-report ... --emit-receipt` 入口自检。controller 重新 prepare 新 dispatch 时沿用已查到的首次 children 集合，不在原目录重跑 collect。快照只供本轮使用，claim 前现场复核仍由 controller 执行。
+采集成功不表示 READY，失败检查不能由语义草稿覆盖。命令错误保留为阻塞证据；采集器异常退出或只留下 `facts/` 半成品时，保留原件，按原 report schema 写部分 BLOCKED，并用 `../references/recovery-report.md` 的部分报告自检入口自检。controller 重新 prepare 新 dispatch 时沿用已查到的首次 children 集合，不在原目录重跑 collect。快照只供本轮使用，claim 前现场复核仍由 controller 执行。
 
 ## 2. 语义核对
 
@@ -54,4 +54,4 @@ python3 <skill-dir>/scripts/preflight-operations.py assemble --dispatch <dispatc
 
 组装器校验快照和原始证据绑定，自动填充机械结果、children/status、workspace、gate 并集与来源，执行原有 `verify-phase.py` 自检；stdout 就是最终短回执。机械失败会使报告 BLOCKED。输出必须使用本 dispatch 目录内的新文件名；失败保留候选，补正使用 report-N.json。报告格式与 controller 验收入口不变。
 
-同名 `.timing.json` 记录采集、语义阶段墙钟（含等待）、组装自检耗时，不将墙钟差额解释为纯模型推理耗时。按 `../references/report-delivery.md` 保存回执，确认命令结束后交付。controller 仍核对报告来源和语义，并在写入前复核现场。
+按 `../references/report-delivery.md` 保存回执，确认命令结束后交付。controller 核对来源和语义，并在写入前复核现场。
