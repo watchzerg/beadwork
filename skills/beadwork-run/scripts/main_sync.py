@@ -1,14 +1,12 @@
 """新票前同步本地 main；由 controller 调用，保留可恢复的合并和验证证据。"""
 from pathlib import Path
-import importlib.util
 import json
 import re
-import signal
 import subprocess
-import time
 import uuid
 
 import controller as c
+import process_runner
 
 
 def ancestor(wt, base, head):
@@ -38,33 +36,13 @@ def command(d, directory, argv):
     folder = directory / ('command-' + uuid.uuid4().hex)
     folder.mkdir()
     c.write(folder / 'started.json', {'argv': argv, 'head': c.sha(d['worktree'], 'HEAD')})
-    spec = importlib.util.spec_from_file_location('sync_runner', c.SCRIPTS / 'run-verification.py')
-    runner = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(runner)
-    interrupted, handlers = [], {}
-    process = None
-    stopped = True
-    try:
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            handlers[sig] = signal.signal(sig, lambda value, frame: interrupted.append(value))
-        with (folder / 'output.log').open('xb') as log:
-            process = subprocess.Popen(argv, cwd=d['worktree'], stdin=subprocess.DEVNULL,
-                                       stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            while process.poll() is None and not interrupted:
-                time.sleep(0.05)
-            if interrupted or runner.group_exists(process.pid):
-                stopped = runner.stop(process)
-                interrupted.append(True)
-    finally:
-        if process is not None and (process.poll() is None or runner.group_exists(process.pid)):
-            stopped = runner.stop(process)
-        for sig, handler in handlers.items():
-            signal.signal(sig, handler)
+    executed = process_runner.run(argv, d['worktree'], folder / 'output.log')
     result = {'argv': argv, 'started_sha256': c.digest(folder / 'started.json'),
-              'exit_code': process.returncode, 'interrupted': bool(interrupted),
-              'process_group_gone': stopped, 'log_sha256': c.digest(folder / 'output.log')}
+              'exit_code': executed['exit_code'], 'interrupted': executed['outcome'] == 'interrupted',
+              'process_group_gone': executed['process_group_gone'],
+              'recorder_error': executed['error'], 'log_sha256': c.digest(folder / 'output.log')}
     c.write(folder / 'result.json', result)
-    c.require(not interrupted and stopped and process.returncode == 0,
+    c.require(executed['outcome'] == 'exited' and executed['process_group_gone'] and executed['exit_code'] == 0,
               '同步命令失败或中断；保留现场，日志：' + str(folder / 'output.log'))
     return str(folder / 'result.json')
 

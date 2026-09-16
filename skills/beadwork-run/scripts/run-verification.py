@@ -18,6 +18,8 @@ import uuid
 
 sys.dont_write_bytecode = True
 import controller as c
+import evidence
+import process_runner
 
 
 def absolute(path):
@@ -27,11 +29,7 @@ def absolute(path):
 
 
 def digest(path):
-    h = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    return evidence.digest(path)
 
 
 def write(path, value):
@@ -54,35 +52,8 @@ def state(d):
     return {"head": c.sha(d["worktree"], "HEAD"), "status": c.status(d["worktree"])}
 
 
-def group_exists(pid):
-    try:
-        os.killpg(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-
-
-def send(pid, sig):
-    try:
-        os.killpg(pid, sig)
-    except ProcessLookupError:
-        pass
-
-
-def stop(process):
-    """只处理本次专属进程组；外部资源及脱离该组的进程由调用者核对。"""
-    send(process.pid, signal.SIGTERM)
-    deadline = time.monotonic() + 2
-    while group_exists(process.pid) and time.monotonic() < deadline:
-        process.poll()
-        time.sleep(0.05)
-    if group_exists(process.pid):
-        send(process.pid, signal.SIGKILL)
-    try:
-        process.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        return False
-    return not group_exists(process.pid)
+group_exists = process_runner.group_exists
+stop = process_runner.stop
 
 
 def tail(path):
@@ -136,60 +107,29 @@ def run(args):
     write(directory / "started.json", started)
     print(json.dumps({"run_path": str(directory)}, ensure_ascii=False), file=sys.stderr, flush=True)
     began = time.monotonic()
-    interrupted = []
-    handlers = {}
-    process = None
     after = None
-    error = None
-    outcome = "recorder_error"
-    stopped = True
-    code = None
     log = directory / "output.log"
+    executed = process_runner.run(argv, d["worktree"], log, executable=executable)
     try:
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            handlers[sig] = signal.signal(sig, lambda value, frame: interrupted.append(value))
-        with log.open("xb") as output:
-            process = subprocess.Popen(argv, executable=executable, cwd=d["worktree"], stdin=subprocess.DEVNULL,
-                                       stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
-            while process.poll() is None and not interrupted:
-                time.sleep(0.05)
-            if interrupted:
-                stopped = stop(process)
-                outcome = "interrupted"
-            elif group_exists(process.pid):
-                stopped = stop(process)
-                outcome = "recorder_error"
-                error = "主命令退出后仍有同组进程，已尝试收尾；需核对日志与资源"
-            else:
-                outcome = "exited" if process.returncode >= 0 else "interrupted"
-            code = process.returncode
         after = state(d)
-        if before != after and outcome == "exited":
-            outcome = "state_changed"
     except Exception as exc:
-        error = str(exc)
-        outcome = "recorder_error"
-    finally:
-        if process is not None and (process.poll() is None or group_exists(process.pid)):
-            stopped = stop(process)
-            code = process.returncode
-        for sig, handler in handlers.items():
-            signal.signal(sig, handler)
+        executed.update(outcome="recorder_error", error=str(exc))
+    if before != after and executed["outcome"] == "exited":
+        executed["outcome"] = "state_changed"
     result = {"started_sha256": digest(directory / "started.json"), "ended_ns": time.time_ns(),
-              "duration_seconds": round(time.monotonic() - began, 3), "outcome": outcome,
-              "exit_code": code, "cancel_signal": interrupted[0] if interrupted else None,
-              "process_group_gone": stopped, "after": after, "error": error,
+              "duration_seconds": round(time.monotonic() - began, 3), **executed, "after": after,
               "log_sha256": digest(log), "log_bytes": log.stat().st_size}
     # 部分文件永远不能被当作完整终态；SIGKILL 时保留 started/log。
     pending = directory / "result.pending"
     write(pending, result)
     pending.rename(directory / "result.json")
     summary = {"run_path": str(directory), "command": shlex.join(argv),
-               "outcome": outcome, "exit_code": code, "duration_seconds": result["duration_seconds"],
+               "outcome": executed["outcome"], "exit_code": executed["exit_code"], "duration_seconds": result["duration_seconds"],
                "head": before["head"], "dirty": bool(before["status"]),
-               "log_path": str(log), "log_tail": tail(log), "error": error}
+               "log_path": str(log), "log_tail": tail(log), "error": executed["error"]}
     print(json.dumps(summary, ensure_ascii=False))
-    return (0 if code == 0 else 1) if outcome == "exited" else (3 if outcome == "interrupted" else 2)
+    return ((0 if executed["exit_code"] == 0 else 1) if executed["outcome"] == "exited"
+            else (3 if executed["outcome"] == "interrupted" else 2))
 
 
 def collect(current_path, prior_paths, notes, report_status, snapshots=None):

@@ -2,8 +2,9 @@
 from pathlib import Path
 import json
 import controller as c
+import workflow_policy
 
-MAX_REPAIRS = 3
+MAX_REPAIRS = workflow_policy.MAX_GATE_REPAIRS
 
 
 def inherit(d, previous=None):

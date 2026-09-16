@@ -16,13 +16,16 @@ import json
 import os
 from pathlib import Path
 import sys
+import schema_validation
+import review_schema
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("ticket_validator", Path(__file__).with_name("verify-ticket.py"))
 assert spec and spec.loader
 v = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v)
-TEXT, SHA, TEXTS, obj = v.TEXT, v.SHA, v.TEXTS, v.object_schema
+TEXT, SHA, TEXTS, obj = (schema_validation.TEXT, schema_validation.SHA,
+                         schema_validation.TEXTS, schema_validation.object_schema)
 ROLES = ("fixer", "reviewer", "implementer")
 
 
@@ -145,13 +148,13 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "--receipt-schema" and argv[1] in ROLES:
         print(json.dumps(receipt_schema(argv[1]), ensure_ascii=False)); return
     if len(argv) == 2 and argv[0] == "--schema" and argv[1] in ROLES:
-        axis = v.axis_report_schema(); v.check_schema(axis)
-        schema = report_schema(argv[1], axis); v.check_schema(schema)
+        axis = review_schema.axis_report_schema(); schema_validation.check_schema(axis)
+        schema = report_schema(argv[1], axis); schema_validation.check_schema(schema)
         print(json.dumps(schema, ensure_ascii=False)); return
     if len(argv) not in (5, 6) or argv[0] != "--check-report" or argv[1] not in ROLES or argv[-2] != "--expected":
         raise ValueError("用法：--check-report <role> <report> [receipt] --expected <dispatch>")
     role, path = argv[1:3]
-    axis = v.axis_report_schema(); v.check_schema(axis)
+    axis = review_schema.axis_report_schema(); schema_validation.check_schema(axis)
     report, digest = v.read_json(path)
     expected, _ = v.read_json(argv[-1])
     failures = validate(role, report, axis, expected)

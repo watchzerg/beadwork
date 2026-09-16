@@ -15,9 +15,10 @@ import uuid
 sys.dont_write_bytecode = True
 import controller as c
 import evidence
+import review_operations
 
 
-AXES = ("standards", "spec")
+AXES = review_operations.AXES
 
 
 def load(path):
@@ -29,9 +30,7 @@ def fail(message):
 
 
 def absolute(path):
-    p = Path(path)
-    c.require(p.is_absolute() and p.resolve() == p, "需要无 symlink 的绝对路径")
-    return p
+    return evidence.absolute(path)
 
 
 def output_path(path, directory):
@@ -42,13 +41,11 @@ def output_path(path, directory):
 
 
 def binding(path):
-    return {"path": str(absolute(path)), "sha256": c.digest(path)}
+    return evidence.binding(path)
 
 
 def bound(item):
-    path = absolute(item["path"])
-    c.require(c.digest(path) == item["sha256"], "证据文件已变化：" + str(path))
-    return path
+    return evidence.bound(item)
 
 
 def dispatch(path):
@@ -115,11 +112,6 @@ def prepare_review(args):
                  else ticket_execution.reserve_review(d, getattr(args, 'resume', False)) if ticket_review
                  else absolute(args.dispatch).parent / ("review-" + uuid.uuid4().hex))
     directory.mkdir(exist_ok=True)
-    def write_review(path, value):
-        if Path(path).exists():
-            c.require(load(path) == value, 'review 准备半成品与当前身份不符')
-        else:
-            c.write(path, value)
     record = {"dispatch": binding(args.dispatch), "reviewed_base": base,
               "reviewed_head": head, "axes": {}, "review_kind": review_kind, "acceptance_evidence": evidence}
     commits = c.git(d["worktree"], "log", "--format=%H %s", base + ".." + head)
@@ -143,12 +135,12 @@ def prepare_review(args):
             identity.update(stage=d["stage"], **d["models"][axis])
         identity["self_check_argv"] = [sys.executable, "-B", str(c.SCRIPTS / "verify-worker.py"),
             "--check-report", "reviewer", identity["report_path"], "--expected", identity["dispatch_path"], "--emit-receipt"]
-        write_review(identity["report_schema_path"], worker("--schema"))
-        write_review(identity["receipt_schema_path"], worker("--receipt-schema"))
-        write_review(identity["dispatch_path"], identity)
+        review_operations.publish_or_match(identity["report_schema_path"], worker("--schema"))
+        review_operations.publish_or_match(identity["receipt_schema_path"], worker("--receipt-schema"))
+        review_operations.publish_or_match(identity["dispatch_path"], identity)
         record["axes"][axis] = binding(identity["dispatch_path"])
     path = directory / "round.json"
-    write_review(path, record)
+    review_operations.publish_or_match(path, record)
     if final_state.strict(d):
         final_state.bind_round(d, path)
     if ticket_review:
@@ -164,10 +156,9 @@ def pair_from_sources(round_path, sources):
     if base == record["reviewed_head"]:
         c.require(d.get("execution_contract") == 2 and record.get("review_kind") == "existing_behavior", "空 diff 缺少已有行为审查身份")
         bound(record["acceptance_evidence"])
-    c.require(set(sources) == set(AXES), "必须明确提供两个轴的报告与回执")
+    review_operations.require_axis_sources(sources)
     pair = {}
     for axis in AXES:
-        c.require(set(sources[axis]) in ({"report", "receipt"}, {"report", "receipt", "closure"}), "每轴需要 report/receipt 及可选 closure")
         identity_path = bound(record["axes"][axis])
         c.require(identity_path.parent == round_path.parent / axis, "轴目录不符")
         identity = load(identity_path)

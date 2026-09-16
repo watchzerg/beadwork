@@ -277,12 +277,13 @@ from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, sys.argv[1])
 import controller as c
+import review_operations
 o = c.executor_ops()
-original = c.write
+original = review_operations.evidence.write
 def fail(path, value):
     if Path(path).name == 'round.json': raise OSError('模拟 round 写出前中断')
     return original(path, value)
-c.write = fail
+review_operations.evidence.write = fail
 o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=False))
 '''
         failed = subprocess.run([sys.executable, '-B', '-c', code, str(fixture.OPS.parent), str(stage)],

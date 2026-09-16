@@ -3,15 +3,11 @@ from pathlib import Path
 import shlex
 
 import controller as c
+import verification_records
 
 
 def snapshot(d):
-    o = c.executor_ops()
-    result = []
-    for folder in sorted(Path(d['dispatch_path']).parent.glob('verification-*')):
-        result.append({'started': o.binding(str(folder / 'started.json')),
-                       'result': o.binding(str(folder / 'result.json')) if (folder / 'result.json').exists() else None})
-    return result
+    return verification_records.snapshot(d['dispatch_path'])
 
 
 def records(d, sources, allowed, notes, successful=False):
@@ -19,12 +15,9 @@ def records(d, sources, allowed, notes, successful=False):
     rows = []
     seen = set()
     for item in sources:
-        c.require(set(item) == {'started', 'result'}, '验证来源字段不符')
-        path = o.bound(item['started'])
-        c.require(path.name == 'started.json' and path.parent.name.startswith('verification-'), '验证路径无效')
+        path, start, end_path, end, log = verification_records.read(item)
         c.require(str(path) not in seen, '重复验证来源')
         seen.add(str(path))
-        start = c.read(path)
         source = Path(start['dispatch_path'])
         c.require(o.binding(str(source)) in allowed and path.parent.parent == source.parent,
                   '验证不属于已绑定阶段或 fixer')
@@ -42,14 +35,6 @@ def records(d, sources, allowed, notes, successful=False):
                 c.require(contract.get('boundary_parameters') is True, 'final 边界参数契约无效')
                 c.require(all(g.startswith('gate-') for g in argv[4:]), 'final 边界参数无效')
                 gates += list(dict.fromkeys(argv[4:]))
-        end = None
-        if item['result']:
-            end_path = o.bound(item['result'])
-            c.require(end_path == path.parent / 'result.json', '验证 result 路径不符')
-            end = c.read(end_path)
-            log = path.parent / 'output.log'
-            c.require(end['started_sha256'] == c.digest(path) and end['log_sha256'] == c.digest(log)
-                      and end['log_bytes'] == log.stat().st_size, '验证日志或 started 已变化')
         valid = bool(end and end['outcome'] == 'exited' and end['process_group_gone'] is True
                      and start['before'] == end['after'] and not start['before']['status']
                      and type(end['exit_code']) is int and end['exit_code'] >= 0)

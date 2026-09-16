@@ -10,29 +10,24 @@
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
+import re
 import sys
-from pathlib import Path
 from typing import Any, Dict, List
+import schema_validation
+import review_schema
 
 sys.dont_write_bytecode = True
 
-_ticket_spec = importlib.util.spec_from_file_location("verify_ticket", Path(__file__).with_name("verify-ticket.py"))
-if _ticket_spec is None or _ticket_spec.loader is None:
-    raise RuntimeError("无法加载 verify-ticket.py")
-_ticket = importlib.util.module_from_spec(_ticket_spec)
-_ticket_spec.loader.exec_module(_ticket)
-
-SHA = _ticket.SHA
-TEXT = _ticket.TEXT
-TEXTS = _ticket.TEXTS
-object_schema = _ticket.object_schema
-schema_errors = _ticket.schema_errors
-check_schema = _ticket.check_schema
-read_json = _ticket.read_json
-FULL_SHA = _ticket.FULL_SHA
+SHA = schema_validation.SHA
+TEXT = schema_validation.TEXT
+TEXTS = schema_validation.TEXTS
+object_schema = schema_validation.object_schema
+schema_errors = schema_validation.schema_errors
+check_schema = schema_validation.check_schema
+read_json = schema_validation.read_json
+FULL_SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 
 PHASES = ("preflight", "finalizer")
 PREFLIGHT_CHECKS = (
@@ -312,7 +307,7 @@ def main(argv: List[str]) -> None:
         if not argv or argv[0] != "--check-report":
             raise ValueError("--emit-receipt 仅用于报告自检")
     if len(argv) == 2 and argv[0] == "--schema" and argv[1] in PHASES:
-        axis = _ticket.axis_report_schema(); schema = schema_for(argv[1], axis); check_schema(schema)
+        axis = review_schema.axis_report_schema(); schema = schema_for(argv[1], axis); check_schema(schema)
         print(json.dumps(schema, ensure_ascii=False, separators=(",", ":"))); return
     if len(argv) == 2 and argv[0] == "--receipt-schema" and argv[1] in PHASES:
         print(json.dumps(receipt_schema(argv[1]), ensure_ascii=False, separators=(",", ":"))); return
@@ -326,7 +321,7 @@ def main(argv: List[str]) -> None:
         if position + 1 >= len(tail) or position + 2 != len(tail): raise ValueError("--expected 必须位于末尾")
         expected_path = tail[position + 1]; tail = tail[:position]
     if len(tail) > 1: raise ValueError("receipt 参数过多")
-    axis = _ticket.axis_report_schema(); report, digest = read_json(report_path)
+    axis = review_schema.axis_report_schema(); report, digest = read_json(report_path)
     expected = read_json(expected_path)[0] if expected_path else None
     failures = validate(phase, report, axis, expected)
     if tail:

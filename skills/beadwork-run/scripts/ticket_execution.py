@@ -1,12 +1,12 @@
 """单票协调、阶段检查点与 implementer 交付；只写证据，不派发 agent。"""
 from pathlib import Path
 from types import SimpleNamespace
-import importlib.util
 import hashlib
 import json
 import sys
 import uuid
 import controller as c
+import verification_records
 
 VERSION = 1
 ROLES = ('implementer', 'standards', 'spec')
@@ -290,13 +290,6 @@ def implementer_errors(report, d, v):
     return errors
 
 
-def verification_module():
-    spec = importlib.util.spec_from_file_location('verification', c.SCRIPTS / 'run-verification.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def runs(d):
     paths = list(dict.fromkeys(d.get('verification_dispatches', []) + [d['dispatch_path']]))
     for path in paths:
@@ -312,22 +305,19 @@ def runs(d):
 def verification_snapshot(d):
     entries = []
     for path in list(dict.fromkeys(d.get('verification_dispatches', []) + [d['dispatch_path']])):
-        for folder in sorted(Path(path).parent.glob('verification-*')):
-            start, result = folder / 'started.json', folder / 'result.json'
-            entries.append({'started': ops().binding(str(start)),
-                            'result': ops().binding(str(result)) if result.exists() else None})
+        entries.extend(verification_records.snapshot(path))
     return entries
 
 
 def collect_verification(d, snapshot, notes, status):
     rows, issues = [], []
-    module = verification_module()
+    import run_verification
     for item in snapshot:
         run_path = str(Path(ops().bound(item['started'])).parent)
         selected_notes = {run_path: notes[run_path]} if run_path in notes else {}
         try:
-            collected = module.collect(d['dispatch_path'], d.get('verification_dispatches', []),
-                                       selected_notes, status, [item])
+            collected = run_verification.collect(d['dispatch_path'], d.get('verification_dispatches', []),
+                                                  selected_notes, status, [item])
         except (OSError, ValueError, KeyError, TypeError) as error:
             issues.append({'source': item, 'reason': str(error)})
         else:

@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 import evidence
+import review_schema
 from typing import Any, Dict, List, Optional, Tuple
 
 FULL_SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -109,6 +110,10 @@ def axis_report_schema() -> Dict[str, Any]:
             "notes": TEXTS,
         }),
     }
+
+
+# schema 的维护入口在无 CLI 副作用的模块；此别名保留旧调用方 API。
+axis_report_schema = review_schema.axis_report_schema
 
 
 def executor_schema(review_schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -292,6 +297,16 @@ def check_schema(schema: Any) -> None:
 
 def read_json(path: str) -> Tuple[Any, str]:
     return evidence.read_with_digest(path)
+
+
+# 基础 schema 引擎由独立模块维护；保留本文件的名称以维持既有导入兼容。
+import schema_validation as _schema_validation
+object_schema = _schema_validation.object_schema
+TEXT, SHA, TEXTS, SEAMS = (_schema_validation.TEXT, _schema_validation.SHA,
+                           _schema_validation.TEXTS, _schema_validation.SEAMS)
+schema_errors = _schema_validation.schema_errors
+check_schema = _schema_validation.check_schema
+read_json = _schema_validation.read_json
 
 
 def review_pairs(review):

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.util
 import json
 import os
@@ -13,6 +12,7 @@ import subprocess
 import sys
 import uuid
 import evidence
+import workflow_policy
 
 sys.dont_write_bytecode = True
 SCRIPTS = Path(__file__).resolve().parent
@@ -28,12 +28,11 @@ def read(path):
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return evidence.digest(path)
 
 
 def write(path, value):
-    with Path(path).open("x", encoding="utf-8") as handle:
-        handle.write(value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+    evidence.write(path, value)
 
 
 def run(args, cwd=None):
@@ -90,15 +89,10 @@ def verifier(role, option, *args, cwd=None):
 
 
 # 阶段 0 为首次实现，1..3 为修复；矩阵是派发模型的单一来源。
-MODEL_LEVELS = [
-    {"model": "gpt-5.6-terra", "reasoning_effort": "medium"},
-    {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
-    {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-    {"model": "gpt-6-astra", "reasoning_effort": "medium"},
-]
-STAGE_MODELS = [(0, 0, 2), (1, 0, 2), (2, 1, 2), (3, 2, 3)]
-FINAL_STAGE_MODELS = [(2, 1, 2), (2, 1, 2), (2, 2, 2), (3, 2, 3)]
-MODEL_ROLES = ("executor", "standards", "spec")
+MODEL_LEVELS = workflow_policy.MODEL_LEVELS
+STAGE_MODELS = workflow_policy.STAGE_MODELS
+FINAL_STAGE_MODELS = workflow_policy.FINAL_STAGE_MODELS
+MODEL_ROLES = workflow_policy.MODEL_ROLES
 
 
 def executor_ops():

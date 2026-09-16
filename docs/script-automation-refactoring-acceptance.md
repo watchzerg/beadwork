@@ -22,3 +22,24 @@
 - 完整脚本回归：242 项通过，耗时 281.660 秒。
 - Python 语法、`git diff --check` 和 skill validator 通过；validator 使用隔离 uv/PyYAML 环境，没有修改项目依赖。
 - 未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发生命周期。
+
+## 批次 B：共用基础
+
+| 目标 | 实施结果 | 验收证据 |
+| --- | --- | --- |
+| G05：证据读写与安全发布 | `evidence.py` 统一严格读取、流式 hash、绝对路径、binding 和同目录不覆盖发布；controller/executor/verifier 改用该层 | 目标已存在、序列化失败、重复 key、NaN、symlink 和 binding 篡改均有回归；58 项基础相关测试通过 |
+| G06：共用命令记录器 | `process_runner.py` 统一专属进程组、信号、有限等待、强制收尾和日志终态；验证 CLI 与 main-sync 各自保留业务判断和既有证据结构 | `run-verification` 15 项、`main-sync` 18 项通过，包含启动失败、大输出、状态变化、SIGTERM 与强制收尾 |
+| G07：共用运行事实 | `verification_records.py` 统一快照、started/result/log 路径与 hash 绑定；ticket 和 final 继续分别判断 gate 覆盖 | ticket 34 项、finalization 13 项及 verifier 套件通过；损坏日志、未知结果和当前 HEAD 覆盖行为保持 |
+| G08：共用 review 操作 | `review_operations.py` 统一 append-only 材料发布和双轴来源结构；ticket/final checkpoint 仍各自负责预留、选择与恢复 | ticket 34 项、handoff 22 项通过；两条 round 写出前中断测试改在共用发布层注入并确认复用目录 |
+| G09：validator 与策略整理 | `schema_validation.py` 成为无 controller 依赖的受控 schema 引擎，`review_schema.py` 提供双轴 schema，`workflow_policy.py` 集中模型矩阵、阶段数与 gate 修复额度 | ticket/phase/worker verifier 共 39 项、gate repair 9 项通过；CLI 输出及现有模型数值不变 |
+
+### 批次 B 验证
+
+- G05 基础相关回归：58 项通过，耗时 35.234 秒。
+- G06 两条调用链：33 项通过；`run-verification` 12.635 秒，`main-sync` 21.448 秒。
+- G07–G09 verifier/finalization 定向回归：52 项通过；ticket/executor/handoff/gate-repair 状态回归均通过。
+- review 抽取后首次回归准确发现旧故障注入点失效；测试已改为在 `review_operations.evidence.write` 注入，ticket 34 项和 final handoff 22 项分别在 108.516 秒、32.240 秒通过。
+- 完整脚本回归：246 项通过，耗时 282.767 秒。
+- Python 语法、`git diff --check` 和 skill validator 通过；validator 首次受用户级 uv cache 沙箱限制，按项目规则在宿主权限下重跑通过。
+- 用户级 `~/.agents/skills/beadwork-run` 解析到本仓库 `skills/beadwork-run`，源码与实际调用路径一致。
+- 未运行真实消费项目 ticket graph、真实 Beads 写入或真实 Codex 嵌套派发。
