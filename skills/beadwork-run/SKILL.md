@@ -5,7 +5,7 @@ description: "串行实现一个 Beads parent 下的 ticket 依赖图，并在�
 
 # Beadwork Run
 
-给定一个完整的 Beads parent ID，串行实现它的 direct child tickets。每个 ticket 使用一个全新的 executor；同一时刻只有一个 writer。每张新票开工前按需同步本地 `main`；所有 children 完成后，把最新 `main` 合入 implementation branch，执行最终验证和 review，再 fast-forward 合入本地 `main`。
+给定一个完整的 Beads parent ID，串行实现它的 direct child tickets。每个 ticket 使用一个全新的 executor 协调整票；其每个 stage 派发全新 implementer，同一时刻只有一个 writer。每张新票开工前按需同步本地 `main`；所有 children 完成后，把最新 `main` 合入 implementation branch，执行最终验证和 review，再 fast-forward 合入本地 `main`。
 
 本 skill 只合入本地 `main`。不 push Git，也不执行 `bd dolt pull` 或 `bd dolt push`。
 
@@ -26,7 +26,7 @@ worktree: .worktrees/<full-parent-id>
 
 ## 执行约定
 
-- controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；运行 BASE smoke 或核对最终覆盖前读取 `testing-gates.md`，验收 TDD ticket 前读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
+- controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；运行 BASE smoke 或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
 - Beads 读取结构化结果使用 `--json`；未列出的命令语法按需查询 CLI 帮助。
 - controller 将 `<skill-dir>` 解析为本 skill 的绝对目录。内置脚本使用 python3 ≥ 3.9（仅标准库），在待检查 repository/worktree 中运行；正常调用无需读取源码。stdout 为 JSON，非零退出按停止处理，不能当作空结果。executor 的命令采集入口另按 `references/verification.md` 区分验证失败（可核对 TDD red）、记录器异常和中断。
 - 项目安装与验证经目标仓库的 `just` recipes 执行，缺失或失败按对应步骤处理。recipe 检查由 preflight 负责。
@@ -36,14 +36,14 @@ worktree: .worktrees/<full-parent-id>
 
 仅支持 Codex；其他宿主直接中止。假定下述模型均可用，派发时按就地规则显式指定 `model` 和 reasoning effort（参数名以当前工具声明为准）。ticket 按阶段 dispatch 的模型派发；报告更正沿用原模型组合，其他角色接替沿用原规则。
 
-写入前确认当前宿主能创建独立 executor、执行内置双轴审查的两个并行只读 reviewers、接收完整报告并确认任务结束。需要支持 controller → preflight、controller → executor → reviewers、controller → finalizer → reviewers/fixer 的嵌套派发。能力不足时报告并停止。
+写入前确认当前宿主能创建独立 executor、执行内置双轴审查的两个并行只读 reviewers、接收完整报告并确认任务结束。需要支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → reviewers/fixer 的嵌套派发。能力不足时报告并停止。
 
 controller 派发的 preflight、executor 和 finalizer 使用独立上下文（`fork_turns: "none"` 或宿主等价设置）；显式交接仓库规则入口、任务事实和证据路径。恢复时补充已有 commits、未提交现场、剩余工作与未解决 findings。
 
 ## 不变量
 
 - controller 独占 Git/worktree 生命周期、ticket 选择、Beads 写入和最终集成；子 agent 对 Beads 只读。
-- preflight/finalizer 只写证据；源码由当前 ticket executor 或最终阶段的唯一 fixer 写入，只读研究与双轴 reviewers 可并行。
+- preflight/finalizer 只写证据；源码由当前 ticket implementer 或最终阶段的唯一 fixer 写入，只读研究与双轴 reviewers 可并行。
 - 不 stash、不 reset、不 amend、不 squash、不 force-remove。
 - review 后不改写已 review 的 commit。
 - 旧 writer 及其写入任务未确认停止时，不派发接替 writer，不恢复、还原、合并或清理其现场。
@@ -99,7 +99,7 @@ python3 <skill-dir>/scripts/graph.py next <parent-id> <expected-child-id>...
 - `done`：所有 direct children 已关闭，进入第 4 节。
 - `blocked`：按返回的 reason 和 IDs/unfinished 列表执行“停止记录”，不得进入最终集成。`reason: no_ready` 时可用 `bd ready --parent <parent-id> --explain` 获取依赖阻塞原因。
 
-`resume`（包括中断接续和代码修复）保留原 BASE，不同步 main。用户可在 primary 编辑、暂存和提交；新提交由下一张新票吸收。executor/fixer 的源码写入仍限于 implementation worktree。
+`resume`（包括中断接续和代码修复）保留原 BASE，不同步 main。用户可在 primary 编辑、暂存和提交；新提交由下一张新票吸收。implementer/fixer 的源码写入仍限于 implementation worktree。
 
 领取仍由 controller 执行，脚本不写 Beads：
 
@@ -113,30 +113,23 @@ bd update <ticket-id> --claim --json
 
 恢复 `in_progress` ticket 时，先读取 `references/recovery-ticket.md`，核实 BASE 后执行 `prepare executor`（`mode: resume`）。
 
-### 3.3 派发 executor
-每票最多四阶段：首次实现和三次修复。`prepare executor` 返回 `stage`（0..3）及 `models`；按 `models.executor` 显式派发全新 executor。模型矩阵由 `scripts/controller.py` 的 `STAGE_MODELS` 定义，准备命令直接输出可用配置，不为派发读取源码。跨模块状态、持久恢复或并发控制票传 `complex_ticket: true`；同一根因未收敛或契约分歧可按 controller 入口提前升级相关角色并注明理由。提高模型不消耗阶段，后续不降档。
+### 3.3 派发整票 executor
 
-每个 executor 只完成当前阶段的实现/修复、验证和至多一轮双轴 review，然后交还 controller。交付 gate 代码失败允许当前 writer 按 `references/verification.md` 使用最多三次就地修正机会；额度耗尽后交付候选仍有代码失败才结束当前阶段；TDD 的预期 red 属于正常实现。中断接续尚未完成的阶段，代码失败进入下一阶段；自动代码修复最多四阶段，每阶段的就地 gate 修正另按验证契约计数。
+`prepare executor` 返回整票 root dispatch 和 `coordinator_model`；按该模型派发一个负责整张 ticket 的 executor，要求先读取 `<skill-dir>/agents/ticket-executor.md`。交接 linked spec、已验证环境和冒烟证据、实际进度通信目标、规则与 schema 路径；不复制 ticket 正文。
 
-交接 3.2 生成的 dispatch 字段，要求 executor 先读取 `<skill-dir>/agents/ticket-executor.md`。controller 补齐 linked spec、已验证环境与冒烟证据、恢复事实及实际进度通信目标（若有）；续票环境事实来自批次与最近 completion comment。schema 按共享契约传路径。
-
-开工基线已满足原计划行为、executor 请求适配模式时，读取 `references/baseline-adaptation.md`，由 controller 核准并记录执行计划，同一 executor 继续，不消耗阶段。
-
-不复制 ticket 正文；executor 自行查询当前 ticket 和代码。按共享交付契约等待任务结束后验收。
+executor 内部管理 stage 0..3、实现模型和双轴 review；implementer 内部管理同 stage 最多三次 gate-fix。controller 不组织单票修复、不逐次判读 gate 日志、不审批范围内的执行计划适配。收到阶段进度时继续等待；只有最终整票交付或中断/外部阻塞才进入验收。恢复时派发原 root 上的 executor，不新建四阶段额度。
 
 ### 3.4 验收 executor 结果
 
-按共享交付契约保存原始回执，执行 controller 脚本的 `accept`，将机械验收记录保存在本轮证据目录。失败执行停止记录。
+按共享交付契约确认 executor 及后代任务结束，保存原始回执并执行 controller `accept`。脚本绑定 root、当前阶段、implementer 来源、BASE/HEAD、完整 commits、验证与原始双轴证据；失败停止，不把 implementer DONE 当成 ticket DONE。
 
-controller 按本票 mode 加载对应测试契约，核对实际验证覆盖、TDD 行为 red 与 seam 授权范围（机械字段校验不能替代）；另核对 acceptance 与实际代码、验证日志及原始 reviewer 证据的语义一致性，确认全部 commits 属于当前 ticket。确认 agent 误写 primary 时保留现场并停止，不自动还原。
+controller 核对整票交付来源、最终状态、必要 gates 和最后 review 的 HEAD、现场与任务收尾事实；验收与报告有矛盾、缺证或越界迹象时打开相关源码/日志追查。test plan、TDD red、seams 和 acceptance 的日常语义验收由 executor 承担，不再逐 stage 重做。确认误写 primary 时保留现场并停止，不自动还原。
 
-需要补证时，controller 以 append-only 方式写 `acceptance-evidence-N.json`：`{"report_path": ..., "report_sha256": ..., "sources": [{"source": ..., "evidence": ...}]}`；补证不替代 executor 报告或 `PASS`。报告更正按共享交付契约处理，completion comment 引用原始、更正与补证文件。
+补证沿用 append-only `acceptance-evidence-N.json`，字段为 report_path、report_sha256 与 sources（source/evidence）；不替代原报告或 PASS。completion comment 引用原始、更正与补证来源。
 
-处理 executor 状态：
-
-- `DONE`：完成上述验收后进入 3.5，保留非阻塞 smells。
-- `NEEDS_CONTEXT`：读取 `references/recovery-needs-context.md` 补齐事实并恢复。
-- `BLOCKED`：读取 `references/recovery-blocked.md`。`outcome: code_failure` 且 `stage < 3` 时，核实失败为本票可修复代码问题，保留 `in_progress`，记录本阶段证据；确认旧 writer 已结束后，以 `continuation: repair` 准备下一阶段并回到 3.3。阶段 3 仍失败或存在外部阻塞时停止。机械验收失败按原规则停止，不进入代码修复。
+- `DONE`：验收通过后进入 3.5，保留所有非阻塞 smells。
+- `NEEDS_CONTEXT`：按 `recovery-needs-context.md` 补齐具体事实，恢复原 root。
+- `BLOCKED`：按 `recovery-blocked.md` 保存停止与恢复入口。最终 code_failure 表示四阶段已用尽；controller 不再派下一修复阶段。中断保留原 stage、writer 现场和额度，非代码阻塞解除后恢复。
 
 ### 3.5 完成 ticket
 
@@ -173,11 +166,13 @@ finalizer 按自身指令在同一 attempt 中完成 stage 0 初次最终验证�
 
 ### 4.3 controller 验收
 
-`READY_TO_MERGE` 才能进入第 5 节。除机械校验外，核对：
+`READY_TO_MERGE` 才能进入第 5 节。修复处置、验证覆盖和 review 的日常语义验收由 finalizer 负责；controller 除机械校验外，核对最终交付与集成条件：
 
-- gates 覆盖所有 ticket 声明及已验收报告中的实际验证边界，新增 gate 有来源；验证确在交付 HEAD 上通过。
-- 报告与原始 reviewer 证据语义一致，smells 原样保留。
-- fixer 的改动只处理本批次阻塞及相关问题，fix commits 均被最终验证和 review 覆盖，所有命令及子任务已结束。
+- parent、固定 children 集合、`reviewed_main` 和交付来源属于本次批次。
+- 最终 gate 范围包含交接的下限和 finalizer 确认的补充边界；必要验证与最后两轴 PASS 覆盖交付 HEAD，fix commits 和原始 review 证据来源完整。
+- 现场满足集成条件，所有命令及子任务已结束，没有 blockers 或 remaining work，smells 已保留。
+
+交付与现场有矛盾、缺证或越界迹象时，controller 打开相关源码、日志和原始 reviewer 证据追查；不逐 stage 重做 finalizer 的日常语义验收。
 
 通过后复用实测验证与 review，不重复运行 gates 或再开一轮 review。`BLOCKED` 按停止处理，parent 停止 comment 引用本次 dispatch、报告和证据路径；根因不明时读取 `references/recovery-diagnosis.md`。
 
@@ -208,7 +203,7 @@ parent 关闭后，执行 controller 脚本的 `cleanup`，传入本次 merge ch
 
 ### 停止记录
 
-parent 已领取之后发生的实际批次停止（含 ticket 修复额度耗尽或外部阻塞、frontier 阻塞、最终 review 阻塞、状态不一致），controller 都必须先给 parent 添加一条中文 comment，至少记录：当前停止的流程原因、已完成进度、已确定的技术判断与剩余不确定性、推荐下一步及依据、恢复证据入口。只有用户决定会改变产品行为、范围或风险时才提出选择；不把可继续核对的技术问题包装成产品选择，也不因此越过修复额度继续实现。ticket 级 `BLOCKED` 的详情在该 child 的 comment，parent comment 只留指针。preflight 阶段（parent 尚未领取）的失败直接向用户报告即可。按 3.4 自动进入下一阶段或接续中断阶段时，只记录 child 的阶段证据，不写 parent 停止记录。
+parent 已领取之后发生的实际批次停止（含 ticket 修复额度耗尽或外部阻塞、frontier 阻塞、最终 review 阻塞、状态不一致），controller 都必须先给 parent 添加一条中文 comment，至少记录：当前停止的流程原因、已完成进度、已确定的技术判断与剩余不确定性、推荐下一步及依据、恢复证据入口。只有用户决定会改变产品行为、范围或风险时才提出选择；不把可继续核对的技术问题包装成产品选择，也不因此越过修复额度继续实现。ticket 级 `BLOCKED` 的详情在该 child 的 comment，parent comment 只留指针。preflight 阶段（parent 尚未领取）的失败直接向用户报告即可。executor 内部自动推进 stage 时，只追加单票检查点并发送进度，不写 parent 停止记录。实际交还 controller 并停止批次时才写停止记录。
 
 ## 最终报告
 

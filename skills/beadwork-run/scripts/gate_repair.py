@@ -53,7 +53,11 @@ def freeze(d):
 
 
 def delivery(d, before):
-    c.require(d['role'] in ('executor', 'fixer'), '交付验证需要 writer dispatch')
+    c.require(d['role'] in ('executor', 'implementer', 'fixer'), '交付验证需要 writer dispatch')
+    c.require(not d.get('ticket_execution_version') or d['role'] == 'implementer', '单票交付验证仅由 implementer 执行')
+    if d.get('ticket_execution_version'):
+        import ticket_execution
+        ticket_execution.require_writer(d)
     c.require(not before['status'], '交付验证需要干净 HEAD')
     p = root(d)
     c.require(not (p / 'gate-review-started.json').exists(), 'review 已开始，源码与验证候选保持冻结')
@@ -66,8 +70,12 @@ def delivery(d, before):
 def begin(args):
     source = Path(args.dispatch).resolve()
     d = c.read(source)
-    c.require(d.get('dispatch_path') == str(source) and d['role'] in ('executor', 'fixer'), '需要 writer dispatch')
+    c.require(d.get('dispatch_path') == str(source) and d['role'] in ('executor', 'implementer', 'fixer'), '需要 writer dispatch')
     c.require(d['role'] != 'fixer' or d.get('stage', 0) > 0, '最终 stage 0 没有 fixer')
+    c.require(not d.get('ticket_execution_version') or d['role'] == 'implementer', '单票 gate-fix 仅由 implementer 执行')
+    if d.get('ticket_execution_version'):
+        import ticket_execution
+        ticket_execution.require_writer(d)
     c.topology(d)
     p = root(d)
     c.require(not (p / 'gate-review-started.json').exists() and not any(x.is_dir() for x in p.glob('review-*')), 'review 已开始，不能就地修正')

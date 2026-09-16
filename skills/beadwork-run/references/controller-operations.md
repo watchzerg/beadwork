@@ -1,6 +1,6 @@
 # controller 脚本入口
 
-controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent、不写 Beads。controller 保留语义验收、writer 收尾确认和全部 tracker 写入职责。
+controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent、不写 Beads。controller 负责交付契约验收、异常证据追查、writer 收尾确认和全部 tracker 写入；单票实现与测试的日常语义验收由 executor 负责。
 
 使用 `python3 <skill-dir>/scripts/controller.py <command>`。成功 stdout 为 JSON；失败非零退出并在 stderr 返回原因，按 SKILL.md 停止处理。证据文件使用新文件名，不覆盖历史。所有输入路径使用绝对路径；输入 JSON 由 controller 根据已核实事实编写，不执行历史记录中的命令。
 
@@ -47,20 +47,13 @@ python3 <skill-dir>/scripts/controller.py prepare <preflight|executor|finalizer>
 - executor：`ticket_id`、`mode: new|resume`、`test_mode: TDD|direct_verification`、`approved_seams`、`testing_seams_doc`（本 skill 的 references/testing-seams.md 绝对路径；其他契约与项目事实按 `testing-contract.md` 定位）、`linked_spec`、`required_boundary_gates`（本票声明及已补充 gate 下限）、环境/冒烟证据及恢复事实。`resume` 必须额外提供从 start comment 核实的完整 `base_commit`；脚本不会猜测或补写缺失 BASE。
 - finalizer：`expected_children`、`linked_spec`、`ticket_evidence`、`required_boundary_gates`、`prior_finalization`、已合入 implementation 的完整 `reviewed_main` SHA。`prior_finalization` 首次为 null；接替时按 `recovery-finalizer.md` 准备。
 
-executor 的阶段由脚本生成，不手填 `stage/models/prior_reviews`：
-
-- 新票 `mode: new` 必须提供 `sync-main` 返回的 `sync_result`，从阶段 0 开始；复杂票传 `complex_ticket: true`。
-- 恢复 `mode: resume` 必须传 `previous_dispatch`；有报告时同时传 `previous_report`、`previous_receipt`。`continuation: resume` 接续未完成阶段；`continuation: repair` 要求前报告为 `code_failure`，进入下一阶段。无回执的中断只能在核实现场和旧 writer 已停止后接续。当前阶段已有完整 review 时，不再派同阶段 writer；同 HEAD 的报告更正和补证在原 dispatch 下完成并重新验收。
-- 旧 dispatch 无 stage 时，提供原报告/回执和按顺序的 `legacy_reviews`（collection 路径；没有 review 时为空）。脚本从旧契约的初审/复审还原已完成修复额度；旧代码失败进入下一阶段另填 `legacy_code_failure_reason`，说明真实代码失败依据。已完成旧报告应关闭/验收，不再派 writer。
-- 提前升级可传 `model_overrides`（键为 executor/standards/spec，值含 `model` 与 `reasoning_effort`），并传 `model_override_reason`；只接受矩阵中的配置且不能降档。脚本继承前阶段较高配置。
-
-脚本在 dispatch 中保存阶段、开始 HEAD、模型、前序 review 来源和前次证据指针；返回的 `stage/models` 直接用于工具派发。每次准备后的 comment 引用该 dispatch，恢复从最新现场记录续接。不同阶段之间先验收前报告、确认全部写入任务结束，再派新 writer；脚本不能替代宿主结束确认。
+executor prepare 建立整票 root dispatch，返回 `coordinator_model`。`complex_ticket: true` 提高协调与实现起点；controller 不填写 stage/models/prior_reviews，也不传 repair。恢复提供原 root 的 `previous_dispatch` 和完整 BASE；返回原 root，不新建 stage 或重置额度。执行阶段、模型、implementer 和计划适配由 executor 使用 `ticket-execution.md` 的入口管理。
 
 finalizer root dispatch 只建立 attempt 身份；finalizer 再调用 `executor-operations.py final-stage` 建立 stage 0..3。stage 0 没有 fixer；stage 1/2/3 分别派 `gpt-5.6-sol` / `medium`、`gpt-5.6-sol` / `medium`、`gpt-6-astra` / `medium` fixer。每阶段最多一轮完整双轴 review。stage 0 的 final/gate 代码失败跳过 review；后续 fixer 的最多三次就地 gate 修正按 `verification.md` 执行。代码导致的完整 blocking review 或 fixer 正式返回的 `code_failure` 都由 finalizer 组装为 `code_failure` 并以 `repair` 进入下一阶段；外部、环境、需求或 seam 阻塞不推进。stage 3 仍不能通过时停止。
 
 同一 main 基线的 finalizer 重跑必须提供 `prior_finalization.stage_path`，恢复原 attempt，不重置 stage、BASE、历史来源或 dirty 修复现场。只有 main 实际变化或用户明确额外修复授权才传 `new_attempt_reason` 建立新 attempt，且需干净现场。旧格式导入除旧报告外还必须给 `legacy_dispatch`、`legacy_receipt`、全部 `legacy_reviews`，以及有 fixer 时的 dispatch/report/receipt 来源；导入只读取并绑定，不改写旧证据。
 
-脚本定位 primary、检查 `.worktrees` 已被忽略、生成固定 branch/worktree 路径和唯一 dispatch 目录，写入 `dispatch.json`、报告/回执 schema；executor 写入 `expected-plan.json`。新票从干净 worktree 记录 BASE；恢复票保留传入 BASE；finalizer 新 attempt 从已合入 main 的干净现场核对传入的 `reviewed_main` 并记录 `start_head`，同阶段恢复按恢复来源保留原值及修复现场。
+脚本定位 primary、检查 `.worktrees` 已被忽略、生成固定 branch/worktree 路径和唯一 dispatch 目录，写入 `dispatch.json`、报告/回执 schema；executor root 写入 `expected-plan.json`。新票从干净 worktree 记录 BASE；恢复票保留传入 BASE；finalizer 新 attempt 从已合入 main 的干净现场核对传入的 `reviewed_main` 并记录 `start_head`，同阶段恢复按恢复来源保留原值及修复现场。
 
 返回文件路径和本轮 SHA；dispatch 包含 `report_schema_path` 和 `receipt_schema_path`。controller 将生成的 dispatch 字段、角色入口及本轮事实交给子 agent，schema 按共享交付契约传路径；额外输入事实会保留在 dispatch。脚本不 claim、不写 start comment、不安装环境。
 
@@ -72,13 +65,13 @@ finalizer root dispatch 只建立 attempt 身份；finalizer 再调用 `executor
 python3 <skill-dir>/scripts/controller.py accept --dispatch <dispatch.json> --report <report.json> --receipt <receipt.json> --output <acceptance-N.json>
 ```
 
-复用现有 verifier 检查报告、回执和身份；executor 另执行现有 Git 验收，finalizer 检查实际 branch/HEAD、ancestry、`.beads`，成功状态要求 implementation worktree 干净。非成功报告按原状态规则允许部分证据和未提交工作。成功输出并保存绑定 dispatch/report/receipt hash 的机械验收记录；校验失败不生成通过记录。
+复用现有 verifier 检查报告、回执和身份；executor 另核验整票 root、阶段和 implementer 来源链并执行现有 Git 验收，finalizer 检查实际 branch/HEAD、ancestry、`.beads`，成功状态要求 implementation worktree 干净。非成功报告按原状态规则允许部分证据和未提交工作。成功输出并保存绑定 dispatch/report/receipt hash 的机械验收记录；校验失败不生成通过记录。
 
 `mechanical_acceptance` 不等于语义验收通过；controller 仍按 SKILL.md 核对代码、日志、需求和 reviewer 证据。
 
 ## 生成完成 comment
 
-controller 完成语义验收后调用：
+controller 完成交付验收后调用：
 
 ```bash
 python3 <skill-dir>/scripts/controller.py comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
@@ -110,4 +103,4 @@ python3 <skill-dir>/scripts/controller.py cleanup --merge-record <merge-checkpoi
 
 ## 基线适配
 
-executor 证明开工 BASE 已满足原 Expected red、或修复需要恢复 TDD 时，读取 `baseline-adaptation.md`，使用 `adapt-plan` 生成同 stage 的新执行上下文并记录到 Beads。恢复使用该 dispatch，不覆盖原计划；计划调整不消耗修复阶段。
+executor 负责开工 BASE 已满足和恢复 TDD 的执行策略适配，使用 baseline-adaptation.md 的 ticket-adapt-plan。controller 只在最终记录引用适配证据，不调用 adapt-plan、不审批每次单票适配。

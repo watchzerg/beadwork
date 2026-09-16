@@ -1,6 +1,6 @@
-# executor 验证采集
+# writer 验证采集
 
-executor/fixer 的 `typecheck`、`test`、`final` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe，参数保持独立。票据要求 `just final <gate>...` 时使用 `--recipe final -- <gate>...` 采集。`fmt` 和 controller 的 `install` 沿用原入口。
+implementer/fixer 的 `typecheck`、`test`、`final` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe，参数保持独立。票据要求 `just final <gate>...` 时使用 `--recipe final -- <gate>...` 采集。`fmt` 和 controller 的 `install` 沿用原入口。
 
 ```bash
 python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
@@ -20,7 +20,7 @@ python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --rec
 
 用宿主长任务机制等待或取消。记录器收到取消后终止本次专属进程组，有限等待后必要时强杀；`process_group_gone` 只描述该进程组，不证明 Docker 容器、脱离进程组的任务等外部资源已清理。强杀记录器可能仅留下开始记录和日志；恢复前由 agent 确认旧任务结束，不根据旧 PID 自动操作。
 
-报告交付按 `report-delivery.md` 自动汇总全部运行。缺少 result.json 的记录作为“结果未知”保留；返回 DONE 前必须在该运行的 `verification_notes` 写明实际收尾确认及后续验证，语义由 controller 核对。失败历史不自动阻止交付，也不会被旧成功覆盖。日志或来源损坏使组装失败时保留原文件，按共享交付契约返回部分阻塞报告并引用损坏证据。
+报告交付按 `report-delivery.md` 自动汇总全部运行。缺少 result.json 的记录作为“结果未知”保留；返回 DONE 前必须在该运行的 `verification_notes` 写明实际收尾确认及后续验证，语义由 executor 核对。失败历史不自动阻止交付，也不会被旧成功覆盖。implementer 报告由组装器固定交付时的验证来源快照；历史报告只核验该快照，新交付必须包含当前全部运行。日志或来源损坏使组装失败时保留原文件，按共享交付契约返回部分阻塞报告并引用损坏证据。
 
 
 ## 最多三次就地 gate 修正
@@ -36,4 +36,4 @@ writer 确认交付失败由代码导致后，在修改前调用上述入口申�
 
 当前 writer 集中修正，可运行必要的定向验证；提交后以 `--delivery` 重跑受影响的交付 gates。每次修正后的第一次重跑绑定该次候选 HEAD，其余交付 gates 必须使用同一 HEAD。该候选再有代码失败时，有余额则申请下一次修正；三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，不按 recipe 或失败类型增加；环境修复可在同 HEAD 重跑。review 开始后不能申请修正。
 
-机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。finalizer stage 0 没有 writer，不享有机会；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，controller/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。
+机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。finalizer stage 0 没有 writer，不享有机会；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，executor/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。

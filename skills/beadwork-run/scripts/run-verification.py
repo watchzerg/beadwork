@@ -43,7 +43,8 @@ def write(path, value):
 def dispatch(path):
     p = absolute(path)
     d = c.read(p)
-    c.require(d["role"] in ("executor", "fixer") and d["dispatch_path"] == str(p), "需要 executor 或 fixer dispatch")
+    c.require(d["role"] in ("executor", "implementer", "fixer") and d["dispatch_path"] == str(p), "需要 executor 或 fixer dispatch")
+    c.require(not d.get("ticket_execution_version") or d["role"] == "implementer", "单票验证采集仅由 implementer 执行")
     c.require(Path(d["report_path"]).parent == p.parent, "dispatch 证据目录不符")
     return d
 
@@ -96,6 +97,9 @@ def run(args):
     source = absolute(args.dispatch)
     d = dispatch(source)
     before = state(d)
+    if d.get("ticket_execution_version"):
+        import ticket_execution
+        ticket_execution.require_writer(d)
     c.git(d["worktree"], "merge-base", "--is-ancestor", d["base_commit"], before["head"])
     c.require(args.recipe in ("typecheck", "test", "final") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
               "仅执行 typecheck、test、final、gate-*")
@@ -174,9 +178,20 @@ def run(args):
     return (0 if code == 0 else 1) if outcome == "exited" else (3 if outcome == "interrupted" else 2)
 
 
-def collect(current_path, prior_paths, notes, report_status):
+def collect(current_path, prior_paths, notes, report_status, snapshots=None):
     """自动保留本次及显式恢复来源中的全部记录；不推导验证覆盖或 DONE。"""
     current = dispatch(current_path)
+    selected = None
+    if snapshots is not None:
+        c.require(isinstance(snapshots, list), "验证快照必须为列表")
+        selected = {}
+        for item in snapshots:
+            c.require(set(item) == {"started", "result"}, "验证快照字段不符")
+            start = absolute(item["started"]["path"])
+            c.require(start.name == "started.json" and digest(start) == item["started"]["sha256"], "验证快照来源已变化")
+            key = str(start.parent)
+            c.require(key not in selected, "验证快照重复")
+            selected[key] = item
     keys = ("role", "repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit", "attempt_id")
     rows = []
     found = set()
@@ -191,6 +206,8 @@ def collect(current_path, prior_paths, notes, report_status):
             absolute(directory)
             c.require(directory.is_dir(), "验证证据必须是目录")
             run_path = str(directory)
+            if selected is not None and run_path not in selected:
+                continue
             found.add(run_path)
             start_path = absolute(directory / "started.json")
             start = c.read(start_path)
@@ -199,7 +216,11 @@ def collect(current_path, prior_paths, notes, report_status):
             c.require(start["cwd"] == current["worktree"], "验证 cwd 不符")
             text = "未完成记录；退出结果未知，需确认旧任务已结束"
             end_path = absolute(directory / "result.json")
-            if end_path.exists():
+            has_result = end_path.exists() if selected is None else selected[run_path]["result"] is not None
+            if has_result:
+                if selected is not None:
+                    entry = selected[run_path]["result"]
+                    c.require(entry["path"] == str(end_path) and digest(end_path) == entry["sha256"], "验证快照结果已变化")
                 result = c.read(end_path)
                 log = absolute(directory / "output.log")
                 c.require(result["started_sha256"] == digest(start_path)
@@ -214,6 +235,7 @@ def collect(current_path, prior_paths, notes, report_status):
             if run_path in notes:
                 text += "；执行者说明：" + notes[run_path]
             rows.append((start["started_ns"], run_path, {"command": shlex.join(start["argv"]), "result": text}))
+    c.require(selected is None or set(selected) == found, "验证快照不属于当前来源")
     c.require(set(notes).issubset(found), "verification_notes 引用了未收集的运行目录")
     return [row[2] for row in sorted(rows, key=lambda row: (row[0], row[1]))]
 

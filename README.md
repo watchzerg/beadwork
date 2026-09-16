@@ -4,6 +4,8 @@
 
 Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和本地集成。它衔接 Matt Pocock 的工程 skills、共享测试契约，以及目标项目提供的 Beads、Git 和 just 接口，保留可用于核查和恢复的执行证据。
 
+角色关系、三层循环与职责边界见 [架构概览](docs/ARCHITECTURE.md)。
+
 ## 当前提供的 skill
 
 | Skill | 用途 |

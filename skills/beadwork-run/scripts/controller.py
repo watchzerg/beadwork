@@ -191,7 +191,7 @@ def prepare_stage(d, head):
              models={role: MODEL_LEVELS[level] for role, level in levels.items()})
 
 
-def check_stage_report(d, report):
+def check_stage_report_core(d, report):
     if d.get("execution_contract") != 2:
         require("delivery_kind" not in report, "旧 dispatch 不接受新交付分支")
     elif report["status"] == "DONE":
@@ -228,6 +228,17 @@ def check_stage_report(d, report):
             require(review["gate"] == "BLOCKED", "当前 review PASS 不能标为代码失败")
     else:
         require(report["status"] != "DONE", "未完成阶段不能返回 DONE")
+
+
+def check_stage_report(d, report):
+    if d.get("ticket_execution_version"):
+        import ticket_execution
+        if d.get("ticket_scope") == "root":
+            return ticket_execution.check_ticket(d, report)
+        else:
+            return ticket_execution.check_stage(d, report)
+    else:
+        check_stage_report_core(d, report)
 
 
 def sync_main(args):
@@ -282,7 +293,11 @@ def prepare(args):
             seams = plan["approved_seams"]
             require(isinstance(seams, list) and all(isinstance(s, str) and s for s in seams) and len(set(seams)) == len(seams), "seams 无效")
             require(plan["mode"] != "TDD" or bool(seams), "TDD 需要 approved seams")
-            prepare_stage(d, head)
+            import ticket_execution
+            if d["mode"] == "resume":
+                require(d.get("previous_dispatch"), "恢复需要原 executor root dispatch")
+                return ticket_execution.resume_root(d)
+            ticket_execution.root_fields(d)
         else:
             require(isinstance(d["reviewed_main"], str) and re.fullmatch(r"[0-9a-f]{40}", d["reviewed_main"]), "需要已合入的完整 reviewed_main SHA")
             git(d["worktree"], "merge-base", "--is-ancestor", d["reviewed_main"], head)
@@ -305,8 +320,6 @@ def prepare(args):
         d.setdefault("attempt_id", directory.name)
         d.setdefault("attempt_path", str(directory))
     if args.role == "executor":
-        import gate_repair
-        gate_repair.inherit(d, read(d["previous_dispatch"]) if d.get("previous_dispatch") else None)
         d["expected_plan_path"] = str(directory / "expected-plan.json")
         write(d["expected_plan_path"], plan)
     d["report_schema_path"] = str(directory / "report-schema.json")
@@ -320,14 +333,16 @@ def prepare(args):
             "dispatch_path": d["dispatch_path"], "report_path": d["report_path"],
             "report_schema_path": str(directory / "report-schema.json"), "receipt_schema_path": str(directory / "receipt-schema.json"),
             "base_commit": d.get("base_commit"), "start_head": d.get("start_head"), "reviewed_main": d.get("reviewed_main"),
-            **({"stage": d["stage"], "models": d["models"]} if args.role == "executor" else {})}
+            **({"coordinator_model": d["coordinator_model"]} if args.role == "executor" else {})}
 
 
 def adapt_plan(args):
-    """controller 核准后记录计划适配；同一 executor 使用返回的新上下文继续。"""
+    """记录已核准的执行计划；新单票由 ticket-adapt-plan 调用并更新检查点。"""
     ops = executor_ops()
     d = ops.dispatch(args.dispatch)
     require(d["role"] == "executor" and d.get("execution_contract") == 2, "需要新契约 executor")
+    if d.get("ticket_execution_version"):
+        require(d.get("ticket_scope") == "stage", "整票 root 不适配计划；由 executor 使用 ticket-adapt-plan 更新当前 stage")
     ops.workspace(d)
     directory = Path(args.dispatch).parent
     require(not (directory / "gate-review-started.json").exists()
@@ -367,12 +382,14 @@ def adapt_plan(args):
 
 
 def validate_plan(d):
+    if d.get("ticket_execution_version") and d.get("expected_plan_path"):
+        require(read(d["expected_plan_path"]) == {"mode": d["test_mode"], "approved_seams": d["approved_seams"]}, "执行计划文件与 dispatch 不符")
     if not d.get("plan_adjustment"):
         return
     ops = executor_ops()
     record = read(ops.bound(d["plan_adjustment"]))
     previous = read(ops.bound(record["dispatch"]))
-    keys = ("role", "repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
+    keys = ("repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
     require(all(d.get(k) == previous.get(k) for k in keys), "计划调整属于其他 ticket 或 BASE")
     validate_plan(previous)
     require(record["original_plan"] == read(previous["expected_plan_path"]), "原执行计划已变化")
@@ -405,10 +422,12 @@ def inspect(dispatch_path, report_path, receipt_path):
     result = verifier(role, "--check-report", report_path, receipt_path, *extra)
     r = read(report_path)
     if role == "executor":
-        check_stage_report(d, r)
+        if d.get("ticket_execution_version"):
+            require(d.get("ticket_scope") == "root", "controller 只验收整票 root")
+        d_plan = check_stage_report(d, r) or d
         topology(d)
         head = r["head_commit"] or sha(d["worktree"], "HEAD")
-        checked = json.loads(run([sys.executable, "-B", SCRIPTS / "verify-ticket.py", d["branch"], d["base_commit"], head, r["status"], report_path, d["expected_plan_path"]], d["worktree"]))
+        checked = json.loads(run([sys.executable, "-B", SCRIPTS / "verify-ticket.py", d["branch"], d["base_commit"], head, r["status"], report_path, d_plan["expected_plan_path"]], d["worktree"]))
         require(checked.get("ok") and checked["report_sha256"] == result["report_sha256"], "Git 验收失败：" + json.dumps(checked, ensure_ascii=False))
     elif role == "finalizer":
         import finalization
@@ -464,6 +483,14 @@ def comment(args):
     if metadata["reviewed_main"] == metadata["reviewed_head"]:
         lines += ["受审行为已在基线满足；本次无新增提交。"]
     if not final:
+        if d.get("ticket_execution_version"):
+            d = read(executor_ops().bound(r["execution"]["stage_dispatch"]))
+            gates = list(d.get("required_boundary_gates", []))
+            for item in r["execution"]["implementers"]:
+                implementation = read(executor_ops().bound(item["report"]))
+                gates += implementation["required_boundary_gates"]
+            lines += ["Boundary gates：" + json.dumps(list(dict.fromkeys(gates)), ensure_ascii=False),
+                      "阶段与实现来源：" + json.dumps(r["execution"], ensure_ascii=False)]
         if d.get("plan_adjustment"):
             adjustment = read(executor_ops().bound(d["plan_adjustment"]))
             lines += ["执行计划调整：" + adjustment["original_plan"]["mode"] + " → " + adjustment["effective_plan"]["mode"],

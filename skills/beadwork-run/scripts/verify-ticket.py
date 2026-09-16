@@ -135,6 +135,13 @@ def executor_schema(review_schema: Dict[str, Any]) -> Dict[str, Any]:
         "then": {"properties": {"red_evidence": {"type": "null"}}},
     }]
     schema = object_schema({
+        "execution": object_schema({
+            "root": object_schema({"path": TEXT, "sha256": TEXT}),
+            "stage_dispatch": object_schema({"path": TEXT, "sha256": TEXT}),
+            "previous_stages": {"type": "array", "items": {"type": "object"}},
+            "implementers": {"type": "array", "items": {"type": "object"}},
+            "stopped_tasks": {"type": "boolean"},
+        }),
         "delivery_kind": {"enum": ["changed", "already_satisfied", None]},
         "status": {"enum": ["DONE", "NEEDS_CONTEXT", "BLOCKED"]},
         "stage": {"type": "integer", "enum": [0, 1, 2, 3]},
@@ -155,7 +162,7 @@ def executor_schema(review_schema: Dict[str, Any]) -> Dict[str, Any]:
         "requested_context": TEXTS,
         "blockers": TEXTS,
         "concerns": TEXTS,
-    }, optional=("stage", "outcome", "delivery_kind"))
+    }, optional=("stage", "outcome", "delivery_kind", "execution"))
     schema["$schema"] = "http://json-schema.org/draft-07/schema#"
     schema["allOf"] = [
         {

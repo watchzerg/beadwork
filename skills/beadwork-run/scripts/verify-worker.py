@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""fixer/reviewer 的文件报告、短回执及派发身份校验；仅标准库。
+"""implementer/fixer/reviewer 的文件报告、短回执及派发身份校验；仅标准库。
 
 用法：
-  --schema <fixer|reviewer>
-  --receipt-schema <fixer|reviewer>
-  --check-report <fixer|reviewer> <report.json> [receipt.json] --expected <dispatch.json>
+  --schema <implementer|fixer|reviewer>
+  --receipt-schema <implementer|fixer|reviewer>
+  --check-report <implementer|fixer|reviewer> <report.json> [receipt.json] --expected <dispatch.json>
 
 输出紧凑 JSON；ok:false 表示验收失败，非零退出表示输入或命令失败。
 不写入源码、Git、Beads 或报告；Git 现场由直接派发者验收。
@@ -23,7 +23,7 @@ assert spec and spec.loader
 v = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v)
 TEXT, SHA, TEXTS, obj = v.TEXT, v.SHA, v.TEXTS, v.object_schema
-ROLES = ("fixer", "reviewer")
+ROLES = ("fixer", "reviewer", "implementer")
 
 
 def nullable(schema):
@@ -31,11 +31,14 @@ def nullable(schema):
 
 
 def receipt_schema(role):
-    return obj({"status": {"enum": ["DONE", "BLOCKED"] if role == "fixer" else ["COMPLETED", "BLOCKED"]},
+    return obj({"status": {"enum": ["DONE", "NEEDS_CONTEXT", "BLOCKED"] if role == "implementer" else ["DONE", "BLOCKED"] if role == "fixer" else ["COMPLETED", "BLOCKED"]},
                 "report_path": TEXT, "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}})
 
 
 def report_schema(role, axis_schema):
+    if role == "implementer":
+        import ticket_execution
+        return ticket_execution.implementer_schema(v)
     if role == "reviewer":
         # 成功报告保留本流程 AxisReport；无法完成审查时使用本地失败报告，不伪造 findings。
         return {"oneOf": [axis_schema, obj({
@@ -73,6 +76,9 @@ def dispatch_schema(role):
 
 
 def validate(role, report, axis_schema, expected):
+    if role == "implementer":
+        import ticket_execution
+        return ticket_execution.implementer_errors(report, expected, v)
     problems = v.schema_errors(expected, dispatch_schema(role))
     if problems:
         return ["dispatch_schema: " + problem for problem in problems]

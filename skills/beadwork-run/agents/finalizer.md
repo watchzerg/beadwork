@@ -35,13 +35,15 @@ finalizer 本身默认 `gpt-5.6-terra` / `medium`，复杂证据整合可用 `gp
 
 ## 验证、review 与推进
 
-每个阶段先从所有 ticket 证据汇总 boundary gates，执行 `just final <boundary-gate>...`，记录命令、完整输出、运行 HEAD、各 gate 结果和来源。完整 gates 必须在最终交付 HEAD 通过。fixer 若已在同一 HEAD 完成完整 final/gates，引用其已验收的精确 HEAD 结果，不重跑。
+finalizer 从所有 ticket 证据汇总 boundary gates。stage 0 由 finalizer 执行 `just final <boundary-gate>...`；stage 1..3 由 fixer 在修复后执行完整 final/gates，finalizer 验收并引用其结果。执行者记录命令、完整输出、运行 HEAD、各 gate 结果和来源；完整 gates 必须在最终交付 HEAD 通过。同一 HEAD 已通过且证据完整的验证不重跑；缺证、HEAD 不一致或覆盖不足时，由 finalizer 明确需要补充的验证，确认 fixer 已停止写入后再组织执行。
 
 stage 0 的 final/gate 代码失败，或后续 fixer 用尽三次就地修正后返回的代码失败，不派 reviewer，组装 `BLOCKED / code_failure` 阶段报告并以 `continuation: repair` 消耗该阶段进入下一阶段。当 reviewed_main=HEAD 时，按 `../references/baseline-adaptation.md` 提供 parent 全部 acceptance 证据并准备 existing_behavior review；gates 和关闭/清理仍执行。验证通过才按 `review.md` 派发两个独立只读 reviewer：BASE 始终是 `reviewed_main`，HEAD 是当时冻结的当前 HEAD。代码导致的完整 blocking review 同样组装 `BLOCKED / code_failure` 并消耗阶段；非 blocking smells 记录但不派 fixer。review 无法完成、外部阻塞或现场变化则返回 `BLOCKED`，不伪装为代码失败。
 
 fixer 只处理当前阶段 gate 失败或 blocking findings。其 `base_commit` 是该阶段稳定的 `stage_base`；`fix_commits` 是从该 BASE 到交付 HEAD 的完整有序列表，可以包含多次真实提交。stage 1..3 的 fixer 交付验证代码失败可按 `../references/verification.md` 就地修正最多三次；同阶段恢复继承机会，不因重派发重置。stage 0 没有 writer，gate 失败仍进入下一阶段。fixer DONE 后，核对来源、处置、HEAD、完整 commit 列表与验证；再开始本阶段的一轮 review。新 commit 使旧 HEAD 的 review 不能作为合入依据。
 
 ## 组装与交付
+
+finalizer 负责修复处置、验证覆盖和 review 的日常语义验收：核对 fixer 改动仅处理本批次阻塞及直接相关问题，验证覆盖全部声明和实际补充的边界，报告与原始 reviewer 证据一致，smells 原样保留。controller 核对最终交付与集成条件，有矛盾、缺证或越界迹象时再追查相关源码和日志。
 
 先保存各 reviewer/fixer 的报告、receipt 和完整验收结果。使用阶段组装入口，它重新读取并 hash 绑定每个来源：
 

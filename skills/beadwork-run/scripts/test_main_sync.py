@@ -244,7 +244,15 @@ if sys.argv[3]=='env-facts':
         self.assertEqual(result.returncode, 0, result.stderr)
         dispatch = json.loads(Path(json.loads(result.stdout)['dispatch_path']).read_text())
         self.assertEqual(dispatch['base_commit'], r['head'])
-        self.assertEqual(dispatch['stage'], 0)
+        self.assertEqual(dispatch['ticket_scope'], 'root')
+        self.assertNotIn('stage', dispatch)
+        facts = self.root / 'stage-facts.json'
+        facts.write_text('{}')
+        stage = subprocess.run([sys.executable, '-B', str(SCRIPT.with_name('executor-operations.py')),
+                                'ticket-stage', '--dispatch', dispatch['dispatch_path'], '--input', str(facts)],
+                               env=self.env, capture_output=True, text=True)
+        self.assertEqual(stage.returncode, 0, stage.stderr)
+        self.assertEqual(json.loads(stage.stdout)['stage'], 0)
         self.change(self.wt, 'ticket')
         result = subprocess.run(args, env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)

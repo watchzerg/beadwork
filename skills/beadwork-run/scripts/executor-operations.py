@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""executor 开工、提交前检查、review 材料与报告组装；仅写证据，不派发 agent。"""
+"""ticket 开工、implementer 提交检查、阶段调度及报告组装；仅写证据，不派发 agent。"""
 from __future__ import annotations
 
 import argparse
@@ -63,7 +63,7 @@ def bound(item):
 def dispatch(path):
     p = absolute(path)
     d = load(p)
-    c.require(d["role"] in ("executor", "finalizer"), "需要 executor 或 finalizer dispatch")
+    c.require(d["role"] in ("executor", "finalizer", "implementer"), "需要 executor、implementer 或 finalizer dispatch")
     c.require(Path(d["dispatch_path"]) == p, "dispatch 路径不符")
     c.require(Path(d["report_path"]).parent == p.parent, "报告目录与 dispatch 不符")
     c.validate_plan(d)
@@ -96,6 +96,10 @@ def load_command(args, cwd=None):
 
 def prepare_review(args):
     d = dispatch(args.dispatch)
+    if d.get("ticket_execution_version"):
+        import ticket_execution
+        c.require(d.get("ticket_scope") == "stage", "review 由 stage executor 派发")
+        ticket_execution.review_ready(d)
     base = d["base_commit"] if d["role"] == "executor" else d["reviewed_main"]
     head = c.sha(d["worktree"], "HEAD")
     reviewed_state(d, base, head)
@@ -183,6 +187,9 @@ def collect_review(args):
         "pair": pair, "gate": gate}
     output = output_path(args.output, path.parent)
     c.write(output, result)
+    if d.get("ticket_execution_version"):
+        import ticket_execution
+        ticket_execution.select_review(d, output)
     return {"collection_path": str(output), "gate": gate}
 
 
@@ -195,6 +202,8 @@ def collection(path, dispatch_path):
     current = dispatch(dispatch_path)
     # 接替显式选择旧证据时，保留同票、同 BASE 的已完成轮次。
     keys = ("role", "repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
+    if current.get("ticket_execution_version"):
+        keys += ("ticket_root",)
     if current["role"] == "finalizer":
         keys += ("reviewed_main",)
         if "attempt_id" in previous and "attempt_id" in current:
@@ -210,11 +219,11 @@ def check_report(dispatch_path, report_path):
     p = absolute(report_path)
     c.require(p.parent == absolute(dispatch_path).parent, "报告必须位于本轮 dispatch 目录")
     report = load(p)
-    c.check_stage_report(d, report)
+    plan_d = c.check_stage_report(d, report) or d
     c.topology(d)
     head = report["head_commit"] or c.sha(d["worktree"], "HEAD")
     checked = load_command([sys.executable, "-B", c.SCRIPTS / "verify-ticket.py",
-        d["branch"], d["base_commit"], head, report["status"], p, d["expected_plan_path"]], d["worktree"])
+        d["branch"], d["base_commit"], head, report["status"], p, plan_d["expected_plan_path"]], d["worktree"])
     c.require(checked.get("ok") is True, "executor 完整自检失败：" + json.dumps(checked, ensure_ascii=False))
     return {"status": report["status"], "report_path": str(p), "report_sha256": checked["report_sha256"]}
 
@@ -228,7 +237,7 @@ def paths(wt, *args):
 
 
 def workspace(d):
-    c.require(d["role"] == "executor", "需要 executor dispatch")
+    c.require(d["role"] in ("executor", "implementer"), "需要 ticket dispatch")
     c.topology(d)
     wt = d["worktree"]
     c.require(c.sha(wt, d["base_commit"]) == d["base_commit"], "需要完整 BASE")
@@ -247,7 +256,11 @@ def inspect_context(args):
     try:
         result["workspace"] = state = workspace(d)
         c.require(d["mode"] in ("new", "resume"), "mode 无效")
-        if d["mode"] == "new":
+        fresh = d["mode"] == "new"
+        if d.get("ticket_scope") == "root":
+            import ticket_execution
+            fresh = fresh and ticket_execution.checkpoints(d)[0]["stage_dispatch"] is None
+        if fresh:
             c.require(state["head"] == d["base_commit"] and not c.status(d["worktree"]),
                       "新票派发后现场已变化")
         for key in ("report_schema_path", "receipt_schema_path", "expected_plan_path"):
@@ -283,6 +296,9 @@ def inspect_context(args):
 
 def check_layer(args):
     d = dispatch(args.dispatch)
+    if d.get("ticket_execution_version"):
+        import ticket_execution
+        ticket_execution.require_writer(d)
     layer = load(absolute(args.input))
     c.require(set(layer) == {"files", "message"}, "本层输入仅包含 files 和 message")
     files = layer["files"]
@@ -315,7 +331,10 @@ def assemble(args):
     spec = importlib.util.spec_from_file_location("verification", c.SCRIPTS / "run-verification.py")
     verification = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(verification)
-    report["verification"] = verification.collect(args.dispatch, list(dict.fromkeys(d.get("verification_dispatches", []) + args.verification_dispatch)), notes, report["status"]) + report["verification"]
+    if not d.get("ticket_execution_version"):
+        report["verification"] = verification.collect(args.dispatch, list(dict.fromkeys(d.get("verification_dispatches", []) + args.verification_dispatch)), notes, report["status"]) + report["verification"]
+    else:
+        c.require(getattr(args, "report_extra", None), "阶段报告使用 ticket-assemble")
     if report["test_plan"] is not None:
         c.require(set(report["test_plan"]) == {"decision_source", "red_evidence"},
                   "draft test_plan 仅提供 decision_source 和 red_evidence")
@@ -339,6 +358,7 @@ def assemble(args):
             c.require(all(gate == "BLOCKED" for _, gate in rounds[:-1]), "PASS 不进入修复复审")
             review["initial"] = rounds[0][0]
         report["review"] = review
+    report.update(getattr(args, "report_extra", {}))
     output = output_path(args.output, absolute(args.dispatch).parent)
     c.write(output, report)
     # 自检失败保留候选报告供诊断；更正使用新文件名。
@@ -348,6 +368,23 @@ def assemble(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    p = commands.add_parser("ticket-stage")
+    p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
+    p = commands.add_parser("ticket-deliver")
+    p.add_argument("--dispatch", required=True); p.add_argument("--output", required=True)
+    p = commands.add_parser("ticket-adapt-plan")
+    p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
+    for command in ("ticket-assemble", "implementer-assemble"):
+        p = commands.add_parser(command)
+        for name in ("dispatch", "draft", "output"):
+            p.add_argument("--" + name, required=True)
+        if command == "ticket-assemble":
+            p.add_argument("--review", action="append", default=[])
+    p = commands.add_parser("implementer-check")
+    p.add_argument("--dispatch", required=True); p.add_argument("--report", required=True)
+    p = commands.add_parser("implementer-accept")
+    for name in ("dispatch", "report", "receipt"):
+        p.add_argument("--" + name, required=True)
     p = commands.add_parser("begin-gate-repair")
     p.add_argument("--dispatch", required=True); p.add_argument("--failure", required=True)
     p = commands.add_parser("final-stage")
@@ -374,8 +411,16 @@ def main():
     p.add_argument("--dispatch", required=True); p.add_argument("--report", required=True)
     args = parser.parse_args()
     import finalization
+    import ticket_execution
     import gate_repair
-    action = {"begin-gate-repair": gate_repair.begin,
+    action = {"ticket-stage": lambda a: ticket_execution.prepare_stage(a.dispatch, load(a.input)),
+              "ticket-deliver": lambda a: ticket_execution.deliver(a.dispatch, a.output),
+              "ticket-adapt-plan": ticket_execution.adapt_plan,
+              "ticket-assemble": ticket_execution.assemble_stage,
+              "implementer-assemble": ticket_execution.implementer_assemble,
+              "implementer-check": lambda a: ticket_execution.implementer_check(a.dispatch, a.report),
+              "implementer-accept": lambda a: ticket_execution.accept_implementer(a.dispatch, a.report, a.receipt),
+              "begin-gate-repair": gate_repair.begin,
               "final-stage": lambda a: finalization.prepare_stage(a.dispatch, load(a.input)),
               "final-assemble": lambda a: finalization.assemble(a.dispatch, a.draft, a.output, a.review, load(a.fixers)),
               "inspect": inspect_context, "check-layer": check_layer,
