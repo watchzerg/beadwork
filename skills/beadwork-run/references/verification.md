@@ -20,7 +20,7 @@ python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --rec
 
 用宿主长任务机制等待或取消。记录器收到取消后终止本次专属进程组，有限等待后必要时强杀；`process_group_gone` 只描述该进程组，不证明 Docker 容器、脱离进程组的任务等外部资源已清理。强杀记录器可能仅留下开始记录和日志；恢复前由 agent 确认旧任务结束，不根据旧 PID 自动操作。
 
-报告交付按 `report-delivery.md` 自动汇总全部运行。缺少 result.json 的记录作为“结果未知”保留；返回 DONE 前必须在该运行的 `verification_notes` 写明实际收尾确认及后续验证，语义由 executor 核对。失败历史不自动阻止交付，也不会被旧成功覆盖。implementer 报告由组装器固定交付时的验证来源快照；历史报告只核验该快照，新交付必须包含当前全部运行。日志或来源损坏使组装失败时保留原文件，按共享交付契约返回部分阻塞报告并引用损坏证据。
+报告交付按 `report-delivery.md` 自动汇总全部运行。缺少 result.json 的记录作为“结果未知”保留；返回 DONE 前必须在该运行的 `verification_notes` 写明实际收尾确认及后续验证，语义由 executor 核对。失败历史不自动阻止交付，也不会被旧成功覆盖。implementer 报告由组装器固定交付时的验证来源快照；历史报告只核验该快照，新交付必须包含当前全部运行。日志或来源损坏时保留原绑定并生成 `verification_issues`；只能返回部分 `BLOCKED / blocked|interrupted`，不能支持成功、review 或 code_failure 推进。
 
 
 ## 最多三次就地 gate 修正

@@ -91,6 +91,17 @@ class ControllerTests(unittest.TestCase):
         Path(path).write_text(json.dumps(value, ensure_ascii=False))
         return str(path)
 
+    def test_controller_rejects_duplicate_keys_and_nonfinite_numbers(self):
+        for name, raw in (("duplicate", '{"repository_root":"x","repository_root":"y"}'),
+                          ("nonfinite", '{"repository_root":NaN}')):
+            with self.subTest(name=name):
+                path = self.root / (name + '.json')
+                path.write_text(raw)
+                result = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'preflight', '--input', str(path)],
+                                        cwd=self.root, env=self.env, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('重复 JSON key' if name == 'duplicate' else '无效 JSON 数值', result.stderr)
+
     def call(self, *args, ok=True):
         argv = [sys.executable, "-B", str(SCRIPT), *map(str, args)]
         if getattr(self, "utility_fixture", True) and args[:2] == ("prepare", "executor"):

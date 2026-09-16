@@ -49,7 +49,8 @@ def checkpoints(d):
     files = sorted(folder.glob('checkpoint-*.json'))
     previous = None
     state = {'stage_dispatch': None, 'implementer_sources': [], 'stage_sources': [],
-             'selected_stage': None, 'selected_review': None}
+             'selected_stage': None, 'selected_review': None,
+             'review_round_path': None, 'review_round': None}
     for i, path in enumerate(files, 1):
         c.require(path.name == f'checkpoint-{i:06d}.json', '单票检查点不连续')
         entry = ops().load(path)
@@ -57,6 +58,24 @@ def checkpoints(d):
         c.require(entry['state_sha256'] == state_digest(entry['state']), '检查点状态已变化')
         state = entry['state']
         previous = ops().binding(str(path))
+    # v1 早期 checkpoint 没有累计 gate 字段；从已绑定来源确定性补齐，
+    # 下一次追加 checkpoint 时写入新状态，不改写历史文件。
+    state = dict(state)
+    gates = list(state.get('required_boundary_gates', r.get('required_boundary_gates', [])))
+    gate_sources = list(state.get('gate_sources', []))
+    sources = list(state.get('stage_sources', [])) + list(state.get('implementer_sources', []))
+    for source_item in sources:
+        _, report = resolve_source(source_item)
+        for gate in report.get('required_boundary_gates', report.get('boundary_gates', [])):
+            if gate not in gates:
+                gates.append(gate)
+            marker = {'gate': gate, 'report': source_item['report']}
+            if marker not in gate_sources:
+                gate_sources.append(marker)
+    state['required_boundary_gates'] = gates
+    state['gate_sources'] = gate_sources
+    state.setdefault('review_round_path', None)
+    state.setdefault('review_round', None)
     return state, previous, len(files)
 
 
@@ -121,13 +140,13 @@ def worker(option, *args):
 def stage_result(d, state):
     selected = state['implementer_sources'][-1] if state['implementer_sources'] else None
     writer = ops().load(ops().bound(d['implementer_dispatch']))
-    rounds = list(Path(d['dispatch_path']).parent.glob('review-*/round.json'))
-    c.require(len(rounds) <= 1, '同 stage 出现多个 review round')
     import handoff
     return {'context_sources': handoff.contexts(d), 'stage': d['stage'], 'stage_dispatch': d['dispatch_path'], 'implementer_dispatch': writer['dispatch_path'],
             'models': d['models'], 'prior_implementer': selected, 'selected_stage': state['selected_stage'],
             'selected_review': state['selected_review'],
-            'review_round': str(rounds[0]) if rounds else None,
+            'required_boundary_gates': state['required_boundary_gates'],
+            'gate_sources': state['gate_sources'],
+            'review_round': state['review_round_path'],
             'review_started': (Path(d['gate_repair_root']) / 'gate-review-started.json').exists()}
 
 
@@ -188,17 +207,15 @@ def prepare_stage(root_path, facts):
              prior_reviews=(report.get('review') or {}).get('sources', []) if previous else [],
              prior_stages=state['stage_sources'], previous_stage=state['selected_stage'],
              verification_dispatches=[])
-    if previous:
-        for item in state['implementer_sources']:
-            _, implementation = resolve_source(item)
-            d['required_boundary_gates'] = list(dict.fromkeys(d.get('required_boundary_gates', []) + implementation['required_boundary_gates']))
+    d['required_boundary_gates'] = list(state['required_boundary_gates'])
     d.pop('implementer_dispatch', None)
     folder.mkdir()
     w = save_dispatch(dict(d, ticket_scope='implementer'), folder / 'implementer', 'implementer')
     d['implementer_dispatch'] = ops().binding(w['dispatch_path'])
     d = save_dispatch(d, folder / 'coordinator', 'executor')
     new_state = dict(state, stage_dispatch=ops().binding(d['dispatch_path']), implementer_sources=[],
-                     selected_stage=None, selected_review=None)
+                     selected_stage=None, selected_review=None,
+                     review_round_path=None, review_round=None)
     checkpoint(r, new_state)
     return stage_result(d, new_state)
 
@@ -229,9 +246,11 @@ def implementer_schema(v):
         stage_base=v.SHA, stopped_tasks={'type': 'boolean'},
         verification_notes={'type': 'object', 'additionalProperties': {'type': 'string'}},
         verification_sources={'type': 'array', 'items': {'type': 'object'}},
+        verification_issues={'type': 'array', 'items': {'type': 'object'}},
         required_boundary_gates={'type': 'array', 'items': v.TEXT, 'uniqueItems': True})
     schema['required'] += ['role', 'ticket_id', 'stage', 'outcome', 'stage_base', 'stopped_tasks',
-                           'verification_notes', 'required_boundary_gates']
+                           'verification_notes', 'verification_sources', 'verification_issues',
+                           'required_boundary_gates']
     return schema
 
 
@@ -258,7 +277,15 @@ def implementer_errors(report, d, v):
         errors.append('未完成交付需要原因')
     if report['test_plan'] and {k: report['test_plan'][k] for k in ('mode', 'approved_seams')} != ops().load(d['expected_plan_path']):
         errors.append('test plan 与执行计划不符')
-    if not set(d.get('required_boundary_gates', [])).issubset(report['required_boundary_gates']):
+    required = set(d.get('required_boundary_gates', []))
+    try:
+        state, _, _ = checkpoints(d)
+        stage = ops().load(ops().bound(state['stage_dispatch'])) if state['stage_dispatch'] else None
+        if stage and stage.get('implementer_dispatch') == ops().binding(d['dispatch_path']):
+            required.update(state['required_boundary_gates'])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # 完整验收会返回原始 checkpoint 错误；结构校验仍保留 dispatch 下限。
+    if not required.issubset(report['required_boundary_gates']):
         errors.append('丢失 boundary gate 下限')
     return errors
 
@@ -292,13 +319,33 @@ def verification_snapshot(d):
     return entries
 
 
+def collect_verification(d, snapshot, notes, status):
+    rows, issues = [], []
+    module = verification_module()
+    for item in snapshot:
+        run_path = str(Path(ops().bound(item['started'])).parent)
+        selected_notes = {run_path: notes[run_path]} if run_path in notes else {}
+        try:
+            collected = module.collect(d['dispatch_path'], d.get('verification_dispatches', []),
+                                       selected_notes, status, [item])
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            issues.append({'source': item, 'reason': str(error)})
+        else:
+            started = ops().load(ops().bound(item['started']))
+            rows.extend((started['started_ns'], run_path, row) for row in collected)
+    return [row[2] for row in sorted(rows, key=lambda row: (row[0], row[1]))], issues
+
+
 def check_implementation(d, report, live=False):
     c.validate_plan(d)
     snapshot = report.get('verification_sources')
     if live and snapshot is not None:
         c.require(snapshot == verification_snapshot(d), '实现交付须包含当前全部验证来源')
-    rows = verification_module().collect(d['dispatch_path'], d.get('verification_dispatches', []),
-                                         report['verification_notes'], report['status'], snapshot)
+    c.require(isinstance(snapshot, list), '实现交付缺少验证来源快照')
+    rows, issues = collect_verification(d, snapshot, report['verification_notes'], report['status'])
+    c.require(report.get('verification_issues') == issues, '实现验证问题与原始来源不符')
+    c.require(not issues or (report['status'] == 'BLOCKED' and report['outcome'] in ('blocked', 'interrupted')),
+              '损坏验证来源只能交付 blocked/interrupted')
     c.require(report['verification'][:len(rows)] == rows, 'implementer 丢失或改写验证历史')
     head = report['head_commit']
     c.require(head, '实现报告需要当前 HEAD')
@@ -349,8 +396,15 @@ def implementer_assemble(args):
     fields = {'status', 'outcome', 'test_plan', 'acceptance', 'verification', 'requested_context', 'blockers', 'concerns',
               'verification_notes', 'stopped_tasks', 'required_boundary_gates'}
     c.require(set(report) == fields, 'implementer draft 字段不符')
+    state, _, _ = checkpoints(d)
+    report['required_boundary_gates'] = list(dict.fromkeys(
+        state['required_boundary_gates'] + report['required_boundary_gates']))
     report['verification_sources'] = verification_snapshot(d)
-    rows = verification_module().collect(args.dispatch, d.get('verification_dispatches', []), report['verification_notes'], report['status'], report['verification_sources'])
+    rows, report['verification_issues'] = collect_verification(
+        d, report['verification_sources'], report['verification_notes'], report['status'])
+    c.require(not report['verification_issues'] or
+              (report['status'] == 'BLOCKED' and report['outcome'] in ('blocked', 'interrupted')),
+              '验证来源损坏时只能交付 blocked/interrupted')
     report['verification'] = rows + report['verification']
     if report['test_plan'] is not None:
         c.require(set(report['test_plan']) == {'decision_source', 'red_evidence'}, 'test_plan 只填写判断依据与 red 证据')
@@ -391,6 +445,12 @@ def accept_implementer(stage_path, report_path, receipt_path, closure=None):
     c.require(not (Path(d['gate_repair_root']) / 'gate-review-started.json').exists(), 'review 后只能更正审查/阶段报告')
     state.setdefault('closures', {})[item['report']['sha256']] = closure
     state['implementer_sources'].append(item)
+    for gate in report['required_boundary_gates']:
+        if gate not in state['required_boundary_gates']:
+            state['required_boundary_gates'].append(gate)
+        marker = {'gate': gate, 'report': item['report']}
+        if marker not in state['gate_sources']:
+            state['gate_sources'].append(marker)
     state['selected_stage'] = None
     checkpoint(d, state)
     return {'accepted': True, 'source': item}
@@ -404,7 +464,32 @@ def review_ready(d):
            state['implementer_sources'][-1]['receipt']['path'], '--expected', w['dispatch_path'])
     check_implementation(w, report, live=True)
     c.require(report['status'] == 'DONE' and report['stopped_tasks'], '实现未通过，不能 review')
-    c.require(not any(Path(d['dispatch_path']).parent.glob('review-*/round.json')), '每 stage 只准备一轮 review；恢复使用原 round')
+    c.require(state['review_round'] is None, '每 stage 只准备一轮 review；恢复使用原 round')
+
+
+def reserve_review(d, resume=False):
+    state, _, _ = checkpoints(d)
+    c.require(state['stage_dispatch'] == ops().binding(d['dispatch_path']), '只能为当前 stage 准备 review')
+    if state['review_round_path']:
+        c.require(resume and state['review_round'] is None,
+                  '本阶段已有 review；复用原 round 或更正报告')
+        return Path(state['review_round_path']).parent
+    c.require(not resume, '没有待恢复的 review 准备')
+    folder = Path(d['dispatch_path']).parent / ('review-' + uuid.uuid4().hex)
+    state['review_round_path'] = str(folder / 'round.json')
+    state['selected_stage'] = None
+    checkpoint(d, state)
+    return folder
+
+
+def bind_review_round(d, path):
+    state, _, _ = checkpoints(d)
+    c.require(state['stage_dispatch'] == ops().binding(d['dispatch_path'])
+              and state['review_round_path'] == str(path), 'review round 未获当前 stage 选择')
+    binding = ops().binding(str(path))
+    if state['review_round'] != binding:
+        state['review_round'] = binding
+        checkpoint(d, state)
 
 
 def select_review(d, collection_path):
@@ -418,6 +503,7 @@ def select_review(d, collection_path):
     c.require(record['dispatch'] == state['stage_dispatch']
               and round_path.parent.parent == Path(d['dispatch_path']).parent,
               'review round 不属于当前 stage')
+    c.require(state['review_round'] == collection['round'], '只能选择检查点绑定的 review round')
     if state['selected_review']:
         previous = ops().load(ops().bound(state['selected_review']))
         c.require(previous['round'] == collection['round'], 'review 更正必须沿用同一 round 和 BASE/HEAD')
@@ -542,6 +628,9 @@ def adapt_plan(args):
     state, _, _ = checkpoints(d)
     c.require(state['stage_dispatch'] == ops().binding(args.dispatch), '不是当前执行上下文')
     c.require(not (Path(d['gate_repair_root']) / 'gate-review-started.json').exists(), 'review 后不能适配计划')
+    facts = ops().load(args.input)
+    c.require(set(state['required_boundary_gates']).issubset(facts.get('boundary_gates', [])),
+              '计划适配不得丢失累计 boundary gates')
     adjusted = c.adapt_plan(args)
     old_writer = ops().load(ops().bound(d['implementer_dispatch']))
     adjusted['verification_dispatches'] = []

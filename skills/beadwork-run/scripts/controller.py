@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import uuid
+import evidence
 
 sys.dont_write_bytecode = True
 SCRIPTS = Path(__file__).resolve().parent
@@ -23,7 +24,7 @@ def require(condition, message):
 
 
 def read(path):
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return evidence.read(path)
 
 
 def digest(path):

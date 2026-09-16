@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import evidence
 from typing import Any, Dict, List, Optional, Tuple
 
 FULL_SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -233,6 +234,8 @@ def schema_errors(value: Any, schema: Dict[str, Any], path: str = "$") -> List[s
                 errors.extend(schema_errors(item, properties[key], path + "." + key))
             elif schema.get("additionalProperties") is False:
                 errors.append(path + "." + key + ": unexpected")
+            elif isinstance(schema.get("additionalProperties"), dict):
+                errors.extend(schema_errors(item, schema["additionalProperties"], path + "." + key))
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", float("inf")):
             errors.append(path + ": item count")
@@ -277,6 +280,8 @@ def check_schema(schema: Any) -> None:
         raise ValueError("schema 含不支持的 type")
     for child in schema.get("properties", {}).values():
         check_schema(child)
+    if isinstance(schema.get("additionalProperties"), dict):
+        check_schema(schema["additionalProperties"])
     for key in ("items", "not", "if", "then", "else"):
         if key in schema:
             check_schema(schema[key])
@@ -285,26 +290,8 @@ def check_schema(schema: Any) -> None:
             check_schema(child)
 
 
-def unique_object(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("JSON 含重复字段：" + key)
-        result[key] = value
-    return result
-
-
-def invalid_constant(value: str) -> None:
-    raise ValueError("JSON 含非法常量：" + value)
-
-
 def read_json(path: str) -> Tuple[Any, str]:
-    with open(path, "rb") as handle:
-        raw = handle.read()
-    return (
-        json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant),
-        hashlib.sha256(raw).hexdigest(),
-    )
+    return evidence.read_with_digest(path)
 
 
 def review_pairs(review):

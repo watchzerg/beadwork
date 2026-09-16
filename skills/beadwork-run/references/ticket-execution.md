@@ -8,7 +8,7 @@ controller 创建并交接 `ticket_scope: root` 的 executor dispatch。executor
 python3 <skill-dir>/scripts/executor-operations.py ticket-stage --dispatch <root-dispatch.json> --input <facts.json>
 ```
 
-首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round` 和 `review_started`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
+首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round`、`review_started`、`required_boundary_gates` 和 `gate_sources`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
 
 - `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
 - `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到 stage 3。
@@ -36,11 +36,11 @@ draft 必填：
 - `acceptance`：criterion/evidence 映射。
 - `verification`：人工验证场景的 command/result；已采集 just 命令不用重复填，通常为 `[]`。
 - `verification_notes`：运行目录绝对路径到非空说明的映射，无补充时 `{}`。填写有效 red 判断、新增 gate 原因或未完成记录的实际收尾等语义事实。
-- `required_boundary_gates`：原声明及实际补充的 gate 下限，不丢失已有范围。
+- `required_boundary_gates`：原声明及实际补充的 gate 下限。implementer 报告一经验收，新增 gate 与报告来源写入 ticket checkpoint；同 stage 恢复、计划适配、后续 stage 和 review 均沿用累计集合。组装器自动保留累计范围，但当前 HEAD 缺少对应成功运行时仍拒绝完成。
 - `requested_context`、`blockers`、`concerns`：保留未完成任务、dirty 文件、剩余工作与失败来源。
 - `stopped_tasks`：实际停止事实，布尔值；脚本不代替宿主确认。
 
-组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求 gate-unit 和必要 boundary gates 在同一干净交付 HEAD 通过；TDD red 和直接验证的语义仍由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器同时固定该报告交付时的 verification_sources（started/result 的 hash 绑定）；同 stage 后续新增运行不会改变已交付报告的验证历史，新报告仍采集全部当前来源。
+组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求 gate-unit 和必要 boundary gates 在同一干净交付 HEAD 通过；TDD red 和直接验证的语义仍由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器同时固定该报告交付时的 verification_sources（started/result 的 hash 绑定）；同 stage 后续新增运行不会改变已交付报告的验证历史，新报告仍采集全部当前来源。来源缺失或损坏时，组装器在 `verification_issues` 保存原绑定与实际错误；这种报告只能 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
 
 stdout 为短回执；executor 确认 implementer 及命令结束，保存到该 implementer 目录下的新 receipt 文件，然后执行：
 
@@ -52,7 +52,7 @@ python3 <skill-dir>/scripts/executor-operations.py implementer-accept --dispatch
 
 ## 阶段报告与整票交付
 
-实现通过后按 `review.md` 准备并验收本阶段唯一的一轮双轴 review。首次 prepare 返回 round；中断和更正复用返回的 review_round，不再次调用 prepare。准备命令在 round.json 写出前失败时，保留部分目录；确认没有已派发 reviewer 后可重新 prepare，不恢复 writer。
+实现通过后按 `review.md` 准备并验收本阶段唯一的一轮双轴 review。首次 prepare 在 checkpoint 预留 round 后写入材料；准备命令在 round.json 写出前失败时，确认没有已派发 reviewer 后使用 `review-prepare --resume` 补齐原目录。已有完整 round 时继续原 round 或更正，不能另开一轮；review 开始后不恢复 writer。
 
 `review-collect` 成功时将 collection 的 path/sha256 写入检查点的 `selected_review`，即使尚未组装阶段报告，恢复也保留该选择。collection 已写出但检查点尚未追加时中断，保留原件，用原 round 和明确的 selection 输入重新 collect 到新文件；不按目录时间选择来源。缺轴或校验失败不更新选择。
 

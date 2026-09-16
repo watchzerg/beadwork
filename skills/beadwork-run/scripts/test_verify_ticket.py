@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,10 @@ import unittest
 
 
 VERIFIER = Path(__file__).with_name("verify-ticket.py")
+_SPEC = importlib.util.spec_from_file_location("verify_ticket_under_test", VERIFIER)
+assert _SPEC and _SPEC.loader
+VALIDATOR = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(VALIDATOR)
 
 
 class TicketAcceptanceTests(unittest.TestCase):
@@ -302,6 +307,12 @@ class TicketAcceptanceTests(unittest.TestCase):
         self.reject(changed, "report_schema", local=True)
         changed["review"]["attempts"] = 1.0
         self.assertTrue(self.invoke(changed, local=True)["ok"])
+
+    def test_additional_properties_schema_validates_each_value(self) -> None:
+        schema = {"type": "object", "additionalProperties": {"type": "string"}}
+        self.assertEqual(VALIDATOR.schema_errors({"note": "实际说明"}, schema), [])
+        self.assertIn("$.note: expected string", VALIDATOR.schema_errors({"note": 42}, schema))
+        VALIDATOR.check_schema(schema)
 
 
 if __name__ == "__main__":

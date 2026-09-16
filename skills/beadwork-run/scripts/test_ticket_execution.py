@@ -311,6 +311,52 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.commit(); self.gate(); self.gate('gate-demo')
         self.implement(ok=False)
 
+    def test_extra_boundary_gate_survives_same_stage_resume(self):
+        fake = self.h.root / 'bin/just'
+        fake.write_text(fake.read_text().replace('gate-unit gate-demo', 'gate-unit gate-demo gate-extra'))
+        self.commit()
+        self.implement('interrupted', required_boundary_gates=['gate-demo', 'gate-extra'])
+        self.gate(); self.gate('gate-demo')
+        self.implement(ok=False)
+        self.gate('gate-extra')
+        self.implement()
+        self.assemble([self.review()])
+        self.deliver()
+        self.assertIn('gate-extra', json.loads(self.writer_report.read_text())['required_boundary_gates'])
+
+    def test_review_prepare_interruption_reuses_reserved_round(self):
+        self.ready_writer()
+        code = '''import sys
+from pathlib import Path
+from types import SimpleNamespace
+sys.path.insert(0, sys.argv[1])
+import controller as c
+o = c.executor_ops()
+original = c.write
+def fail(path, value):
+    if Path(path).name == 'round.json': raise OSError('模拟 round 写出前中断')
+    return original(path, value)
+c.write = fail
+o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=False))
+'''
+        failed = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS), str(self.sd)],
+                                text=True, capture_output=True, env=self.h.env)
+        self.assertNotEqual(failed.returncode, 0)
+        before = set(self.sd.parent.glob('review-*'))
+        resumed = self.cli('executor-operations.py', 'review-prepare', '--dispatch', self.sd, '--resume')
+        self.assertEqual(set(self.sd.parent.glob('review-*')), before)
+        self.assertEqual(Path(resumed['round_path']).parent, next(iter(before)))
+
+    def test_missing_log_can_deliver_partial_blocked_implementation(self):
+        self.commit(); self.gate()
+        log = next(self.wd.parent.glob('verification-*/output.log'))
+        log.unlink()
+        self.implement('blocked')
+        report = json.loads(self.writer_report.read_text())
+        self.assertEqual(report['outcome'], 'blocked')
+        self.assertTrue(report['verification_issues'])
+        self.assemble(outcome='blocked'); self.deliver()
+
     def test_same_head_review_correction_keeps_stage_and_original(self):
         self.ready_writer()
         first = self.review(blocking=True)

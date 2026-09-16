@@ -14,27 +14,18 @@ import uuid
 
 sys.dont_write_bytecode = True
 import controller as c
+import evidence
 
 
 AXES = ("standards", "spec")
 
 
 def load(path):
-    # 与现有 verifier 一样拒绝重复 JSON key 和非有限数值。
-    return json.loads(Path(path).read_text(), object_pairs_hook=unique,
-                      parse_constant=lambda value: fail("无效 JSON 数值：" + value))
+    return evidence.read(path)
 
 
 def fail(message):
     raise ValueError(message)
-
-
-def unique(pairs):
-    result = {}
-    for key, value in pairs:
-        c.require(key not in result, "重复 JSON key：" + key)
-        result[key] = value
-    return result
 
 
 def absolute(path):
@@ -96,7 +87,8 @@ def load_command(args, cwd=None):
 
 def prepare_review(args):
     d = dispatch(args.dispatch)
-    if d.get("ticket_execution_version"):
+    ticket_review = bool(d.get("ticket_execution_version"))
+    if ticket_review:
         import ticket_execution
         c.require(d.get("ticket_scope") == "stage", "review 由 stage executor 派发")
         ticket_execution.review_ready(d)
@@ -120,6 +112,7 @@ def prepare_review(args):
         import gate_repair
         gate_repair.freeze(d)
     directory = (final_state.reserve_review(d, getattr(args, 'resume', False)) if final_state.strict(d)
+                 else ticket_execution.reserve_review(d, getattr(args, 'resume', False)) if ticket_review
                  else absolute(args.dispatch).parent / ("review-" + uuid.uuid4().hex))
     directory.mkdir(exist_ok=True)
     def write_review(path, value):
@@ -158,6 +151,8 @@ def prepare_review(args):
     write_review(path, record)
     if final_state.strict(d):
         final_state.bind_round(d, path)
+    if ticket_review:
+        ticket_execution.bind_review_round(d, path)
     return {"round_path": str(path), "axes": {axis: item["path"] for axis, item in record["axes"].items()}}
 
 
