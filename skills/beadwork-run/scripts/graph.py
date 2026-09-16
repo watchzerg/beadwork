@@ -98,11 +98,24 @@ def validate_issue(raw: Any, what: str) -> Dict[str, Any]:
     }
 
 
-def check_flat(children: List[Dict[str, Any]], cwd: str) -> None:
+def flat_result(children: List[Dict[str, Any]], dependents: List[Any]) -> Dict[str, Any]:
     if len(children) == 0:
-        emit({"flat": False, "reason": "no_children"})
+        return {"flat": False, "reason": "no_children"}
+    if not isinstance(dependents, list):
+        raise ValueError("bd dep list 返回的不是数组")
+    grandchildren = set()
+    for item in dependents:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]:
+            raise ValueError("bd dep list 包含缺少有效 id 的记录")
+        grandchildren.add(item["id"])
+    return ({"flat": False, "grandchildren": sorted(grandchildren)}
+            if grandchildren else {"flat": True})
+
+
+def check_flat(children: List[Dict[str, Any]], cwd: str) -> None:
+    if not children:
+        emit(flat_result(children, []))
         return
-    # 一次批量查询全部 children 的上游 parent-child 边，返回的是依赖方 issue 记录
     dep_out = run_bd(
         [
             "dep",
@@ -116,67 +129,68 @@ def check_flat(children: List[Dict[str, Any]], cwd: str) -> None:
         cwd,
     )
     dependents = parse_bd_json(dep_out, "bd dep list")
-    if not isinstance(dependents, list):
-        fail("bd dep list 返回的不是数组")
-    grandchildren = set()
-    for it in dependents:
-        if it is None or not isinstance(it, dict):
-            fail("bd dep list 包含非对象记录")
-        id_ = it.get("id")
-        if not isinstance(id_, str) or len(id_) == 0:
-            fail("bd dep list 记录缺少有效 id 字段")
-        grandchildren.add(id_)
-    if len(grandchildren) > 0:
-        emit({"flat": False, "grandchildren": sorted(grandchildren)})
-    else:
-        emit({"flat": True})
+    try:
+        emit(flat_result(children, dependents))
+    except ValueError as error:
+        fail(str(error))
 
 
-def next_(parent_id: str, children: List[Dict[str, Any]], expected_args: List[str], cwd: str) -> None:
-    # 比较 children 集合与 preflight 固定的 expected 集合
+def frontier_result(children: List[Dict[str, Any]], expected_args: List[str], ready_raw=None):
     actual_ids = {child["id"] for child in children}
     expected_ids = set(expected_args)
     added = [child["id"] for child in children if child["id"] not in expected_ids]
     removed = [id_ for id_ in expected_args if id_ not in actual_ids]
-    if len(added) > 0 or len(removed) > 0:
-        emit(
-            {
-                "next": "blocked",
-                "reason": "children_changed",
-                "added": added,
-                "removed": removed,
-            }
-        )
-        return
-
-    # 空集合不能当作完成
-    if len(children) == 0:
-        emit({"next": "blocked", "reason": "no_children"})
-        return
-
-    # 未关闭 child 必须带 ready-for-agent label
-    missing_ready = [
-        child["id"]
-        for child in children
-        if child["status"] != "closed" and "ready-for-agent" not in child["labels"]
-    ]
-    if len(missing_ready) > 0:
-        emit({"next": "blocked", "reason": "missing_ready_label", "ids": missing_ready})
-        return
-
-    # in_progress 检查：唯一则恢复，多个则阻塞
+    if added or removed:
+        return {"next": "blocked", "reason": "children_changed", "added": added, "removed": removed}
+    if not children:
+        return {"next": "blocked", "reason": "no_children"}
+    missing_ready = [child["id"] for child in children
+                     if child["status"] != "closed" and "ready-for-agent" not in child["labels"]]
+    if missing_ready:
+        return {"next": "blocked", "reason": "missing_ready_label", "ids": missing_ready}
     in_progress = [child["id"] for child in children if child["status"] == "in_progress"]
     if len(in_progress) > 1:
-        emit({"next": "blocked", "reason": "multiple_in_progress", "ids": in_progress})
-        return
+        return {"next": "blocked", "reason": "multiple_in_progress", "ids": in_progress}
     if len(in_progress) == 1:
-        emit({"next": "resume", "ticket_id": in_progress[0]})
-        return
-
-    # 全部 closed 即完成
+        return {"next": "resume", "ticket_id": in_progress[0]}
     if all(child["status"] == "closed" for child in children):
-        emit({"next": "done"})
-        return
+        return {"next": "done"}
+    if ready_raw is None:
+        return None
+    if not isinstance(ready_raw, list):
+        raise ValueError("bd ready 返回的不是数组")
+    if not ready_raw:
+        unfinished = [{"id": child["id"], "status": child["status"], "assignee": child["assignee"]}
+                      for child in children if child["status"] != "closed"]
+        return {"next": "blocked", "reason": "no_ready", "unfinished": unfinished}
+    candidate = normalize_issue(ready_raw[0], "ready 候选")
+    known = next((child for child in children if child["id"] == candidate["id"]), None)
+    valid = (known is not None and known["status"] == candidate["status"] == "open"
+             and "ready-for-agent" in candidate["labels"] and candidate["assignee"] is None
+             and "ready-for-agent" in known["labels"] and known["assignee"] is None)
+    return ({"next": "claim", "ticket_id": candidate["id"]} if valid else
+            {"next": "blocked", "reason": "invalid_ready_candidate", "candidate": candidate["id"]})
+
+
+def normalize_issue(raw: Any, what: str) -> Dict[str, Any]:
+    """供纯判定函数使用；错误通过 ValueError 返回给 CLI/采集器适配。"""
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) or not raw["id"]:
+        raise ValueError(f"{what} 缺少有效的 id 字段")
+    if not isinstance(raw.get("status"), str) or not raw["status"]:
+        raise ValueError(f"{what} ({raw['id']}) 缺少有效的 status 字段")
+    labels = raw.get("labels", [])
+    if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
+        raise ValueError(f"{what} ({raw['id']}) 的 labels 字段格式无效")
+    assignee = raw.get("assignee") or None
+    if assignee is not None and not isinstance(assignee, str):
+        raise ValueError(f"{what} ({raw['id']}) 的 assignee 字段格式无效")
+    return {"id": raw["id"], "status": raw["status"], "labels": list(labels), "assignee": assignee}
+
+
+def next_(parent_id: str, children: List[Dict[str, Any]], expected_args: List[str], cwd: str) -> None:
+    decided = frontier_result(children, expected_args)
+    if decided is not None:
+        emit(decided); return
 
     # 查询 ready 候选；有效候选必须是当前 children 中 open、有 ready label、未分配
     ready_out = run_bd(
@@ -193,37 +207,10 @@ def next_(parent_id: str, children: List[Dict[str, Any]], expected_args: List[st
         cwd,
     )
     ready_raw = parse_bd_json(ready_out, "bd ready")
-    if not isinstance(ready_raw, list):
-        fail("bd ready 返回的不是数组")
-    if len(ready_raw) == 0:
-        unfinished = [
-            {"id": child["id"], "status": child["status"], "assignee": child["assignee"]}
-            for child in children
-            if child["status"] != "closed"
-        ]
-        emit({"next": "blocked", "reason": "no_ready", "unfinished": unfinished})
-        return
-    candidate = validate_issue(ready_raw[0], "ready 候选")
-    known = next((child for child in children if child["id"] == candidate["id"]), None)
-    valid = (
-        known is not None
-        and known["status"] == "open"
-        and candidate["status"] == "open"
-        and "ready-for-agent" in candidate["labels"]
-        and candidate["assignee"] is None
-        and "ready-for-agent" in known["labels"]
-        and known["assignee"] is None
-    )
-    if not valid:
-        emit(
-            {
-                "next": "blocked",
-                "reason": "invalid_ready_candidate",
-                "candidate": candidate["id"],
-            }
-        )
-        return
-    emit({"next": "claim", "ticket_id": candidate["id"]})
+    try:
+        emit(frontier_result(children, expected_args, ready_raw))
+    except ValueError as error:
+        fail(str(error))
 
 
 def main() -> None:
@@ -272,6 +259,8 @@ def main() -> None:
     if not isinstance(child_raw, list):
         fail("bd list --parent {} 返回的不是数组".format(parent_id))
     children = [validate_issue(it, "child") for it in child_raw]
+    if len({child["id"] for child in children}) != len(children):
+        fail("children ID 重复")
 
     if subcommand == "check-flat":
         check_flat(children, cwd)

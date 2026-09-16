@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -96,10 +95,8 @@ MODEL_ROLES = workflow_policy.MODEL_ROLES
 
 
 def executor_ops():
-    spec = importlib.util.spec_from_file_location("executor_operations", SCRIPTS / "executor-operations.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import executor_operations
+    return executor_operations
 
 
 def prepare_stage(d, head):

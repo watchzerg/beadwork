@@ -559,7 +559,12 @@ def assemble_stage(args):
     d = ops().dispatch(args.dispatch)
     state, _, _ = checkpoints(d)
     c.require(state['stage_dispatch'] == ops().binding(args.dispatch), '不是当前 stage')
-    check_selected_review(d, [ops().binding(str(path)) for path in args.review])
+    selected_reviews = d['prior_reviews'] + ([state['selected_review']] if state['selected_review'] else [])
+    if args.review:
+        c.require([ops().binding(str(path)) for path in args.review] == selected_reviews,
+                  '显式 review 必须与检查点选择完全一致')
+    review_paths = [str(ops().bound(item)) for item in selected_reviews]
+    check_selected_review(d, selected_reviews)
     report = ops().load(args.draft)
     stopped = report.pop('stopped_tasks')
     c.require(type(stopped) is bool, 'stopped_tasks 必须为布尔值')
@@ -578,7 +583,7 @@ def assemble_stage(args):
     draft = Path(args.dispatch).parent / ('assembly-draft-' + uuid.uuid4().hex + '.json')
     c.write(draft, report)
     receipt = ops().assemble(SimpleNamespace(dispatch=args.dispatch, draft=str(draft), output=args.output,
-                                             review=args.review, verification_dispatch=[], report_extra=extra))
+                                             review=review_paths, verification_dispatch=[], report_extra=extra))
     receipt_path = Path(args.output).with_name(Path(args.output).stem + '-receipt.json')
     c.write(receipt_path, receipt)
     item = source(args.dispatch, args.output, receipt_path)

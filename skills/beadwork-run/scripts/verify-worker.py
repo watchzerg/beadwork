@@ -11,19 +11,14 @@
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
-from pathlib import Path
 import sys
 import schema_validation
 import review_schema
 
 sys.dont_write_bytecode = True
-spec = importlib.util.spec_from_file_location("ticket_validator", Path(__file__).with_name("verify-ticket.py"))
-assert spec and spec.loader
-v = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(v)
+import verify_ticket as v
 TEXT, SHA, TEXTS, obj = (schema_validation.TEXT, schema_validation.SHA,
                          schema_validation.TEXTS, schema_validation.object_schema)
 ROLES = ("fixer", "reviewer", "implementer")

@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+import evidence
 
 import test_finalization as fixture
 
@@ -68,6 +69,15 @@ class HandoffTests(unittest.TestCase):
         stage = self.f.stage()
         self.f.review(stage, blocking=True)
         self.f.call('review-prepare', '--dispatch', stage, ok=False)
+
+    def test_final_assemble_uses_checkpoint_selected_sources(self):
+        stage = self.f.stage()
+        review = self.f.review(stage)
+        report, _ = self.f.assemble(stage, reviews=[review], status='READY_TO_MERGE',
+                                    outcome='passed', implicit=True)
+        data = json.loads(report.read_text())
+        self.assertEqual(data['review_sources'], [evidence.binding(review)])
+        self.assertEqual(data['fix_sources'], [])
 
     def test_fixer_code_failure_requires_recorded_exhaustion(self):
         stage = self.f.stage()

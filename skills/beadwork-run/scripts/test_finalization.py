@@ -91,7 +91,8 @@ class FinalizationTests(unittest.TestCase):
                                           "head_commit": self.h.h.git(self.h.wt, "rev-parse", "HEAD"), "passed": False})
         return value
 
-    def assemble(self, stage, *, reviews=(), fixes=(), status="BLOCKED", outcome="interrupted", failed_gate=None, ok=True):
+    def assemble(self, stage, *, reviews=(), fixes=(), status="BLOCKED", outcome="interrupted", failed_gate=None,
+                 implicit=False, ok=True):
         self.serial += 1
         folder = Path(stage).parent
         draft = folder / f"draft-{self.serial}.json"
@@ -100,11 +101,13 @@ class FinalizationTests(unittest.TestCase):
         source = folder / f"fixers-{self.serial}.json"
         inherited_fixes = json.loads(Path(stage).read_text())["prior_fixes"]
         self.put(source, [*inherited_fixes, *fixes])
-        args = ["final-assemble", "--dispatch", stage, "--draft", draft, "--output", output,
-                "--fixers", source]
+        args = ["final-assemble", "--dispatch", stage, "--draft", draft, "--output", output]
+        if not implicit:
+            args.extend(("--fixers", source))
         inherited_reviews = [item["path"] for item in json.loads(Path(stage).read_text())["prior_reviews"]]
-        for review in [*inherited_reviews, *reviews]:
-            args.extend(("--review", review))
+        if not implicit:
+            for review in [*inherited_reviews, *reviews]:
+                args.extend(("--review", review))
         answer = self.call(*args, ok=ok)
         if not ok:
             return answer

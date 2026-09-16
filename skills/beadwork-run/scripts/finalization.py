@@ -389,6 +389,18 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
     o = ops()
     d = o.dispatch(dispatch_path)
     c.require(d.get("finalization_version") in (1, 2) and "stage" in d, "需要最终阶段 dispatch")
+    if fs.strict(d):
+        _, selected = fs.selected(d)
+        selected_reviews = list(d['prior_reviews']) + ([selected['review']] if selected['review'] else [])
+        if reviews:
+            c.require([o.binding(path) for path in reviews] == selected_reviews,
+                      '显式 review 必须与检查点选择完全一致')
+        if fixes is not None:
+            c.require(fixes == selected['fixes'], '显式 fixer 来源必须与检查点选择完全一致')
+        reviews = [str(o.bound(item)) for item in selected_reviews]
+        fixes = selected['fixes']
+    else:
+        c.require(fixes is not None, 'legacy final assemble 需要显式 fixer 来源')
     r = c.read(draft_path)
     head = c.sha(d["worktree"], "HEAD")
     r.update(parent_id=d["parent_id"], expected_children=d["expected_children"], reviewed_main=d["reviewed_main"],

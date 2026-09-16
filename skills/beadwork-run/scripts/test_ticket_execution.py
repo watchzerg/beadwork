@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+import evidence
 import test_controller as fixture
 import test_executor_operations as review_fixture
 
@@ -130,6 +131,13 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assemble([self.review()])
         self.deliver()
         self.stage(ok=False)
+
+    def test_stage_assemble_uses_checkpoint_selected_review(self):
+        self.ready_writer()
+        selected = self.review()
+        self.assemble()
+        report = json.loads(self.stage_report.read_text())
+        self.assertEqual(report['review']['sources'], [evidence.binding(selected)])
 
     def test_no_commit_existing_behavior(self):
         self.gate(); self.gate('gate-demo'); self.implement()

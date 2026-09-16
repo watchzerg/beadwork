@@ -43,3 +43,19 @@
 - Python 语法、`git diff --check` 和 skill validator 通过；validator 首次受用户级 uv cache 沙箱限制，按项目规则在宿主权限下重跑通过。
 - 用户级 `~/.agents/skills/beadwork-run` 解析到本仓库 `skills/beadwork-run`，源码与实际调用路径一致。
 - 未运行真实消费项目 ticket graph、真实 Beads 写入或真实 Codex 嵌套派发。
+
+## 批次 C：结构收敛
+
+| 目标 | 实施结果 | 验收证据 |
+| --- | --- | --- |
+| G10：控制器、协调器与兼容入口 | `executor_operations.py`、`run_verification.py`、`verify_ticket.py` 成为可普通 import 的实现模块；原带连字符文件保留薄 CLI 包装和原错误 JSON/退出码 | executor 28 项、run-verification 15 项、ticket verifier 16 项和 worker verifier 11 项通过 |
+| G11：graph/preflight 解耦 | `flat_result` 与 `frontier_result` 接收结构化事实；preflight 直接调用判定函数，不再替换 `graph.run_bd` 或捕获 stdout | 新增 5 项纯判定矩阵；preflight 12 项通过，覆盖一次查询、错误 JSON、非平铺和范围变化 |
+| G15：组装读取 checkpoint 选择 | 当前 ticket/final 流程省略 review/fixer 来源参数时自动使用 checkpoint 选择；显式参数仍可用，但必须完全一致；legacy final 仍要求显式 fixer 来源 | 新增 ticket/final 公开 CLI 场景；ticket 35 项、final handoff 23 项通过 |
+| G19：跨路径恢复矩阵 | 新增 graph 分支矩阵及 ticket/final 自动来源组装场景；故障注入已对准抽取后的真实发布 seam | 完整套件从批次 B 的 246 项增至 253 项；fixture 类之间的历史复用仍待后续整理，不把本项标为全部完成 |
+
+### 批次 C 验证
+
+- 完整脚本回归：253 项通过，耗时 275.443 秒。
+- CLI 包装、任意 cwd 与安装 symlink 使用同一源码真实路径；旧文件名和当前普通 import 均进入回归。
+- G19 当前只完成恢复矩阵扩充；普通 fixture helper 迁移尚未完成，将继续保留为待办，避免把测试内部整理夸大为已验收。
+- 未运行真实消费项目 ticket graph、真实 Beads 写入或真实 Codex 嵌套派发。

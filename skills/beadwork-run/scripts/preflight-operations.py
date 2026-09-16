@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
-import io
 import json
 from pathlib import Path
 import subprocess
@@ -111,19 +109,12 @@ def collect(args):
           '全部未关闭 child 必须具有 ready-for-agent'))
 
     def flat():
-        # 复用 graph 的同一批量边查询与判定，复用已采集 children。
-        original = graph.run_bd
-        graph.run_bd = lambda argv, cwd: run('parent-child-edges', ['bd', *argv], cwd)[0]
-        try:
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                graph.check_flat(children, d['repository_root'])
-            value = json.loads(output.getvalue())
-            path = save('flat', value)
-            c.require(value.get('flat') is True, '图未平铺，见 ' + path)
-            return path
-        finally:
-            graph.run_bd = original
+        edges, _ = bd('parent-child-edges', ['dep', 'list', *(x['id'] for x in children),
+                                             '--direction=up', '--type=parent-child'])
+        value = graph.flat_result(children, edges)
+        path = save('flat', value)
+        c.require(value.get('flat') is True, '图未平铺，见 ' + path)
+        return path
     check('flat_graph', flat)
 
     def config():
