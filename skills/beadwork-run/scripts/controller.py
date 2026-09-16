@@ -56,6 +56,11 @@ def sync_main(args):
     return main_sync.sync(args)
 
 
+def sync_final(args):
+    import main_sync
+    return main_sync.sync(args, final=True)
+
+
 def prepare(args):
     d = read(args.input)
     d.pop("primary_snapshot_path", None)
@@ -119,6 +124,10 @@ def prepare(args):
                 gate for gate in d["required_boundary_gates"] if gate not in ("gate-unit", "gate-full")))
             require("prior_finalization" in d, "必须明确 prior_finalization，首次为 null")
             finalization.prepare_attempt(d, head)
+            if d.get('final_sync_result') and not d.get('resume_stage'):
+                import main_sync
+                main_sync.check_result(d, d['final_sync_result'], final=True)
+                d['environment_evidence'] = list(d.get('environment_evidence', [])) + [evidence.binding(d['final_sync_result'])]
     else:
         d.update(expected_branch=branch, expected_worktree=d["worktree"])
     directory = Path(root) / ".worktrees" / ".evidence" / parent
@@ -335,6 +344,7 @@ def main():
     p = commands.add_parser("prepare"); p.add_argument("role", choices=("preflight", "executor", "finalizer")); p.add_argument("--input", required=True)
     p = commands.add_parser("update-main"); p.add_argument("--repository-root", required=True)
     p = commands.add_parser("sync-main"); p.add_argument("--input", required=True)
+    p = commands.add_parser("sync-final"); p.add_argument("--input", required=True)
     p = commands.add_parser("adapt-plan")
     p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
     p = commands.add_parser("accept")

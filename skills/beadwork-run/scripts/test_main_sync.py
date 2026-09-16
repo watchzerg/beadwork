@@ -79,10 +79,10 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
         (wt / name).write_text(value)
         return self.commit(wt, 'change')
 
-    def sync(self, ok=True):
+    def sync(self, ok=True, final=False):
         p = self.root / 'input.json'
         p.write_text(json.dumps(self.data))
-        result = subprocess.run([sys.executable, '-B', str(SCRIPT), 'sync-main', '--input', str(p)],
+        result = subprocess.run([sys.executable, '-B', str(SCRIPT), 'sync-final' if final else 'sync-main', '--input', str(p)],
                                 env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         return json.loads(result.stdout) if ok else result.stderr
@@ -90,6 +90,86 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
     def commands(self):
         p = self.root / 'commands'
         return p.read_text().splitlines() if p.exists() else []
+
+    def final_input(self, name='package.json'):
+        (self.root / 'status').write_text('closed')
+        target = self.change(self.primary, name)
+        self.data['reviewed_main'] = target
+        self.data.pop('required_boundary_gates')
+        return target
+
+    def test_final_sync_installs_changed_inputs_without_running_gates(self):
+        target = self.final_input()
+        result = self.sync(final=True)
+        self.assertEqual(result['target_main'], target)
+        self.assertEqual(self.git(self.wt, 'rev-parse', 'HEAD'), target)
+        self.assertEqual(self.commands(), ['install', 'env-facts'])
+        self.assertEqual(result['frontier'], {'next': 'done'})
+        self.assertIn('/final-sync/', result['sync_result'])
+        self.sync(final=True)
+        self.assertEqual(self.commands(), ['install', 'env-facts'])
+
+    def test_final_sync_skips_install_for_code_only_and_rejects_open_children(self):
+        self.final_input('code')
+        (self.root / 'status').write_text('open')
+        self.sync(final=True, ok=False)
+        self.assertEqual(self.commands(), [])
+        (self.root / 'status').write_text('closed')
+        self.sync(final=True)
+        self.assertEqual(self.commands(), ['env-facts'])
+
+    def test_final_install_failure_resumes_original_target_after_merge(self):
+        target = self.final_input()
+        original = (self.bin / 'just').read_text()
+        with (self.bin / 'just').open('a') as stream:
+            stream.write("\nif (p/'fail-install').exists() and a[2]=='install': sys.exit(1)\n")
+        (self.root / 'fail-install').touch()
+        self.sync(final=True, ok=False)
+        self.assertEqual(self.git(self.wt, 'rev-parse', 'HEAD'), target)
+        folder = next((self.primary / '.worktrees/.evidence/demo-1/final-sync').iterdir())
+        self.assertFalse((folder / 'ready.json').exists())
+        intent = (folder / 'intent.json').read_bytes()
+        self.change(self.primary, 'later')
+        (self.bin / 'just').write_text(original)
+        result = self.sync(final=True)
+        self.assertEqual(result['target_main'], target)
+        self.assertEqual(result['head'], target)
+        self.assertEqual((folder / 'intent.json').read_bytes(), intent)
+        self.assertEqual(self.commands(), ['install', 'install', 'env-facts'])
+
+    def test_final_sync_interruption_preserves_target_and_requires_original_input(self):
+        target = self.final_input()
+        (self.root / 'signal').touch()
+        self.sync(final=True, ok=False)
+        (self.root / 'signal').unlink()
+        newer = self.change(self.primary, 'later')
+        self.data['reviewed_main'] = newer
+        self.assertIn('原 reviewed_main', self.sync(final=True, ok=False))
+        self.data['reviewed_main'] = target
+        result = self.sync(final=True)
+        self.assertEqual(result['head'], target)
+        self.assertEqual(self.commands(), ['install', 'install', 'env-facts'])
+
+    def test_final_prepare_checks_sync_head_and_install_evidence(self):
+        self.final_input()
+        synced = self.sync(final=True)
+        data = dict(self.data, rules_paths=[], linked_spec='demo-1', ticket_evidence=[],
+                    required_boundary_gates=[], prior_finalization=None, final_sync_result=synced['sync_result'])
+        source = self.root / 'final-input.json'; source.write_text(json.dumps(data))
+        def prepare(ok=True):
+            result = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'finalizer', '--input', str(source)],
+                                    env=self.env, capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
+            return json.loads(result.stdout) if ok else result.stderr
+        prepared = prepare()
+        dispatch = evidence.read(prepared['dispatch_path'])
+        self.assertIn(evidence.binding(synced['sync_result']), dispatch['environment_evidence'])
+        log = Path(synced['commands'][0]['path']).parent / 'output.log'
+        original = log.read_bytes(); log.write_bytes(b'changed')
+        self.assertIn('同步日志已变化', prepare(ok=False))
+        log.write_bytes(original)
+        self.change(self.wt, 'unexpected')
+        self.assertIn('同步验证 HEAD 已变化', prepare(ok=False))
 
     def prepare_input(self, data):
         """同步测试仍通过真实 prepare/accept 交接准入计划。"""

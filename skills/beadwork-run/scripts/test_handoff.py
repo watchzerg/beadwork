@@ -17,7 +17,7 @@ class HandoffTests(unittest.TestCase):
         self.f.setUp()
         self.addCleanup(self.f.doCleanups)
         self.bin = self.f.h.root / 'bin/just'
-        self.bin.write_text('#!' + sys.executable + '\nimport os,sys\nif sys.argv[1:]==["--summary"]: print("final gate-browser gate-extra test typecheck")\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n')
+        self.bin.write_text('#!' + sys.executable + '\nimport os,sys,signal\nif sys.argv[1:]==["--summary"]: print("final gate-browser gate-extra test typecheck")\nelif os.environ.get("GATE_INTERRUPT"): os.kill(os.getpid(),signal.SIGTERM)\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n')
         self.bin.chmod(0o755)
         self.original_review = self.f.review
         self.original_assemble = self.f.assemble
@@ -26,11 +26,12 @@ class HandoffTests(unittest.TestCase):
         self.f.assemble = self.assemble
         self.f.done_fixer = self.done_fixer
 
-    def run_gate(self, dispatch, recipe='final', failed=False, parameters=()):
+    def run_gate(self, dispatch, recipe='final', failed=False, parameters=(), interrupted=False):
         result = subprocess.run([sys.executable, '-B', str(fixture.OPS.with_name('run-verification.py')),
             '--dispatch', str(dispatch), '--recipe', recipe, '--delivery', *(['--', *parameters] if parameters else [])],
-            cwd=self.f.h.root, env=dict(self.f.h.env, GATE_EXIT='1' if failed else '0'), text=True, capture_output=True)
-        self.assertEqual(result.returncode, 1 if failed else 0, result.stdout + result.stderr)
+            cwd=self.f.h.root, env=dict(self.f.h.env, GATE_EXIT='1' if failed else '0',
+                                      GATE_INTERRUPT='1' if interrupted else ''), text=True, capture_output=True)
+        self.assertEqual(result.returncode, 3 if interrupted else 1 if failed else 0, result.stdout + result.stderr)
         return Path(json.loads(result.stdout)['run_path'])
 
     def gates(self, dispatch):
@@ -69,6 +70,41 @@ class HandoffTests(unittest.TestCase):
         stage = self.f.stage()
         self.f.review(stage, blocking=True)
         self.f.call('review-prepare', '--dispatch', stage, ok=False)
+
+    def recover_verification(self, unknown=False):
+        stage = self.f.stage()
+        run = self.run_gate(stage, interrupted=True)
+        if unknown:
+            (run / 'result.json').unlink()  # 模拟记录器只留下 started/log。
+        error = self.f.call('review-prepare', '--dispatch', stage, ok=False)
+        self.assertIn('收尾说明', error['error'])
+        draft = self.f.draft('BLOCKED', 'interrupted')
+        draft['verification_notes'] = {str(run): '已确认旧任务和外部资源结束；恢复后重跑必要 gates。'}
+        dp = stage.parent / 'recovery-draft.json'; self.f.put(dp, draft)
+        report = stage.parent / 'recovery-report.json'
+        self.f.call('final-assemble', '--dispatch', stage, '--draft', dp, '--output', report)
+        self.assertEqual(self.f.stage(), stage)
+        self.gates(stage)
+        return stage, run, report
+
+    def test_interrupted_final_recovers_through_review_and_root_delivery(self):
+        stage, run, recovery = self.recover_verification()
+        original = recovery.read_bytes()
+        review = self.original_review(stage)
+        report, _ = self.f.assemble(stage, reviews=[review], status='READY_TO_MERGE', outcome='passed')
+        self.assertIn(str(run), json.loads(report.read_text())['verification_notes'])
+        result = self.f.call('final-deliver', '--dispatch', self.f.root,
+                             '--output', self.f.root.parent / 'recovered.json')
+        self.assertEqual(result['status'], 'READY_TO_MERGE')
+        self.assertEqual(recovery.read_bytes(), original)
+
+    def test_unknown_final_uses_bound_recovery_notes(self):
+        stage, _, recovery = self.recover_verification(unknown=True)
+        original = recovery.read_bytes()
+        recovery.write_text('{}')
+        self.f.call('review-prepare', '--dispatch', stage, ok=False)
+        recovery.write_bytes(original)
+        self.assertTrue(self.f.call('review-prepare', '--dispatch', stage)['axes'])
 
     def test_final_assemble_uses_checkpoint_selected_sources(self):
         stage = self.f.stage()

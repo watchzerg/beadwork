@@ -69,6 +69,20 @@ python3 <skill-dir>/scripts/controller.py sync-main --input <sync-input.json>
 
 失败或中断后，先确认旧命令及资源已结束，再使用原输入重跑。脚本自动发现唯一未完成 intent，固定原目标和验证输入；main 后续前进不会覆盖原意图。冲突保持原状，明确解决并提交后才能恢复；已合并但未写 ready 或验证失败时重新验证，即使目标已在历史中也不能跳过。人工修复后的 HEAD 必须保留同步前历史和目标 main，并在当前 HEAD 重新验证。已完成同步后、claim 前中断，重跑可生成无变化结果。同步失败归批次基线阻塞，不领取 child、不消耗六阶段额度。
 
+## 最终集成同步与环境准备
+
+全部 children 关闭、旧任务结束后，使用 `update-main` 返回的固定 SHA 调用：
+
+```bash
+python3 <skill-dir>/scripts/controller.py sync-final --input <final-sync-input.json>
+```
+
+输入为 repository_root、parent_id、固定 expected_children、reviewed_main（完整 SHA）和本批次已确认的 install_inputs。此入口代替手工 merge，复用同步的 intent、命令日志和恢复机制，证据保存在 `final-sync/`。安装输入相对合并前 HEAD 有变化时执行 `just install`；实际合入后运行 `just env-facts`，gates 仍由 finalizer 执行。没有变化则跳过命令。
+
+仅成功且返回 frontier 为 done 时，使用返回的 target_main 作为 REVIEWED_MAIN、sync_result 作为 prepare finalizer 的 final_sync_result。prepare 核对当前 HEAD、目标 ancestry、计划及安装记录；同 attempt 的 finalizer 接替沿用原环境来源，不在 fixer 中途态重新同步。
+
+安装失败或中断后保留现场，确认旧命令结束，再用原输入恢复；即使 merge 已完成，也重新执行尚未完成同步的安装检查。main 后续变化不替换原目标。冲突解决并提交后恢复同一 intent；同步未成功前不派 finalizer，不消耗最终修复阶段。
+
 ## 准备派发材料
 
 ```bash
@@ -79,7 +93,7 @@ python3 <skill-dir>/scripts/controller.py prepare <preflight|executor|finalizer>
 
 - preflight：重新派发时提供首次固定的 `expected_children`。
 - executor：`ticket_id`、`mode: new|resume`、`test_mode: TDD|direct_verification`、`approved_seams`、`testing_seams_doc`（本 skill 的 references/testing-seams.md 绝对路径；其他契约与项目事实按 `testing-contract.md` 定位）、`linked_spec`、`required_boundary_gates`（本票声明及已补充 gate 下限）、环境/冒烟证据及恢复事实。新票另提供 preflight_acceptance（已验收 READY preflight 的 acceptance 文件 path/sha256）；prepare 核对 ticket 计划、spec 和 gate 下限，自动保存 plan_source 与 sync_result 的环境来源。`resume` 必须额外提供从 start comment 核实的完整 `base_commit`；脚本不会猜测或补写缺失 BASE。
-- finalizer：`expected_children`、`linked_spec`、`ticket_evidence`、`required_boundary_gates`、`prior_finalization`、已合入 implementation 的完整 `reviewed_main` SHA。`prior_finalization` 首次为 null；接替时按 `recovery-finalizer.md` 准备。
+- finalizer：`expected_children`、`linked_spec`、`ticket_evidence`、`required_boundary_gates`、`prior_finalization`、已合入 implementation 的完整 `reviewed_main` SHA，以及由本次 `sync-final` 的 `sync_result` 填入的 `final_sync_result`。`prior_finalization` 首次为 null；接替时按 `recovery-finalizer.md` 准备；历史 dispatch 无环境同步字段时保留原件。
 
 executor prepare 建立整票 root dispatch，返回 `coordinator_model`。`complex_ticket: true` 提高协调与实现起点；controller 不填写 stage/models/prior_reviews，也不传 repair。恢复提供原 root 的 `previous_dispatch` 和完整 BASE；返回原 root，不新建 stage 或重置额度。执行阶段、模型、implementer 和计划适配由 executor 使用 `ticket-execution.md` 的入口管理。
 

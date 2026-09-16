@@ -1,4 +1,4 @@
-"""新票前同步本地 main；由 controller 调用，保留可恢复的合并和验证证据。"""
+"""新票或最终集成前同步 main；由 controller 调用，保留合并、安装和验证证据。"""
 
 from pathlib import Path
 import json
@@ -57,20 +57,21 @@ def verification_commands(d, intent, head):
         return []
     install = bool(repository.git(d['worktree'], 'diff', '--name-only', intent['before'], head,
                          '--', *intent['install_inputs']))
-    recipes = (['install'] if install else []) + ['env-facts', 'smoke']
+    recipes = (['install'] if install else []) + (['env-facts'] if intent.get('final') else ['env-facts', 'smoke'])
     return [['just', '--one', '--', recipe] + (intent['gates'] if recipe == 'smoke' else [])
             for recipe in recipes]
 
 
-def check_result(d, path):
+def check_result(d, path, final=False):
     clean(d)
     p = Path(path)
-    root = Path(d['repository_root']) / '.worktrees' / '.evidence' / d['parent_id'] / 'main-sync'
+    root = Path(d['repository_root']) / '.worktrees' / '.evidence' / d['parent_id'] / ('final-sync' if final else 'main-sync')
     repository.require(p.name == 'ready.json' and p.resolve().is_relative_to(root.resolve()), '同步证据不属于本批次')
     repository.require(not any(not (i.parent / 'ready.json').exists() for i in root.glob('*/intent.json')),
               '存在未完成同步，不能使用旧 ready 开新票')
     r = evidence.read(p)
     intent = evidence.read(p.parent / 'intent.json')
+    repository.require(bool(intent.get('final')) == final, '同步阶段不符')
     _, children, _, value = execution_plan.live(d['repository_root'], d['parent_id'])
     execution_plan.check_selected(d['repository_root'], d['parent_id'], value, children,
                                   expected=intent.get('execution_plan_source'))
@@ -78,7 +79,11 @@ def check_result(d, path):
     d['execution_plan_source'] = intent['execution_plan_source']
     states = {child['id']: child['status'] for child in children}
     remaining = [ticket for ticket in value['ticket_order'] if states[ticket] != 'closed']
-    repository.require(remaining and remaining[0] == d.get('ticket_id'), '新 executor 不是执行计划允许的下一张票')
+    if final:
+        repository.require(not remaining and intent['target_main'] == d['reviewed_main']
+                           and set(intent['expected_children']) == set(d['expected_children']), '最终同步范围或 reviewed_main 不符')
+    else:
+        repository.require(remaining and remaining[0] == d.get('ticket_id'), '新 executor 不是执行计划允许的下一张票')
     repository.require(r['intent_sha256'] == evidence.digest(p.parent / 'intent.json'), '同步意图已变化')
     repository.require(all(intent[k] == d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id')),
               '同步身份不符')
@@ -101,7 +106,7 @@ def check_result(d, path):
     return r
 
 
-def sync(args):
+def sync(args, final=False):
     data = evidence.read(args.input)
     root = repository.primary(data['repository_root'])
     parent = data['parent_id']
@@ -109,7 +114,7 @@ def sync(args):
               and parent not in ('.', '..'), 'parent ID 无效')
     d = dict(data, repository_root=root, worktree=str(Path(root) / '.worktrees' / parent),
              branch='implement/' + parent)
-    gates = d['required_boundary_gates']
+    gates = [] if final else d['required_boundary_gates']
     paths = d['install_inputs']
     repository.require(isinstance(gates, list) and all(isinstance(g, str) and re.fullmatch(r'gate-[A-Za-z0-9_-]+', g) for g in gates),
               '需要有效 boundary gates')
@@ -119,8 +124,11 @@ def sync(args):
     clean(d)
     d['execution_plan_source'] = execution_plan.selected(root, parent)
     next_ = frontier(d)
-    repository.require(next_['next'] == 'claim', '仅在新票可领取时同步：' + json.dumps(next_, ensure_ascii=False))
-    directory = Path(root) / '.worktrees' / '.evidence' / parent / 'main-sync'
+    repository.require(next_['next'] == ('done' if final else 'claim'), '当前 frontier 不允许同步：' + json.dumps(next_, ensure_ascii=False))
+    if final:
+        repository.require(re.fullmatch(r'[0-9a-f]{40}', d.get('reviewed_main', ''))
+                           and repository.sha(root, d['reviewed_main']) == d['reviewed_main'], '需要完整 reviewed_main SHA')
+    directory = Path(root) / '.worktrees' / '.evidence' / parent / ('final-sync' if final else 'main-sync')
     directory.mkdir(parents=True, exist_ok=True)
     pending = [p.parent for p in directory.glob('*/intent.json') if not (p.parent / 'ready.json').exists()]
     repository.require(len(pending) <= 1, '存在多个未完成同步，需核实现场')
@@ -130,12 +138,15 @@ def sync(args):
         repository.require(all(intent[k] == d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children', 'execution_plan_source')),
                   '恢复同步身份或 children 不符')
         repository.require(intent['gates'] == gates and intent['install_inputs'] == paths, '恢复须沿用原同步验证输入')
+        repository.require(not final or intent['target_main'] == d['reviewed_main'], '恢复最终同步须沿用原 reviewed_main')
     else:
         attempt = directory / uuid.uuid4().hex
         attempt.mkdir()
         intent = {k: d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children', 'execution_plan_source')}
-        intent.update(before=repository.sha(d['worktree'], 'HEAD'), target_main=repository.sha(root, 'refs/heads/main'),
+        intent.update(before=repository.sha(d['worktree'], 'HEAD'), target_main=d['reviewed_main'] if final else repository.sha(root, 'refs/heads/main'),
                       gates=gates, install_inputs=paths)
+        if final:
+            intent['final'] = True
         evidence.write(attempt / 'intent.json', intent)
     print(json.dumps({'sync_path': str(attempt)}, ensure_ascii=False), file=sys.stderr, flush=True)
     before, target = intent['before'], intent['target_main']

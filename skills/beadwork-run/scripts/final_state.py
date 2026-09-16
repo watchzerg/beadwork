@@ -110,6 +110,8 @@ def select_report(d, report, receipt):
     value, item = selected(d)
     item['report'] = {k: evidence.binding(str(p)) for k, p in
                       (('dispatch', d['dispatch_path']), ('report', report), ('receipt', receipt))}
+    # review 准备/更正会清除阶段选择，但已核对的运行收尾说明仍需用于后续验收。
+    item['verification_notes_source'] = item['report']['report']
     save(d, value)
 
 

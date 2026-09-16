@@ -142,15 +142,15 @@ controller 核对整票交付来源、最终状态、必要 gates 和最后 revi
 ### 4.1 controller 准备现场
 
 1. 用 `graph.py next` 和固定 children 集合重新确认结果为 `done`；范围变化或未全部关闭即停止。
-2. 执行 controller 的 `update-main`；返回的 fetch fallback note 写入最终 `integration-ready` comment。
-3. 使用返回的 `main_commit` 作为完整 `REVIEWED_MAIN` SHA，在 implementation worktree 将该 SHA merge 进当前 branch。冲突由 controller 加载 `resolving-merge-conflicts` 组织解决。
+2. 执行 controller 的 `update-main`；返回的 fetch fallback note 写入最终 `integration-ready` comment。已有未完成 `sync-final` 时直接用原输入恢复，不重新选取 main。
+3. 使用返回的 `main_commit` 作为完整 `REVIEWED_MAIN` SHA，按 controller-operations.md 执行 `sync-final`：合入该 SHA，安装输入有变化时刷新依赖。成功后才派发 finalizer；冲突由 controller 加载 `resolving-merge-conflicts` 组织解决，再恢复原同步。
 4. 确认所有先前 writer 及命令已结束，准备 finalizer 输入。
 
 ### 4.2 派发 finalizer
 
 finalizer 默认 `gpt-5.6-terra` / `medium`；复杂证据整合可用 `gpt-5.6-sol` / `medium`。
 
-执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，汇总全部实际验证边界作为 `required_boundary_gates` 下限（脚本去重并排除 `final` 已覆盖的 `gate-unit` / `gate-full`），并交接实际进度通信目标（若有）。
+执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN` 和本次 `final_sync_result`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，汇总全部实际验证边界作为 `required_boundary_gates` 下限（脚本去重并排除 `final` 已覆盖的 `gate-unit` / `gate-full`），并交接实际进度通信目标（若有）。
 
 `prior_finalization` 首次为 `null`；接替或重新运行最终集成时，先读取 `references/recovery-finalizer.md`。
 

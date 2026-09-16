@@ -247,6 +247,8 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
     else:
         repository.require(fixes is not None, 'legacy final assemble 需要显式 fixer 来源')
     r = evidence.read(draft_path)
+    if fs.strict(d):
+        r['verification_notes'] = {**selected_verification_notes(d), **r.get('verification_notes', {})}
     head = repository.sha(d["worktree"], "HEAD")
     r.update(parent_id=d["parent_id"], expected_children=d["expected_children"], reviewed_main=d["reviewed_main"],
              start_head=d["start_head"], head_commit=head, required_gates=d["required_boundary_gates"],
@@ -331,6 +333,18 @@ def accept_fixer(stage_path, report_path, receipt_path, closure=None):
     return {'accepted': True, 'source': source}
 
 
+def selected_verification_notes(d):
+    """只读取本阶段已选报告的绑定来源；不从目录扫描收尾说明。"""
+    _, item = fs.selected(d)
+    source = item.get('verification_notes_source') or (item['report']['report'] if item['report'] else None)
+    if not source:
+        return {}
+    report = evidence.read(evidence.bound(source))
+    repository.require(report['stage_sources'][-1] == evidence.binding(d['dispatch_path']), '收尾说明不属于当前阶段')
+    # 原报告已经过组装验收；当前运行仍由 populate/check 核对，允许损坏日志形成新的 BLOCKED。
+    return dict(report.get('verification_notes', {})) if report['stopped_tasks'] else {}
+
+
 def review_ready(d):
     _, item = fs.selected(d)
     repository.require(item['round'] is None, '本阶段已有 review；复用原 round')
@@ -344,7 +358,7 @@ def review_ready(d):
     # 同 HEAD 的 finalizer 补充验证与 fixer 验证共同形成覆盖。
     r = {'status': 'READY_TO_MERGE', 'outcome': 'passed', 'head_commit': head,
          'boundary_gates': item['gates'], 'stage_sources': d['previous_stages'] + [evidence.binding(d['dispatch_path'])],
-         'fix_sources': item['fixes'], 'verification_notes': {}}
+         'fix_sources': item['fixes'], 'verification_notes': selected_verification_notes(d)}
     inherited = []
     for source in item['fixes']:
         fr = evidence.read(evidence.bound(source['report']))
