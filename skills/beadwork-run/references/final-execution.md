@@ -8,13 +8,15 @@
 python3 <skill-dir>/scripts/executor-operations.py final-stage --dispatch <root-dispatch.json> --input <facts.json>
 ```
 
-首次 facts 为 `{}`；恢复使用 `continuation: resume`，推进使用 `continuation: repair`。已有检查点时脚本使用明确选择；显式 previous_stage 必须匹配当前阶段。repair 只接受已选 code_failure，最多 stage 3。同阶段恢复返回原 dispatch、selected_fixer、review_round、selected_review、selected_stage 和 context_sources，不重新分配额度。
+首次 facts 为 `{}`；恢复使用 `continuation: resume`，推进使用 `continuation: repair`。已有检查点时脚本使用明确选择；显式 previous_stage 必须匹配当前阶段。repair 只接受已选 code_failure，最多 stage 5。同阶段恢复返回原 dispatch、selected_fixer、review_round、selected_review、selected_stage 和 context_sources，不重新分配额度。
 
 fixer DONE 已验收或 review 已开始时，不再派 writer。恢复前先由派发者确认旧 agent 和命令结束；未知停止状态不会授予接替 writer。gate-fix 继续使用 verification.md 的三次额度。
 
+模型与矩阵以 `../scripts/workflow_policy.py` 为准。stage 0 无 fixer；stage 1..5 的 fixer 默认为 Terra-medium 两次、Terra-high 两次、Sol-medium 一次。新阶段可用 `model_overrides` 覆盖 fixer/standards/spec，并提供 `model_override_reason`；只允许三档内升档，后续继承且不降档，同阶段恢复沿用原模型。
+
 ## 验证与补充边界
 
-stage 0 由 finalizer 用 run-verification.py 采集 `final`/边界 gates，交付验证加 `--delivery`。stage 1..3 由 fixer 采集；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
+stage 0 由 finalizer 用 run-verification.py 采集 `final`/边界 gates，交付验证加 `--delivery`。stage 1..5 由 fixer 采集；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
 
 最终成功依据 started/result/output.log 的绑定、正常退出码、相同干净 HEAD 和进程组结束事实。相同 gate 在交付 HEAD 取最新结果，较早成功不能覆盖较晚失败。未知结果需要实际收尾说明；日志损坏时可以组装 BLOCKED/blocked 或 interrupted，组装器自动保留 verification_issues，不能据此通过或推进代码修复。
 
@@ -58,6 +60,6 @@ stage 0 的实测代码失败或完整代码类 blocking review 允许推进；�
 python3 <skill-dir>/scripts/executor-operations.py final-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
-入口只交付检查点选中的阶段报告：保持原字节，生成同目录 `<root-report-stem>-receipt.json` 并重新完整验收。不运行 gates、不派 review；stage 0..2 的 code_failure 先继续内部修复，stage 3 用尽才交还 controller。
+入口只交付检查点选中的阶段报告：保持原字节，生成同目录 `<root-report-stem>-receipt.json` 并重新完整验收。不运行 gates、不派 review；stage 0..4 的 code_failure 先继续内部修复，stage 5 用尽才交还 controller。
 
 交付中断后保留已有文件，换新文件名重试；不得覆盖或手改 receipt。controller 记录 finalizer 的收尾来源后执行 accept。成功需当前 HEAD 和完整来源一致，BLOCKED 保留恢复指针，未知停止状态不能授权后续写入或集成。

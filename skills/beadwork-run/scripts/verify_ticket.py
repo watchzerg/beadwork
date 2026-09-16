@@ -23,6 +23,7 @@ import subprocess
 import sys
 import evidence
 import review_schema
+import workflow_policy
 from typing import Any, Dict, List, Optional, Tuple
 
 FULL_SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -120,16 +121,16 @@ def executor_schema(review_schema: Dict[str, Any]) -> Dict[str, Any]:
     """派发与本地校验共用同一 schema；review 定义由本脚本提供。"""
     pair = object_schema({"standards": review_schema, "spec": review_schema})
     review = object_schema({
-        "attempts": {"type": "integer", "enum": [1, 2, 3, 4]},
+        "attempts": {"type": "integer", "enum": list(range(1, workflow_policy.MAX_STAGES + 1))},
         "gate": {"enum": ["PASS", "BLOCKED"]},
         "initial": pair,
         "final": pair,
-        "rounds": {"type": "array", "items": pair, "minItems": 1, "maxItems": 4},
-        "sources": {"type": "array", "items": object_schema({"path": TEXT, "sha256": TEXT}), "minItems": 1, "maxItems": 4},
+        "rounds": {"type": "array", "items": pair, "minItems": 1, "maxItems": workflow_policy.MAX_STAGES},
+        "sources": {"type": "array", "items": object_schema({"path": TEXT, "sha256": TEXT}), "minItems": 1, "maxItems": workflow_policy.MAX_STAGES},
     }, optional=("initial", "rounds", "sources"))
     review["oneOf"] = [
         {"properties": {"attempts": {"const": 1}}, "not": {"required": ["initial"]}},
-        {"properties": {"attempts": {"enum": [2, 3, 4]}}, "required": ["initial"]},
+        {"properties": {"attempts": {"enum": list(range(2, workflow_policy.MAX_STAGES + 1))}}, "required": ["initial"]},
     ]
     plan = object_schema({
         **EXPECTED_PLAN["properties"],
@@ -150,7 +151,7 @@ def executor_schema(review_schema: Dict[str, Any]) -> Dict[str, Any]:
         }),
         "delivery_kind": {"enum": ["changed", "already_satisfied", None]},
         "status": {"enum": ["DONE", "NEEDS_CONTEXT", "BLOCKED"]},
-        "stage": {"type": "integer", "enum": [0, 1, 2, 3]},
+        "stage": {"type": "integer", "enum": list(range(workflow_policy.MAX_STAGES))},
         "outcome": {"enum": ["passed", "code_failure", "interrupted", "blocked"]},
         "base_commit": {"anyOf": [SHA, {"type": "null"}]},
         "head_commit": {"anyOf": [SHA, {"type": "null"}]},

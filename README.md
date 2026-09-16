@@ -28,7 +28,7 @@ Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和
 
 当前仅支持 Codex。执行环境需要支持独立上下文的子 agent、嵌套派发、并行只读审查，以及显式指定模型和 reasoning effort。
 
-当前流程使用预设模型组合；宿主能力见 [SKILL.md](skills/beadwork-run/SKILL.md)，ticket 阶段模型配置见 [controller.py](skills/beadwork-run/scripts/controller.py) 的 `STAGE_MODELS`。这些要求不等于任意 Codex 环境均可运行；缺少所需能力时，流程会停止。
+当前流程使用预设模型组合；宿主能力见 [SKILL.md](skills/beadwork-run/SKILL.md)，ticket 与最终阶段模型配置见 [workflow_policy.py](skills/beadwork-run/scripts/workflow_policy.py) 的 `STAGE_MODELS` / `FINAL_STAGE_MODELS`。这些要求不等于任意 Codex 环境均可运行；缺少所需能力时，流程会停止。
 
 内置脚本按当前 skill 声明使用 Python 3.9 或更高版本，仅依赖标准库。目标项目使用自己的语言与工具链，通过 just recipes 提供统一命令接口。
 

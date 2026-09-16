@@ -193,6 +193,49 @@ class HandoffTests(unittest.TestCase):
         self.f.call('final-deliver', '--dispatch', self.f.root, '--output', self.f.root.parent / 'damaged.json')
         self.f.stage(previous=following, receipt=receipt, continuation='repair', ok=False)
 
+    def test_six_stage_models_and_success_reach_strict_root_acceptance(self):
+        self.f.test_six_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance()
+
+    def test_fixer_upgrade_inherits_and_resume_preserves_model(self):
+        stage = self.f.stage()
+        self.f.assemble(stage, reviews=[self.f.review(stage, blocking=True)], outcome='code_failure')
+
+        def prepare(facts, ok=True):
+            source = self.f.h.root / 'model-facts.json'
+            self.f.put(source, facts)
+            return self.f.call('final-stage', '--dispatch', self.f.root, '--input', source, ok=ok)
+
+        sm = {'model': 'gpt-5.6-sol', 'reasoning_effort': 'medium'}
+        facts = {'continuation': 'repair', 'model_overrides': {'fixer': sm}}
+        prepare(facts, ok=False)
+        prepare(dict(facts, model_overrides={'fixer': {'model': 'gpt-6-astra', 'reasoning_effort': 'medium'}},
+                     model_override_reason='不允许的档位'), ok=False)
+        result = prepare(dict(facts, model_override_reason='跨模块修复提前升档'))
+        stage = Path(result['stage_path'])
+        self.assertEqual(result['models']['fixer'], sm)
+        resumed = prepare({'continuation': 'resume'})
+        self.assertEqual(resumed['stage_path'], str(stage))
+        self.assertEqual(resumed['models']['fixer'], sm)
+        fix = self.f.done_fixer(stage.parent / 'fixer/dispatch.json')
+        self.f.assemble(stage, reviews=[self.f.review(stage, blocking=True)], fixes=[fix], outcome='code_failure')
+        prepare(dict(facts, model_overrides={'fixer': {'model': 'gpt-5.6-terra', 'reasoning_effort': 'high'}},
+                     model_override_reason='不应降档'), ok=False)
+        result = prepare({'continuation': 'repair'})
+        self.assertEqual(result['stage'], 2)
+        self.assertEqual(result['models']['fixer'], sm)
+
+    def test_six_code_failure_stages_deliver_only_at_limit(self):
+        stage = self.f.stage()
+        for number in range(6):
+            fixes = [self.f.done_fixer(stage.parent / 'fixer/dispatch.json')] if number else []
+            _, receipt = self.f.assemble(stage, reviews=[self.f.review(stage, blocking=True)],
+                                         fixes=fixes, outcome='code_failure')
+            self.f.call('final-deliver', '--dispatch', self.f.root,
+                        '--output', self.f.root.parent / f'failure-{number}.json', ok=number == 5)
+            if number < 5:
+                stage = self.f.stage(previous=stage, receipt=receipt, continuation='repair')
+        self.f.stage(previous=stage, receipt=receipt, continuation='repair', ok=False)
+
     def test_three_fixer_repairs_are_required_before_advancing(self):
         stage = self.f.stage()
         _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='final')

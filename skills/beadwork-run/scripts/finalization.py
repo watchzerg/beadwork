@@ -189,7 +189,7 @@ def prepare_stage(dispatch_path, facts):
                 base = head
         else:
             c.require(continuation == "resume", "首次验收不能跳过阶段 0")
-    c.require(0 <= stage <= 3, "四阶段已用尽，停止并保留现场")
+    c.require(0 <= stage < len(c.FINAL_STAGE_MODELS), "六阶段已用尽，停止并保留现场")
     c.require(not c.status(root["worktree"]) or stage > 0, "首次验收不能包含 dirty 现场")
     c.git(root["worktree"], "merge-base", "--is-ancestor", base, head)
     gates = list(root['required_boundary_gates'])
@@ -325,7 +325,7 @@ def check_report(expected, report):
         historical_verification = [v for v in historical_verification if Path(v['log_path']).parent.parent not in unavailable_dirs]
     c.require(report['verification'][:len(historical_verification)] == historical_verification, '丢失历史验证')
     c.require(all(g in report["gate_sources"] for g in d["prior_gate_sources"]), "丢失 gate 来源")
-    c.require(len(reviews) == len(report["review_rounds"]) <= 4, "review 历史数量不符")
+    c.require(len(reviews) == len(report["review_rounds"]) <= len(c.FINAL_STAGE_MODELS), "review 历史数量不符")
     c.require(len(reviews) <= len(d["prior_reviews"]) + 1, "每阶段最多新增一轮 review")
     previous_head = d["reviewed_main"]
     previous_review_stage = -1
@@ -566,7 +566,7 @@ def deliver(root_path, output):
     stage = ops().dispatch(str(ops().bound(source['dispatch'])))
     read_stage_report(stage, str(report), str(ops().bound(source['receipt'])))
     r = c.read(report)
-    c.require(r['outcome'] != 'code_failure' or r['stage'] == 3, '代码失败需在四阶段用尽后交付 controller')
+    c.require(r['outcome'] != 'code_failure' or r['stage'] == len(c.FINAL_STAGE_MODELS) - 1, '代码失败需在六阶段用尽后交付 controller')
     check_report(root, r)
     c.require(c.sha(root['worktree'], 'HEAD') == r['head_commit'], '交付 HEAD 已变化')
     target = ops().output_path(output, Path(root_path).parent)

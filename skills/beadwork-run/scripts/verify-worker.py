@@ -16,6 +16,7 @@ import os
 import sys
 import schema_validation
 import review_schema
+import workflow_policy
 
 sys.dont_write_bytecode = True
 import verify_ticket as v
@@ -45,7 +46,7 @@ def report_schema(role, axis_schema):
             "blockers": {**TEXTS, "minItems": 1},
         })]}
     return obj({
-        "stage": {"type": "integer", "enum": [1, 2, 3]}, "attempt_id": TEXT,
+        "stage": {"type": "integer", "enum": list(range(1, len(workflow_policy.FINAL_STAGE_MODELS)))}, "attempt_id": TEXT,
         "outcome": {"enum": ["passed", "code_failure", "interrupted", "blocked"]},
         "fix_commits": {"type": "array", "items": SHA, "uniqueItems": True},
         "status": {"enum": ["DONE", "BLOCKED"]}, "parent_id": TEXT, "branch": TEXT,

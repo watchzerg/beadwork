@@ -176,7 +176,7 @@ def prepare_stage(root_path, facts):
     else:
         c.require(continuation == 'resume', '初次 stage 不接受 repair')
         number = 0
-    c.require(number < 4, '四阶段已用尽，停止并保留现场')
+    c.require(number < len(c.STAGE_MODELS), '六阶段已用尽，停止并保留现场')
     if previous:
         state['stage_sources'] = state['stage_sources'] + [state['selected_stage']]
     head = c.sha(r['worktree'], 'HEAD')
@@ -602,7 +602,7 @@ def check_ticket(d, report):
     c.require(report['execution']['implementers'] == state['implementer_sources'], '实现来源不完整')
     check_stage(stage, report)
     if report['outcome'] == 'code_failure':
-        c.require(stage['stage'] == 3, '未耗尽 stage 的代码失败由 executor 内部处理')
+        c.require(stage['stage'] == len(c.STAGE_MODELS) - 1, '未耗尽 stage 的代码失败由 executor 内部处理')
     return stage
 
 

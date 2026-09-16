@@ -11,8 +11,10 @@ python3 <skill-dir>/scripts/executor-operations.py ticket-stage --dispatch <root
 首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round`、`review_started`、`required_boundary_gates` 和 `gate_sources`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
 
 - `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
-- `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到 stage 3。
+- `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到 stage 5。
 - 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
+
+模型与矩阵以 `../scripts/workflow_policy.py` 为准。三档依次为 Terra-medium、Terra-high、Sol-medium；普通 implementer 六阶段各档两次。`complex_ticket` 保留 Sol-medium 的实现起点及 Terra-high 的 Standards 下限；提前升档后不要求再凑齐低档次数。
 
 `base_commit` 始终为整票开工 BASE；`stage_base` 是当前阶段起始 HEAD，仅用于阶段实现归属。双轴 review 始终覆盖原 BASE 到当前 HEAD，不缩为 fix diff。新阶段继承已有 commits 和未完成现场，不 reset 或重新实现正确部分。
 
@@ -67,7 +69,7 @@ stage draft 必填 `status`、`outcome`、`test_plan`、`acceptance`、`verifica
 `--review` 必须依次提供 dispatch.prior_reviews 和检查点的 selected_review（非 null 时）；遗漏或使用更正前的 collection 均被拒绝。缺轴或未完成轮次保留在 concerns，不能伪造完整 review。组装器保留两轴原始报告、前阶段与 implementer 的 dispatch/report/receipt hash 绑定；自动生成旁边的 `<stage-report-stem>-receipt.json` 并追加阶段选择检查点。stdout 同样是短回执。
 
 - gates 通过且两轴 PASS：DONE/passed。
-- implementer 三次 gate-fix 后仍失败，或完整双轴代码类 blocking：BLOCKED/code_failure；stage < 3 时 executor 内部 repair。
+- implementer 三次 gate-fix 后仍失败，或完整双轴代码类 blocking：BLOCKED/code_failure；stage < 5 时 executor 内部 repair。
 - 环境/spec/seam/证据阻塞：BLOCKED/blocked。
 - 未完成阶段的中断：BLOCKED/interrupted。已完成 blocking review 不能标作中断重置阶段。
 
@@ -77,7 +79,7 @@ stage draft 必填 `status`、`outcome`、`test_plan`、`acceptance`、`verifica
 python3 <skill-dir>/scripts/executor-operations.py ticket-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
-该入口将明确选中的阶段报告原样复制到 root 目录，重新执行完整验收并返回 root 短回执；不重跑 gates 或 review。stage 0..2 的 code_failure 不允许交付给 controller 作为最终代码失败。controller 使用 root dispatch 和这份报告/回执运行 `accept`；成功后生成 completion 并关闭 ticket。
+该入口将明确选中的阶段报告原样复制到 root 目录，重新执行完整验收并返回 root 短回执；不重跑 gates 或 review。stage 0..4 的 code_failure 不允许交付给 controller 作为最终代码失败。controller 使用 root dispatch 和这份报告/回执运行 `accept`；成功后生成 completion 并关闭 ticket。
 
 所有输出使用新文件名。更正只能补事实，不改源码、不增加阶段或 review 次数；原件保留。验证与完整双轴 review 未通过时不能返回 ticket DONE。
 

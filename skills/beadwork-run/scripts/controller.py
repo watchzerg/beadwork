@@ -87,7 +87,7 @@ def verifier(role, option, *args, cwd=None):
     return output
 
 
-# 阶段 0 为首次实现，1..3 为修复；矩阵是派发模型的单一来源。
+# 阶段 0 为首次实现，1..5 为修复；矩阵是派发模型的单一来源。
 MODEL_LEVELS = workflow_policy.MODEL_LEVELS
 STAGE_MODELS = workflow_policy.STAGE_MODELS
 FINAL_STAGE_MODELS = workflow_policy.FINAL_STAGE_MODELS
@@ -163,7 +163,7 @@ def prepare_stage(d, head):
         d["previous_dispatch_sha256"] = digest(d["previous_dispatch"])
         if report:
             d["previous_report_sha256"] = digest(d["previous_report"])
-    require(type(stage) is int and 0 <= stage < len(STAGE_MODELS), "四阶段已用尽，停止并保留现场")
+    require(type(stage) is int and 0 <= stage < len(STAGE_MODELS), "六阶段已用尽，停止并保留现场")
     levels = dict(zip(MODEL_ROLES, STAGE_MODELS[stage]))
     if d.get("complex_ticket"):
         levels["executor"] = max(levels["executor"], 2)

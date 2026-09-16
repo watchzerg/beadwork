@@ -164,19 +164,24 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.cli('executor-operations.py', 'review-prepare', '--dispatch', self.sd, ok=False)
         self.cli('run-verification.py', '--dispatch', self.wd, '--recipe', 'gate-unit', '--delivery', ok=False)
 
-    def test_four_review_stages_and_models(self):
+    def test_six_review_stages_and_models(self):
         reviews = []
-        for number in range(4):
+        for number in range(6):
             self.assertEqual(self.stage_info['stage'], number)
+            expected = [('gpt-5.6-terra', 'medium'), ('gpt-5.6-terra', 'medium'),
+                        ('gpt-5.6-terra', 'high'), ('gpt-5.6-terra', 'high'),
+                        ('gpt-5.6-sol', 'medium'), ('gpt-5.6-sol', 'medium')][number]
+            model = self.stage_info['models']['implementer']
+            self.assertEqual((model['model'], model['reasoning_effort']), expected)
             self.ready_writer()
-            reviews.append(self.review(blocking=number < 3))
-            self.assemble(reviews, 'code_failure' if number < 3 else 'passed')
-            if number < 3:
+            reviews.append(self.review(blocking=number < 5))
+            self.assemble(reviews, 'code_failure' if number < 5 else 'passed')
+            if number < 5:
                 self.deliver(ok=False)
                 self.stage('repair')
         self.deliver()
         self.stage('repair', ok=False)
-        self.assertEqual(self.stage_info['models']['implementer']['model'], 'gpt-6-astra')
+        self.assertEqual(self.stage_info['models']['implementer']['model'], 'gpt-5.6-sol')
 
     def test_gate_exhaustion_advances_only_after_three_repairs(self):
         self.commit()
@@ -396,14 +401,14 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
 
     def test_model_upgrade_inherits_and_downgrade_is_rejected(self):
         self.ready_writer(); self.assemble([self.review(blocking=True)], 'code_failure')
-        upgraded = {'model':'gpt-6-astra', 'reasoning_effort':'medium'}
-        self.stage('repair', model_overrides={'spec':upgraded}, model_override_reason='契约分歧')
+        upgraded = {'model':'gpt-5.6-sol', 'reasoning_effort':'medium'}
+        self.stage('repair', model_overrides={'implementer':upgraded}, model_override_reason='契约分歧')
         self.ready_writer(); reviews = json.loads(self.sd.read_text())['prior_reviews']
         current = self.review(blocking=True)
         self.assemble([Path(item['path']) for item in reviews] + [current], 'code_failure')
-        self.stage('repair', ok=False, model_overrides={'spec':{'model':'gpt-5.6-sol','reasoning_effort':'medium'}}, model_override_reason='不应降档')
+        self.stage('repair', ok=False, model_overrides={'implementer':{'model':'gpt-5.6-terra','reasoning_effort':'medium'}}, model_override_reason='不应降档')
         self.stage('repair')
-        self.assertEqual(self.stage_info['models']['spec'], upgraded)
+        self.assertEqual(self.stage_info['models']['implementer'], upgraded)
 
     def test_root_inspect_after_resume_accepts_original_dirty_stage(self):
         e = review_fixture.ExecutorOperationsTests(); e.h = self.h
@@ -444,14 +449,14 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertIn('Boundary gates：', text)
         self.assertIn('gate-demo', text)
 
-    def test_four_gate_failure_stages_stop_at_limit(self):
-        for stage in range(4):
+    def test_six_gate_failure_stages_stop_at_limit(self):
+        for stage in range(6):
             self.commit(); failure = self.gate(fail=True)
             for _ in range(3):
                 self.cli('executor-operations.py', 'begin-gate-repair', '--dispatch', self.wd, '--failure', failure)
                 self.commit(); failure = self.gate(fail=True)
             self.implement('code_failure'); self.assemble(outcome='code_failure')
-            if stage < 3:
+            if stage < 5:
                 self.stage('repair')
         self.deliver(); self.stage('repair', ok=False)
 

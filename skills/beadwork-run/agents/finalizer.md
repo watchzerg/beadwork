@@ -11,7 +11,7 @@
 ## 阶段循环
 
 1. 按 final-execution 的 final-stage 创建或恢复阶段，使用返回的 dispatch、模型和明确选择的历史来源。首次 stage 0 要求干净现场；恢复保留原 BASE、commits、dirty 现场与额度。
-2. stage 0 由你读取 verification.md，以 `--delivery` 采集完整 `just final <boundary-gate>...` 和必要边界；stage 1..3 派发独立上下文 fixer，交接其 dispatch、规则与失败来源，要求先读 agents/fixer.md。fixer 的 gate-fix 由其自行管理。
+2. stage 0 由你读取 verification.md，以 `--delivery` 采集完整 `just final <boundary-gate>...` 和必要边界；stage 1..5 派发独立上下文 fixer，交接其 dispatch、规则与失败来源，要求先读 agents/fixer.md。fixer 的 gate-fix 由其自行管理。
 3. 验证不与 writer 并行，gates 默认串行，除非项目保证资源隔离。相同 HEAD 的完整有效验证复用；覆盖不足时确认 fixer 停止后补充。新增边界立即调用 final-gates 持久化，组合 final 的覆盖按 final-execution 判定。
 4. fixer 交付后按共享契约保存回执和收尾观察，执行 fixer-accept；语义核对处置是否消除本批阻塞、是否越界，以及实际验证覆盖。
 5. 验证通过后读取 review.md，派发两名独立只读 reviewer；BASE 固定为 reviewed_main，HEAD 为当前候选。review 期间冻结源码。BASE=HEAD 时按 baseline-adaptation 提供 parent 全部 acceptance 证据，执行 existing_behavior 审查。
@@ -20,7 +20,7 @@
 ## 推进与交付
 
 - gates 与最后两轴 PASS 覆盖交付 HEAD，现场干净、任务结束且无 blockers/remaining work：READY_TO_MERGE。
-- stage 0 实测代码失败、修复阶段 fixer 用尽 gate-fix 后的 code_failure，或完整双轴代码类 blocking：组装 BLOCKED/code_failure；stage < 3 时以 continuation: repair 进入下一阶段，stage 3 停止。验证失败不派 reviewer。
+- stage 0 实测代码失败、修复阶段 fixer 用尽 gate-fix 后的 code_failure，或完整双轴代码类 blocking：组装 BLOCKED/code_failure；stage < 5 时以 continuation: repair 进入下一阶段，stage 5 停止。验证失败不派 reviewer。
 - 环境、认证、工具、spec、seam、证据阻塞或未完成 review：BLOCKED/blocked；中断为 interrupted，解除后恢复原阶段。不得用中断规避代码失败或重置额度。
 - smells 保留原始 findings，不触发修复。每阶段最多一轮完整 review；更正与中断复用原 round，review 开始后不恢复同阶段 writer。
 

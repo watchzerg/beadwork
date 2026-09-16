@@ -52,7 +52,7 @@ controller 派发的 preflight、executor 和 finalizer 使用独立上下文（
 
 controller 先确认宿主能力，解析 skill 和规则的绝对路径，按 controller 脚本入口执行 `prepare preflight`。使用返回的 primary、固定 branch/worktree 和证据目录，不预读 ticket/spec 正文。
 
-preflight 默认 `gpt-5.6-terra` / `medium`；机械复查可用同模型 `low`，复杂恢复现场核对可用 `gpt-5.6-sol` / `medium`。
+preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gpt-5.6-sol` / `medium`。
 
 派发全新 preflight agent，交接 `prepare preflight` 生成的 dispatch 字段，并要求子 agent 先读取 `<skill-dir>/agents/preflight.md`。
 
@@ -125,7 +125,7 @@ controller 核对整票交付来源、最终状态、必要 gates 和最后 revi
 
 - `DONE`：验收通过后进入 3.5，保留所有非阻塞 smells。
 - `NEEDS_CONTEXT`：按 `recovery-needs-context.md` 补齐具体事实，恢复原 root。
-- `BLOCKED`：按 `recovery-blocked.md` 保存停止与恢复入口。最终 code_failure 表示四阶段已用尽；controller 不再派下一修复阶段。中断保留原 stage、writer 现场和额度，非代码阻塞解除后恢复。
+- `BLOCKED`：按 `recovery-blocked.md` 保存停止与恢复入口。最终 code_failure 表示六阶段已用尽；controller 不再派下一修复阶段。中断保留原 stage、writer 现场和额度，非代码阻塞解除后恢复。
 
 ### 3.5 完成 ticket
 

@@ -67,7 +67,7 @@ python3 <skill-dir>/scripts/controller.py sync-main --input <sync-input.json>
 
 证据位于 `<primary>/.worktrees/.evidence/<parent>/main-sync/<id>/`：merge 前写 `intent.json`，每个命令保存独立 started/result/log，全部成功后写 `ready.json`。start comment 引用 `sync_result`；发生停止时 parent comment 引用该目录及失败原因。命令失败的 stderr 同时提供证据路径。
 
-失败或中断后，先确认旧命令及资源已结束，再使用原输入重跑。脚本自动发现唯一未完成 intent，固定原目标和验证输入；main 后续前进不会覆盖原意图。冲突保持原状，明确解决并提交后才能恢复；已合并但未写 ready 或验证失败时重新验证，即使目标已在历史中也不能跳过。人工修复后的 HEAD 必须保留同步前历史和目标 main，并在当前 HEAD 重新验证。已完成同步后、claim 前中断，重跑可生成无变化结果。同步失败归批次基线阻塞，不领取 child、不消耗四阶段额度。
+失败或中断后，先确认旧命令及资源已结束，再使用原输入重跑。脚本自动发现唯一未完成 intent，固定原目标和验证输入；main 后续前进不会覆盖原意图。冲突保持原状，明确解决并提交后才能恢复；已合并但未写 ready 或验证失败时重新验证，即使目标已在历史中也不能跳过。人工修复后的 HEAD 必须保留同步前历史和目标 main，并在当前 HEAD 重新验证。已完成同步后、claim 前中断，重跑可生成无变化结果。同步失败归批次基线阻塞，不领取 child、不消耗六阶段额度。
 
 ## 准备派发材料
 

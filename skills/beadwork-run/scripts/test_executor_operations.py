@@ -287,33 +287,32 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.h.h.git(self.h.wt, "add", ".")
         self.h.h.git(self.h.wt, "commit", "-m", f"test-1 修复 {number}")
 
-    def test_four_stages_preserve_all_rounds_and_pass(self):
+    def test_six_stages_preserve_all_rounds_and_pass(self):
+        tm, th, sm = ("gpt-5.6-terra", "medium"), ("gpt-5.6-terra", "high"), ("gpt-5.6-sol", "medium")
         expected = [
-            [("gpt-5.6-terra", "medium"), ("gpt-5.6-terra", "medium"), ("gpt-5.6-sol", "medium")],
-            [("gpt-5.6-terra", "high"), ("gpt-5.6-terra", "medium"), ("gpt-5.6-sol", "medium")],
-            [("gpt-5.6-sol", "medium"), ("gpt-5.6-terra", "high"), ("gpt-5.6-sol", "medium")],
-            [("gpt-6-astra", "medium"), ("gpt-5.6-sol", "medium"), ("gpt-6-astra", "medium")],
+            [tm, tm, sm], [tm, th, sm], [th, th, sm],
+            [th, sm, sm], [sm, sm, sm], [sm, sm, sm],
         ]
         reviews = []
-        for stage in range(4):
+        for stage in range(6):
             d = json.loads(self.dispatch.read_text())
             self.assertEqual(d["stage"], stage)
             self.assertEqual([(d["models"][role]["model"], d["models"][role]["reasoning_effort"])
                               for role in ("executor", "standards", "spec")], expected[stage])
-            data = self.round(blocking=stage < 3)
+            data = self.round(blocking=stage < 5)
             for axis in ("standards", "spec"):
                 identity = json.loads((data[0].parent / axis / "dispatch.json").read_text())
                 self.assertEqual((identity["model"], identity["reasoning_effort"]), expected[stage][1 if axis == "standards" else 2])
             reviews.append(self.collect(data))
-            receipt, report = self.assemble(reviews, status="BLOCKED" if stage < 3 else "DONE",
-                                            outcome="code_failure" if stage < 3 else "passed")
-            if stage < 3:
+            receipt, report = self.assemble(reviews, status="BLOCKED" if stage < 5 else "DONE",
+                                            outcome="code_failure" if stage < 5 else "passed")
+            if stage < 5:
                 self.continue_stage(receipt, report, "repair")
                 self.commit_fix(stage + 1)
         value = json.loads(report.read_text())
-        self.assertEqual(value["stage"], 3)
-        self.assertEqual(value["review"]["attempts"], 4)
-        self.assertEqual(len(value["review"]["rounds"]), 4)
+        self.assertEqual(value["stage"], 5)
+        self.assertEqual(value["review"]["attempts"], 6)
+        self.assertEqual(len(value["review"]["rounds"]), 6)
         self.h.report = report
         self.h.receipt = self.directory / "final-receipt.json"
         self.h.put(self.h.receipt, receipt)
@@ -321,15 +320,15 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.continue_stage(receipt, report, "repair", ok=False)
 
     def test_gate_failures_exhaust_stages_without_reviews(self):
-        for stage in range(4):
+        for stage in range(6):
             self.assertEqual(json.loads(self.dispatch.read_text())["stage"], stage)
             receipt, report = self.assemble(status="BLOCKED", outcome="code_failure")
             self.assertIsNone(json.loads(report.read_text())["review"])
-            if stage < 3:
+            if stage < 5:
                 self.continue_stage(receipt, report, "repair")
         before = self.h.h.git(self.h.wt, "rev-parse", "HEAD")
         error = self.continue_stage(receipt, report, "repair", ok=False)
-        self.assertIn("四阶段已用尽", error["error"])
+        self.assertIn("六阶段已用尽", error["error"])
         self.assertEqual(self.h.h.git(self.h.wt, "rev-parse", "HEAD"), before)
 
     def test_interruption_and_correction_keep_stage_but_code_failure_advances(self):
@@ -371,10 +370,10 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.assertEqual(d["models"]["standards"]["reasoning_effort"], "high")
         self.continue_stage()
         self.assertEqual(json.loads(self.dispatch.read_text())["models"], d["models"])
-        upgrade = {"spec": {"model": "gpt-6-astra", "reasoning_effort": "medium"}}
+        upgrade = {"standards": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}}
         self.continue_stage(model_overrides=upgrade, model_override_reason="契约分歧")
         self.continue_stage(model_overrides={})
-        self.assertEqual(json.loads(self.dispatch.read_text())["models"]["spec"], upgrade["spec"])
+        self.assertEqual(json.loads(self.dispatch.read_text())["models"]["standards"], upgrade["standards"])
         self.continue_stage(model_overrides={"executor": {"model": "gpt-5.6-terra", "reasoning_effort": "medium"}},
                             model_override_reason="不应降档", ok=False)
 

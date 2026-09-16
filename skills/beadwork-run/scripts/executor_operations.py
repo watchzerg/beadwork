@@ -353,7 +353,7 @@ def assemble(args):
     if "stage" in d:
         c.require(outcome in ("passed", "code_failure", "interrupted", "blocked"), "draft 必须明确 outcome")
         report.update(stage=d["stage"], outcome=outcome)
-    c.require(len(args.review) <= 4, "最多四轮 review")
+    c.require(len(args.review) <= len(c.STAGE_MODELS), "最多六轮 review")
     if args.review:
         rounds = [collection(path, args.dispatch) for path in args.review]
         review = {"attempts": len(rounds), "gate": rounds[-1][1], "final": rounds[-1][0],

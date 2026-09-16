@@ -41,7 +41,7 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 | 层次 | 谁管理 | 推进规则 |
 | --- | --- | --- |
 | ticket | controller | 当前票验收完成后，重新计算依赖图并选择下一票；每票使用全新 executor |
-| stage | executor / finalizer | 代码失败进入下一阶段；每阶段至多一轮完整双轴 review。ticket 从 stage 0 实现；最终验收 stage 0 无 writer，stage 1..3 才派 fixer |
+| stage | executor / finalizer | 代码失败进入下一阶段；每阶段至多一轮完整双轴 review。ticket 从 stage 0 实现；最终验收 stage 0 无 writer，stage 1..5 才派 fixer |
 | gate-fix | implementer / fixer | 当前 writer 在同一 stage 内修正交付 gate 的代码失败；用尽机会仍失败才交回上层 |
 
 阶段与 gate-fix 的额度由脚本绑定；session 接替不等于新阶段。中断接续原阶段，环境/spec/seam 等非代码阻塞保留证据并停止。具体次数与恢复输入见角色协议。

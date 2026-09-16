@@ -17,6 +17,7 @@ import sys
 from typing import Any, Dict, List
 import schema_validation
 import review_schema
+import workflow_policy
 
 sys.dont_write_bytecode = True
 
@@ -86,11 +87,11 @@ def finalizer_schema(axis: Dict[str, Any]) -> Dict[str, Any]:
     pair = object_schema({"standards": axis, "spec": axis})
     source = object_schema({"path": TEXT, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}})
     schema = object_schema({
-        "stage": {"type": "integer", "enum": [0, 1, 2, 3]},
+        "stage": {"type": "integer", "enum": list(range(len(workflow_policy.FINAL_STAGE_MODELS)))},
         "attempt_id": TEXT,
         "outcome": {"enum": ["passed", "code_failure", "interrupted", "blocked"]},
         "stage_sources": {"type": "array", "items": source, "minItems": 1},
-        "review_sources": {"type": "array", "items": source, "maxItems": 4},
+        "review_sources": {"type": "array", "items": source, "maxItems": len(workflow_policy.FINAL_STAGE_MODELS)},
         "fix_sources": {"type": "array", "items": object_schema({key: source for key in ("dispatch", "report", "receipt")})},
         "status": {"enum": ["READY_TO_MERGE", "BLOCKED"]},
         "parent_id": nullable(TEXT),
@@ -101,7 +102,7 @@ def finalizer_schema(axis: Dict[str, Any]) -> Dict[str, Any]:
         "gate_sources": {"type": "array", "items": object_schema({"gate": TEXT, "source": TEXT})},
         "verification": {"type": "array", "items": object_schema({"gate": TEXT, "command": TEXT, "result": TEXT, "log_path": TEXT, "head_commit": nullable(SHA), "passed": {"type": "boolean"}})},
         "fix": object_schema({"used": {"type": "boolean"}, "commits": {"type": "array", "items": SHA, "uniqueItems": True}, "dispositions": TEXTS}),
-        "review_rounds": {"type": "array", "items": pair, "maxItems": 4},
+        "review_rounds": {"type": "array", "items": pair, "maxItems": len(workflow_policy.FINAL_STAGE_MODELS)},
         "workspace": object_schema({"branch": nullable(TEXT), "observed_head": nullable(SHA), "clean": {"type": "boolean"}}),
         "sources": TEXTS, "stopped_tasks": {"type": "boolean"}, "blockers": TEXTS, "remaining_work": TEXTS,
     }, optional=("stage", "attempt_id", "outcome", "stage_sources", "review_sources", "fix_sources"))

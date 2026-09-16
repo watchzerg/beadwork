@@ -1,4 +1,4 @@
-"""最终集成四阶段的行为回归；使用 controller 的真实临时 Git fixture。"""
+"""最终集成六阶段的行为回归；使用 controller 的真实临时 Git fixture。"""
 from __future__ import annotations
 
 import hashlib
@@ -160,15 +160,15 @@ class FinalizationTests(unittest.TestCase):
         stage = self.stage()
         data = json.loads(stage.read_text())
         self.assertEqual(data["stage"], 0)
-        self.assertEqual(data["models"], {"fixer": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
+        self.assertEqual(data["models"], {"fixer": {"model": "gpt-5.6-terra", "reasoning_effort": "medium"},
                                             "standards": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
                                             "spec": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}})
         self.stage(ok=False)
 
-    def test_four_code_failures_consume_the_fixed_four_stage_budget(self):
+    def test_six_code_failures_consume_the_fixed_six_stage_budget(self):
         stage = self.stage()
         report, receipt = self.assemble(stage, reviews=[self.review(stage, blocking=True)], outcome="code_failure")
-        for expected in (1, 2, 3):
+        for expected in (1, 2, 3, 4, 5):
             stage = self.stage(previous=stage, receipt=receipt, continuation="repair")
             self.assertEqual(json.loads(stage.read_text())["stage"], expected)
             # final-stage 的返回值不写入 dispatch；本 fixture 从阶段目录取得唯一的 writer dispatch。
@@ -212,32 +212,29 @@ class FinalizationTests(unittest.TestCase):
         # 只能从最新叶子接续；再次提交 stage 0 不能制造并行或重置的 stage 1。
         self.stage(previous=initial, receipt=receipt, continuation="repair", ok=False)
 
-    def test_gate_failures_without_commits_exhaust_all_four_stages(self):
+    def test_gate_failures_without_commits_exhaust_all_six_stages(self):
         stage = self.stage()
-        for expected in range(4):
+        for expected in range(6):
             self.assertEqual(json.loads(stage.read_text())["stage"], expected)
             report, receipt = self.assemble(stage, outcome="code_failure", failed_gate="gate-browser")
-            if expected < 3:
+            if expected < 5:
                 stage = self.stage(previous=stage, receipt=receipt, continuation="repair")
         self.stage(previous=stage, receipt=receipt, continuation="repair", ok=False)
 
-    def test_four_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance(self):
+    def test_six_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance(self):
+        tm = {"model": "gpt-5.6-terra", "reasoning_effort": "medium"}
+        th = {"model": "gpt-5.6-terra", "reasoning_effort": "high"}
+        sm = {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}
         expected_models = [
-            {"fixer": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-             "standards": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
-             "spec": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}},
-            {"fixer": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-             "standards": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
-             "spec": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}},
-            {"fixer": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-             "standards": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-             "spec": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}},
-            {"fixer": {"model": "gpt-6-astra", "reasoning_effort": "medium"},
-             "standards": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-             "spec": {"model": "gpt-6-astra", "reasoning_effort": "medium"}},
+            {"fixer": tm, "standards": th, "spec": sm},
+            {"fixer": tm, "standards": th, "spec": sm},
+            {"fixer": tm, "standards": sm, "spec": sm},
+            {"fixer": th, "standards": sm, "spec": sm},
+            {"fixer": th, "standards": sm, "spec": sm},
+            {"fixer": sm, "standards": sm, "spec": sm},
         ]
         stage = self.stage()
-        for number in range(4):
+        for number in range(6):
             data = json.loads(stage.read_text())
             self.assertEqual(data["stage"], number)
             self.assertEqual(data["models"], expected_models[number])
@@ -246,11 +243,11 @@ class FinalizationTests(unittest.TestCase):
                 fixes = [self.done_fixer(fixer_dispatch)]
             else:
                 fixes = []
-            review = self.review(stage, blocking=number < 3)
+            review = self.review(stage, blocking=number < 5)
             report, receipt = self.assemble(stage, reviews=[review], fixes=fixes,
-                                            status="BLOCKED" if number < 3 else "READY_TO_MERGE",
-                                            outcome="code_failure" if number < 3 else "passed")
-            if number < 3:
+                                            status="BLOCKED" if number < 5 else "READY_TO_MERGE",
+                                            outcome="code_failure" if number < 5 else "passed")
+            if number < 5:
                 stage = self.stage(previous=stage, receipt=receipt, continuation="repair")
         self.h.deliver(json.loads(report.read_text()))
         self.h.accept()
