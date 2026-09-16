@@ -8,6 +8,8 @@ import shutil
 import sys
 import unittest
 import uuid
+import execution_plan
+import evidence
 
 from fixture_support import prepare_utility_stage, closure_source
 
@@ -94,13 +96,25 @@ class ControllerTests(unittest.TestCase):
             d.update(previous_dispatch=str(previous), previous_report=str(report_path), previous_receipt=str(receipt))
         if role == 'executor' and d['mode'] == 'new' and not getattr(self, 'utility_fixture', True):
             # 用公开 prepare/accept 构造已核实的准入来源，不以字符串模拟来源绑定。
+            value = {'ticket_order': [d['ticket_id']]}
+            self.put(self.root / 'parent.json', [{'id': 'test', 'status': 'open', 'description': execution_plan.replace('', value)}])
+            self.put(self.root / 'children.json', [{'id': d['ticket_id'], 'status': 'open', 'labels': ['ready-for-agent']}])
+            fake = self.root / 'bin/bd'
+            fake.write_text('#!' + sys.executable + '\n' + '''import json,os,sys
+from pathlib import Path
+a=sys.argv[1:];root=Path(os.environ['BD_FIXTURE_SHOW']).parent
+if a[0]=='dep': print('[]')
+elif a[0] in ('list','ready'): print((root/'children.json').read_text())
+else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
+''')
+            fake.chmod(0o755)
             prepared = self.call('prepare', 'preflight', '--input', self.put(self.root / 'preflight-input.json',
                 {'repository_root': str(self.primary), 'parent_id': 'test', 'rules_paths': []}))
             pd = Path(prepared['dispatch_path'])
             pr = phase_fixture.PhaseValidatorTests().preflight()
             plan = phase_fixture.PhaseValidatorTests().plan(d['test_mode'])
             plan['approved_seams'] = d['approved_seams']; plan['boundary_gates'] = d['required_boundary_gates']
-            pr.update(parent={'id': 'test', 'status': 'open'}, expected_children=[d['ticket_id']],
+            pr.update(parent={'id': 'test', 'status': 'open'}, expected_children=[d['ticket_id']], execution_plan=value,
                       tickets=[{'id': d['ticket_id'], 'status': 'open', 'test_plan': plan}],
                       linked_spec=d['linked_spec'], boundary_gates=d['required_boundary_gates'],
                       workspace={'primary_worktree': str(self.primary), 'implementation_worktree': str(self.wt),
@@ -111,6 +125,13 @@ class ControllerTests(unittest.TestCase):
             ap = pd.parent / 'accepted.json'
             self.call('accept', '--dispatch', pd, '--report', rp, '--receipt', rr, '--output', ap)
             d['preflight_acceptance'] = {'path': str(ap), 'sha256': hashlib.sha256(ap.read_bytes()).hexdigest()}
+            sync_path = Path(d['sync_result'])
+            sync_intent = json.loads((sync_path.parent / 'intent.json').read_text())
+            sync_intent['execution_plan_source'] = execution_plan.selected(str(self.primary), 'test')
+            self.put(sync_path.parent / 'intent.json', sync_intent)
+            sync_result = json.loads(sync_path.read_text())
+            sync_result['intent_sha256'] = evidence.digest(sync_path.parent / 'intent.json')
+            self.put(sync_path, sync_result)
         result = self.call("prepare", role, "--input", self.put(self.root / "input.json", d))
         self.dispatch = Path(result["dispatch_path"])
         self.d = json.loads(self.dispatch.read_text())

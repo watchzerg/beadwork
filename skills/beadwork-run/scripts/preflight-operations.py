@@ -11,6 +11,7 @@ import sys
 import time
 
 import evidence
+import execution_plan
 import graph
 import report_io
 import repository
@@ -130,6 +131,17 @@ class FactsCollector:
             return path
         self.check('flat_graph', flat)
 
+        def serial_plan():
+            value = execution_plan.parse(parent.get('description') if parent else None)
+            deps = execution_plan.dependencies(children, lambda child: self.bd('blocking-' + child,
+                ['dep', 'list', child, '--direction=down', '--type=blocks'])[0])
+            execution_plan.validate(value, children, deps)
+            execution_plan.check_selected(d['repository_root'], d['parent_id'], value, children, required=False)
+            self.execution_plan = value
+            return self.save('execution-plan', value)
+        self.execution_plan = None
+        self.check('execution_plan', serial_plan)
+
         def config():
             rows, path = self.bd('config', ['config', 'show'])
             values = {x['key']: x['value'] for x in rows}
@@ -230,7 +242,7 @@ def collect(args):
                  recipes=recipes, checkout=checkout, workspace=workspace, recovery_facts=recovery_facts))
     snapshot = dict(dispatch={'path': d['dispatch_path'], 'sha256': evidence.digest(d['dispatch_path'])},
                     parent={'id': parent.get('id'), 'status': parent.get('status')} if parent else {'id': None, 'status': None},
-                    expected_children=[x['id'] for x in children],
+                    expected_children=[x['id'] for x in children], execution_plan=capture.execution_plan,
                     tickets=[dict(id=x['id'], status=x['status']) for x in children], workspace=workspace, recovery_facts=recovery_facts,
                     checks=capture.checks, blockers=capture.problems, recipes=recipes, inputs=inputs, sources=capture.bindings,
                     collection_started_at=started, collection_finished_at=time.time())
@@ -280,7 +292,7 @@ def assemble(args):
         blockers.append('children 全部关闭，应核对 finalize/post_merge 路径')
     report = {k: draft[k] for k in ('linked_spec', 'resume_evidence', 'suggested_route', 'remaining_work')}
     report.update(status='BLOCKED' if blockers else draft['status'], parent=f['parent'],
-                  expected_children=f['expected_children'], tickets=tickets, boundary_gates=gates,
+                  expected_children=f['expected_children'], execution_plan=f['execution_plan'], tickets=tickets, boundary_gates=gates,
                   workspace=f['workspace'], checks=checks, blockers=blockers,
                   sources=[str(facts_path), *(s['path'] for s in f['sources']), *draft['sources']])
     output = Path(args.output).resolve()

@@ -36,7 +36,7 @@ class GraphDecisionTests(unittest.TestCase):
         self.assertIsNone(graph.frontier_result(children, ["p-1"]))
         self.assertEqual(graph.frontier_result(children, ["p-1"], [] )["reason"], "no_ready")
         self.assertEqual(graph.frontier_result(children, ["p-1"], [child("other-1")])["reason"],
-                         "invalid_ready_candidate")
+                         "next_ticket_not_ready")
         self.assertEqual(graph.frontier_result(children, ["p-1"], [child("p-1")]),
                          {"next": "claim", "ticket_id": "p-1"})
         for candidate in (child("p-1", "closed"), child("p-1", labels=()), child("p-1", assignee="agent")):

@@ -1,5 +1,7 @@
 """真实临时 Git/worktree 下检查采集、语义合并和既有 controller 验收。"""
 import json
+import execution_plan
+import evidence
 from pathlib import Path
 import subprocess
 import sys
@@ -14,8 +16,12 @@ SCRIPT = Path(__file__).with_name('preflight-operations.py')
 class PreflightOperationsTests(unittest.TestCase):
     def setUp(self):
         self.h = fixture.ControllerTests(); self.h.setUp(); self.addCleanup(self.h.doCleanups)
+        value = {'ticket_order': ['test-1', 'test-2']}
+        approved = self.h.root / 'approved-order.json'; evidence.write(approved, value)
+        execution_plan.adopt(self.h.primary, 'test', value,
+            [{'id': ticket, 'status': 'open'} for ticket in value['ticket_order']], [evidence.binding(approved)], '测试批次首次批准')
         self.h.prepare('preflight', expected_children=['test-1', 'test-2'])
-        self.h.put(self.h.root / 'parent.json', [{'id': 'test', 'status': 'in_progress', 'description': '已批准 S1'}])
+        self.h.put(self.h.root / 'parent.json', [{'id': 'test', 'status': 'in_progress', 'description': execution_plan.replace('已批准 S1', {'ticket_order': ['test-1', 'test-2']})}])
         self.h.put(self.h.root / 'children.json', [dict(id='test-1', status='open', labels=['ready-for-agent'], description='完整票据'),
                                                 dict(id='test-2', status='closed')])
         self.h.put(self.h.root / 'config.json', [dict(key='export.auto', value='false'), dict(key='export.git-add', value=False)])
@@ -28,7 +34,7 @@ assert '--readonly' in a and '--json' in a, a
 root = Path(os.environ['BD_FIXTURE_SHOW']).parent
 with (root / 'calls.jsonl').open('a') as f: f.write(json.dumps(a) + '\\n')
 name = {'show':'parent', 'list':'children', 'comments':'comments', 'config':'config', 'dep':'edges'}[a[0]]
-print((root / (name + '.json')).read_text())
+print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')).read_text())
 ''')
         bd.chmod(0o755)
         just = self.h.root / 'bin/just'
@@ -78,6 +84,12 @@ else:
         self.assertTrue(all(timing[k] >= 0 for k in ('collection_seconds', 'semantic_and_wait_seconds', 'assembly_seconds')))
         self.call('collect', ok=False)
         self.assemble(ok=False)
+
+    def test_missing_parent_plan_cannot_be_overridden_by_ready_draft(self):
+        self.h.put(self.h.root / 'parent.json', [{'id': 'test', 'status': 'in_progress', 'description': '没有执行计划'}])
+        self.collect()
+        self.assertIn('execution_plan', {x['name'] for x in self.facts['failed_checks']})
+        self.assertEqual(self.assemble()['status'], 'BLOCKED')
 
     def test_range_change_cannot_be_overridden_by_ready_draft(self):
         self.h.d['expected_children'] = ['test-1']; self.h.put(self.h.dispatch, self.h.d)

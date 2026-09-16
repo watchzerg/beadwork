@@ -8,8 +8,9 @@ import sys
 import uuid
 
 import evidence
+import execution_plan
+import graph
 import process_runner
-import report_io
 import repository
 
 
@@ -31,8 +32,8 @@ def clean(d):
 
 
 def frontier(d):
-    return json.loads(repository.run([sys.executable, '-B', report_io.SCRIPTS / 'graph.py', 'next',
-                            d['parent_id'], *d['expected_children']], d['worktree']))
+    return graph.select_next(d['parent_id'], d['expected_children'], d['worktree'],
+                             expected_source=d.get('execution_plan_source'))
 
 
 def command(d, directory, argv):
@@ -70,6 +71,14 @@ def check_result(d, path):
               '存在未完成同步，不能使用旧 ready 开新票')
     r = evidence.read(p)
     intent = evidence.read(p.parent / 'intent.json')
+    _, children, _, value = execution_plan.live(d['repository_root'], d['parent_id'])
+    execution_plan.check_selected(d['repository_root'], d['parent_id'], value, children,
+                                  expected=intent.get('execution_plan_source'))
+    repository.require(intent.get('execution_plan_source'), '同步证据缺少执行计划绑定')
+    d['execution_plan_source'] = intent['execution_plan_source']
+    states = {child['id']: child['status'] for child in children}
+    remaining = [ticket for ticket in value['ticket_order'] if states[ticket] != 'closed']
+    repository.require(remaining and remaining[0] == d.get('ticket_id'), '新 executor 不是执行计划允许的下一张票')
     repository.require(r['intent_sha256'] == evidence.digest(p.parent / 'intent.json'), '同步意图已变化')
     repository.require(all(intent[k] == d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id')),
               '同步身份不符')
@@ -108,6 +117,7 @@ def sync(args):
               and '..' not in Path(p).parts and not p.startswith(':') for p in paths), '需要仓库相对安装输入路径')
     gates = sorted(set(gates) - {'gate-unit'})
     clean(d)
+    d['execution_plan_source'] = execution_plan.selected(root, parent)
     next_ = frontier(d)
     repository.require(next_['next'] == 'claim', '仅在新票可领取时同步：' + json.dumps(next_, ensure_ascii=False))
     directory = Path(root) / '.worktrees' / '.evidence' / parent / 'main-sync'
@@ -117,13 +127,13 @@ def sync(args):
     if pending:
         attempt = pending[0]
         intent = evidence.read(attempt / 'intent.json')
-        repository.require(all(intent[k] == d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children')),
+        repository.require(all(intent[k] == d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children', 'execution_plan_source')),
                   '恢复同步身份或 children 不符')
         repository.require(intent['gates'] == gates and intent['install_inputs'] == paths, '恢复须沿用原同步验证输入')
     else:
         attempt = directory / uuid.uuid4().hex
         attempt.mkdir()
-        intent = {k: d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children')}
+        intent = {k: d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children', 'execution_plan_source')}
         intent.update(before=repository.sha(d['worktree'], 'HEAD'), target_main=repository.sha(root, 'refs/heads/main'),
                       gates=gates, install_inputs=paths)
         evidence.write(attempt / 'intent.json', intent)

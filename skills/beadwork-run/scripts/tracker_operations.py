@@ -8,6 +8,8 @@ import subprocess
 import sys
 
 import evidence
+import execution_plan
+import graph
 
 
 KINDS = ("claim", "comment", "close")
@@ -71,6 +73,10 @@ def prepare(input_path, output):
         require(isinstance(value.get("reason"), str) and value["reason"].strip(), "close 需要原因")
         require(value.get("prerequisite") is not None, "close 需要成功交付前置来源")
         evidence.bound(value["prerequisite"])
+    if value['kind'] == 'claim' and value['issue_id'] != value['parent_id']:
+        _, children, _, plan = execution_plan.live(value['repository_root'], value['parent_id'])
+        value['execution_plan_source'] = execution_plan.check_selected(value['repository_root'], value['parent_id'], plan, children)
+        require(isinstance(value.get('expected_assignee'), str) and value['expected_assignee'].strip(), 'child claim 需要 expected_assignee')
     target = evidence.absolute(output)
     intent = {"version": 1, **value}
     evidence.write(target, intent)
@@ -81,9 +87,27 @@ def execute(intent_path):
     path = evidence.absolute(intent_path)
     intent = evidence.read(path)
     result_path = path.with_name(path.stem + "-result.json")
+    if intent['kind'] == 'claim' and intent['issue_id'] != intent['parent_id']:
+        require(intent.get('execution_plan_source'), 'child claim 缺少执行计划绑定')
+        _, children, _, plan = execution_plan.live(intent['repository_root'], intent['parent_id'])
+        execution_plan.check_selected(intent['repository_root'], intent['parent_id'], plan, children,
+                                      expected=intent['execution_plan_source'])
+        ready = execution_plan.bd(intent['repository_root'], 'ready', '--parent', intent['parent_id'],
+                                  '--unassigned', '--limit', '0')
+        decision = graph.frontier_result([graph.normalize_issue(x, 'child') for x in children], plan['ticket_order'], ready)
+        require(decision.get('ticket_id') == intent['issue_id'] and decision['next'] in ('claim', 'resume'),
+                'child claim 不是当前执行计划允许的下一张票：' + json.dumps(decision, ensure_ascii=False))
+        started = execution_plan.progress_path(intent['repository_root'], intent['parent_id'], intent['issue_id'], 'started')
+        if decision['next'] == 'resume':
+            require(started.exists() and evidence.read(started)['source'] == evidence.binding(path),
+                    '恢复 claim 必须使用原始领取 intent')
+            current = next(x for x in children if x['id'] == intent['issue_id'])
+            require(current.get('assignee') == intent.get('expected_assignee'), '活动票归属不同')
     if result_path.exists():
         result = evidence.read(result_path)
         require(result["intent_sha256"] == evidence.digest(path), "tracker intent 已变化")
+        if intent['kind'] == 'close' and intent['issue_id'] != intent['parent_id'] and execution_plan.selected(intent['repository_root'], intent['parent_id'], False):
+            execution_plan.record_progress(intent['repository_root'], intent['parent_id'], intent['issue_id'], 'closed', evidence.binding(path))
         return result
     root, issue_id, kind = intent["repository_root"], intent["issue_id"], intent["kind"]
     before = issue(root, issue_id)
@@ -97,6 +121,8 @@ def execute(intent_path):
             require(expected and before.get("assignee") == expected,
                     "issue 已被领取但无法证明属于本 intent")
         else:
+            if issue_id != intent['parent_id']:
+                execution_plan.record_progress(root, intent['parent_id'], issue_id, 'started', evidence.binding(path))
             write_result = command(root, "update", issue_id, "--claim")
     elif kind == "comment":
         already = any(marker in comment_text(row) for row in comments(root, issue_id))
@@ -126,6 +152,8 @@ def execute(intent_path):
               "already_applied": already, "before": before, "after": after,
               "write_exit_code": None if write_result is None else write_result["exit_code"]}
     evidence.write(result_path, result)
+    if kind == 'close' and issue_id != intent['parent_id'] and execution_plan.selected(root, intent['parent_id'], False):
+        execution_plan.record_progress(root, intent['parent_id'], issue_id, 'closed', evidence.binding(path))
     return result
 
 

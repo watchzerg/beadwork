@@ -15,6 +15,7 @@ sys.dont_write_bytecode = True
 
 import dispatch_contract
 import evidence
+import execution_plan
 import finalization
 import handoff
 import report_io
@@ -185,6 +186,14 @@ def accept(args):
               "dispatch_path": str(Path(args.dispatch).resolve()), "dispatch_sha256": digest(args.dispatch),
               "report_path": str(Path(args.report).resolve()), "report_sha256": result["report_sha256"],
               "receipt_path": str(Path(args.receipt).resolve()), "receipt_sha256": digest(args.receipt)}
+    if d['role'] == 'preflight' and r['status'] == 'READY':
+        _, children, _, value = execution_plan.live(d['repository_root'], d['parent_id'])
+        require(value == r['execution_plan'] and set(value['ticket_order']) == set(r['expected_children']),
+                '执行计划或 children 在 preflight 后变化')
+        execution_plan.check_selected(d['repository_root'], d['parent_id'], value, children, required=False)
+        record['execution_plan_source'] = execution_plan.adopt(d['repository_root'], d['parent_id'], value,
+            children, [evidence.binding(args.dispatch), evidence.binding(args.report), evidence.binding(args.receipt)],
+            '首次 READY preflight 接纳；已有计划保持原来源')
     if closure:
         record['closure_source'] = closure
     write(args.output, record)

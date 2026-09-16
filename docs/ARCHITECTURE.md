@@ -40,7 +40,7 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 
 | 层次 | 谁管理 | 推进规则 |
 | --- | --- | --- |
-| ticket | controller | 当前票验收完成后，重新计算依赖图并选择下一票；每票使用全新 executor |
+| ticket | controller | 当前票验收完成后，核对固定执行序列及实时依赖，只选择下一张未完成票；每票使用全新 executor |
 | stage | executor / finalizer | 代码失败进入下一阶段；每阶段至多一轮完整双轴 review。ticket 从 stage 0 实现；最终验收 stage 0 无 writer，stage 1..5 才派 fixer |
 | gate-fix | implementer / fixer | 当前 writer 在同一 stage 内修正交付 gate 的代码失败；用尽机会仍失败才交回上层 |
 
@@ -72,3 +72,5 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 `handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排。`test_module_boundaries.py` 检查 import 回路、依赖方向、schema 冷启动和安装 symlink 入口。
 
 源码拆分的范围与验证结果见[实施方案](script-modularization-plan.md)及[验收记录](script-modularization-acceptance.md)。`batch_initialize.py` 仍为辅助入口，默认初始化路线继续以现行 controller 协议为准。
+
+串行顺序由 parent 的 `ticket_order` 区块声明；`execution_plan.py` 负责解析、依赖与状态校验、批次计划来源链，`plan-operations.py` 提供发布和显式接纳入口。`expected_children` 仍表示成员集合。详见[串行规划契约](../skills/beadwork-run/references/serial-planning.md)。

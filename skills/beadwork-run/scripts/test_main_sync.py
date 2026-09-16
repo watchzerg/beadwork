@@ -7,6 +7,8 @@ import sys
 import tempfile
 import unittest
 import hashlib
+import execution_plan
+import evidence
 
 SCRIPT = Path(__file__).with_name('controller.py')
 
@@ -31,13 +33,19 @@ class MainSyncTests(unittest.TestCase):
         self.bin.mkdir()
         self.env.update(PATH=str(self.bin) + os.pathsep + self.env['PATH'], FIXTURE=str(self.root))
         (self.root / 'status').write_text('open')
+        plan = {'ticket_order': ['demo-1.1']}
+        (self.root / 'parent-description').write_text(execution_plan.replace('', plan))
+        approved = self.root / 'approved-plan.json'; evidence.write(approved, plan)
+        execution_plan.adopt(self.primary, 'demo-1', plan, [{'id': 'demo-1.1', 'status': 'open'}],
+                             [evidence.binding(approved)], '测试批准')
         self.executable('bd', '''import json,os,sys
 from pathlib import Path
 p=Path(os.environ['FIXTURE']); a=sys.argv[1:]
 assert '--readonly' in a and '--json' in a
 child={'id':'demo-1.1','status':(p/'status').read_text(),'labels':['ready-for-agent']}
-if a[0]=='show': print(json.dumps([{'id':'demo-1','status':'in_progress'}]))
+if a[0]=='show': print(json.dumps([{'id':'demo-1','status':'in_progress','description':(p/'parent-description').read_text()}]))
 elif a[0] in ('list','ready'): print(json.dumps([child]))
+elif a[0]=='dep': print('[]')
 else: raise AssertionError(a)
 ''')
         self.executable('just', '''import os,sys,subprocess,signal
@@ -96,7 +104,7 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
         folder = Path(d['dispatch_path']).parent
         r = test_verify_phase.PhaseValidatorTests().preflight()
         plan = test_verify_phase.PhaseValidatorTests().plan('direct_verification')
-        r.update(parent={'id': 'demo-1', 'status': 'open'}, expected_children=['demo-1.1'],
+        r.update(parent={'id': 'demo-1', 'status': 'open'}, expected_children=['demo-1.1'], execution_plan={'ticket_order': ['demo-1.1']},
                  tickets=[{'id': 'demo-1.1', 'status': 'open', 'test_plan': plan}],
                  boundary_gates=['gate-browser'], linked_spec='demo-1',
                  workspace={'primary_worktree': str(self.primary), 'implementation_worktree': str(self.wt),
@@ -107,6 +115,24 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
         accepted = folder / 'accepted.json'
         call('accept', '--dispatch', d['dispatch_path'], '--report', report, '--receipt', receipt, '--output', accepted)
         return dict(data, linked_spec='demo-1', preflight_acceptance={'path': str(accepted), 'sha256': hashlib.sha256(accepted.read_bytes()).hexdigest()})
+
+    def test_plan_changed_during_sync_cannot_start_next_ticket(self):
+        self.change(self.primary)
+        self.executable('just', """import os,sys
+from pathlib import Path
+p=Path(os.environ['FIXTURE'])
+if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被删除')
+""")
+        result = self.sync()
+        self.assertEqual(result['frontier']['next'], 'blocked')
+        data = dict(self.data, ticket_id='demo-1.1', mode='new', test_mode='direct_verification',
+                    approved_seams=[], rules_paths=[], testing_seams_doc='/rules/seams.md',
+                    sync_result=result['sync_result'], linked_spec='demo-1')
+        source = self.root / 'blocked-prepare.json'; source.write_text(json.dumps(data))
+        proc = subprocess.run([sys.executable, '-B', str(SCRIPT), 'prepare', 'executor', '--input', str(source)],
+                              env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('execution-plan', proc.stderr)
 
     def test_no_change_skips_commands_and_preserves_main(self):
         head = self.git(self.primary, 'rev-parse', 'HEAD')

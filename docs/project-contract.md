@@ -30,7 +30,7 @@ beadwork-run 的安装与验证通过本项目 justfile 提供的契约 recipes 
 
 ## Spec 与 ticket
 
-输入为一个完整 parent ID，批次范围是它的直接子 tickets。未关闭的 child 需要 `ready-for-agent` label；依赖关系应记录在 Beads 中，而非仅写在正文里。
+输入为一个完整 parent ID，批次范围是它的直接子 tickets。未关闭的 child 需要 `ready-for-agent` label；依赖关系应记录在 Beads 中，而非仅写在正文里。Parent 还必须包含已批准的 `ticket_order` 执行计划区块；拆票时按 [串行规划契约](../skills/beadwork-run/references/serial-planning.md) 一起确认并用脚本发布。执行器固定该顺序，下一张被阻塞时停止，不采用 Beads 默认排序。
 
 执行前，ticket 需有明确验收条件和 Test plan，TDD ticket 需能解析到已批准的 seam。字段和授权规则以随 skill 分发的文档为准：
 

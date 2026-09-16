@@ -39,7 +39,7 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
 
     def intent(self, kind, **extra):
         source = self.root / (kind + "-input.json")
-        source.write_text(json.dumps({"repository_root": str(self.root), "parent_id": "demo",
+        source.write_text(json.dumps({"repository_root": str(self.root), "parent_id": "demo-1",
                                       "issue_id": "demo-1", "kind": kind, **extra}))
         target = self.root / (kind + "-intent.json")
         tracker.prepare(source, target)

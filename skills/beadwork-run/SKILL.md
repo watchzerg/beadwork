@@ -1,6 +1,6 @@
 ---
 name: beadwork-run
-description: "串行实现一个 Beads parent 下的 ticket 依赖图，并在双层 review 后合入本地 main。"
+description: "按批准顺序串行实现一个 Beads parent 下的 ticket 依赖图，并在双层 review 后合入本地 main。"
 ---
 
 # Beadwork Run
@@ -56,7 +56,7 @@ preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gp
 
 派发全新 preflight agent，交接 `prepare preflight` 生成的 dispatch 字段，并要求子 agent 先读取 `<skill-dir>/agents/preflight.md`。
 
-按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 后使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发；boundary gates 用于 BASE smoke。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
+按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本同时固定报告的执行计划来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发；boundary gates 用于 BASE smoke。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
 
 进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `graph.py next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、BASE smoke 或 claim。
 
@@ -92,7 +92,7 @@ bd worktree create .worktrees/<parent-id> --branch implement/<parent-id>
 python3 <skill-dir>/scripts/graph.py next <parent-id> <expected-child-id>...
 ```
 
-脚本刷新 children、比较批次范围、检查 labels 和状态，并沿用 `bd ready` 的依赖判断及默认 priority 顺序。按 `next` 处理：
+脚本读取 parent 执行计划，核对固定计划、children、blocking 依赖及状态，仅选择批准序列中第一张未关闭的票；`bd ready` 只判断该票是否可领取。计划缺失、变化或下一张被阻塞时停止，不回退 priority／票号排序。规划、发布和显式改序见 [serial-planning.md](references/serial-planning.md)，只在这些场景读取。按 `next` 处理：
 
 - `resume`：恢复返回的 `ticket_id`。
 - `claim`：确认旧 writer 及命令已结束，按 `references/controller-operations.md` 的 `sync-main` 入口同步本地 main 并验证基线。只处理本次固定 SHA，不 fetch。成功后按返回的刷新 frontier 处理；仍为 `claim` 才原子领取，竞争失败重新计算。同步失败执行停止记录，不领取新票、不消耗 ticket 修复阶段。

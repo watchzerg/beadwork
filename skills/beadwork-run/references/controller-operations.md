@@ -138,3 +138,7 @@ python3 <skill-dir>/scripts/controller.py cleanup --merge-record <merge-checkpoi
 ## 基线适配
 
 executor 负责开工 BASE 已满足和恢复 TDD 的执行策略适配，使用 baseline-adaptation.md 的 ticket-adapt-plan。controller 只在最终记录引用适配证据，不调用 adapt-plan、不审批每次单票适配。
+
+## 串行计划绑定
+
+child claim 的 prepare 自动读取已接纳计划并写入 intent；execute 重新核对计划、下一张票和实时 ready，必须提供 `expected_assignee`。恢复领取使用原始 intent；相同 assignee 不能替代来源身份。Parent claim 不受子票顺序约束。计划发布和显式调整使用 [serial-planning.md](serial-planning.md) 的脚本入口，日常循环不手写区块或重排。

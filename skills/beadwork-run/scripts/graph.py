@@ -15,6 +15,7 @@ stdout 成功时只输出一行紧凑 JSON；业务不满足时输出带 reason 
 from __future__ import annotations
 
 import json
+import execution_plan
 import os
 import re
 import subprocess
@@ -152,6 +153,9 @@ def frontier_result(children: List[Dict[str, Any]], expected_args: List[str], re
     if len(in_progress) > 1:
         return {"next": "blocked", "reason": "multiple_in_progress", "ids": in_progress}
     if len(in_progress) == 1:
+        first = next(id_ for id_ in expected_args if next(c for c in children if c['id'] == id_)['status'] != 'closed')
+        if first != in_progress[0]:
+            return {"next": "blocked", "reason": "out_of_order_in_progress", "ticket_id": in_progress[0]}
         return {"next": "resume", "ticket_id": in_progress[0]}
     if all(child["status"] == "closed" for child in children):
         return {"next": "done"}
@@ -163,7 +167,15 @@ def frontier_result(children: List[Dict[str, Any]], expected_args: List[str], re
         unfinished = [{"id": child["id"], "status": child["status"], "assignee": child["assignee"]}
                       for child in children if child["status"] != "closed"]
         return {"next": "blocked", "reason": "no_ready", "unfinished": unfinished}
-    candidate = normalize_issue(ready_raw[0], "ready 候选")
+    target = next(id_ for id_ in expected_args if next(c for c in children if c['id'] == id_)['status'] != 'closed')
+    candidates = [normalize_issue(row, "ready 候选") for row in ready_raw]
+    require_ids = [row['id'] for row in candidates]
+    if len(require_ids) != len(set(require_ids)):
+        raise ValueError('ready 候选 ID 重复')
+    candidate = next((row for row in candidates if row['id'] == target), None)
+    if candidate is None:
+        return {"next": "blocked", "reason": "next_ticket_not_ready", "ticket_id": target}
+
     known = next((child for child in children if child["id"] == candidate["id"]), None)
     valid = (known is not None and known["status"] == candidate["status"] == "open"
              and "ready-for-agent" in candidate["labels"] and candidate["assignee"] is None
@@ -187,30 +199,20 @@ def normalize_issue(raw: Any, what: str) -> Dict[str, Any]:
     return {"id": raw["id"], "status": raw["status"], "labels": list(labels), "assignee": assignee}
 
 
-def next_(parent_id: str, children: List[Dict[str, Any]], expected_args: List[str], cwd: str) -> None:
-    decided = frontier_result(children, expected_args)
-    if decided is not None:
-        emit(decided); return
-
-    # 查询 ready 候选；有效候选必须是当前 children 中 open、有 ready label、未分配
-    ready_out = run_bd(
-        [
-            "ready",
-            "--parent",
-            parent_id,
-            "--unassigned",
-            "--limit",
-            "1",
-            "--readonly",
-            "--json",
-        ],
-        cwd,
-    )
-    ready_raw = parse_bd_json(ready_out, "bd ready")
+def select_next(parent_id, expected_children, cwd, expected_source=None):
     try:
-        emit(frontier_result(children, expected_args, ready_raw))
+        _, children, _, value = execution_plan.live(cwd, parent_id)
+        execution_plan.check_selected(cwd, parent_id, value, children, expected=expected_source)
+        if {x['id'] for x in children} != set(expected_children):
+            return {'next': 'blocked', 'reason': 'children_changed'}
+        normalized = [normalize_issue(x, 'child') for x in children]
+        decided = frontier_result(normalized, value['ticket_order'])
+        if decided is not None:
+            return decided
+        ready = execution_plan.bd(cwd, 'ready', '--parent', parent_id, '--unassigned', '--limit', '0')
+        return frontier_result(normalized, value['ticket_order'], ready)
     except ValueError as error:
-        fail(str(error))
+        return {'next': 'blocked', 'reason': 'execution_plan_invalid', 'detail': str(error)}
 
 
 def main() -> None:
@@ -232,6 +234,9 @@ def main() -> None:
         for id_ in rest:
             validate_id(id_)
     cwd = os.getcwd()
+
+    if subcommand == 'next':
+        emit(select_next(parent_id, rest, cwd)); return
 
     # 验证 parent 存在（bd show --json 返回数组）
     show_out = run_bd(["show", parent_id, "--readonly", "--json"], cwd)
@@ -262,10 +267,7 @@ def main() -> None:
     if len({child["id"] for child in children}) != len(children):
         fail("children ID 重复")
 
-    if subcommand == "check-flat":
-        check_flat(children, cwd)
-    else:
-        next_(parent_id, children, rest, cwd)
+    check_flat(children, cwd)
 
 
 if __name__ == "__main__":

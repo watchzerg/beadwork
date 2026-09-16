@@ -32,7 +32,7 @@ FULL_SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 
 PHASES = ("preflight", "finalizer")
 PREFLIGHT_CHECKS = (
-    "parent_state", "children_nonempty", "ready_labels", "flat_graph",
+    "parent_state", "children_nonempty", "ready_labels", "flat_graph", "execution_plan",
     "spec_and_test_plans", "beads_config", "primary_worktree", "worktree_ignored",
     "branch_name", "beads_clean", "toolchain", "just_recipes", "review_schema", "recovery",
 )
@@ -68,6 +68,7 @@ def preflight_schema() -> Dict[str, Any]:
         "status": {"enum": ["READY", "BLOCKED"]},
         "parent": object_schema({"id": nullable(TEXT), "status": nullable(TEXT)}),
         "expected_children": {"type": "array", "items": TEXT, "uniqueItems": True},
+        "execution_plan": nullable(object_schema({"ticket_order": {"type": "array", "items": TEXT, "uniqueItems": True}})),
         "tickets": {"type": "array", "items": ticket},
         "linked_spec": nullable(TEXT),
         "boundary_gates": {"type": "array", "items": TEXT, "uniqueItems": True},
@@ -169,6 +170,8 @@ def preflight_failures(report: Dict[str, Any], expected: Dict[str, Any] | None) 
         return failures
     if not report["expected_children"] or not unique_ids(report["tickets"]) or set(item["id"] for item in report["tickets"]) != set(report["expected_children"]):
         failures.append(fail("tickets_match_unique_children"))
+    if report.get('execution_plan') is None or set(report['execution_plan']['ticket_order']) != set(report['expected_children']):
+        failures.append(fail('execution_plan_covers_children'))
     if report["blockers"] or report["remaining_work"]:
         failures.append(fail("ready_has_no_blockers"))
     if report["parent"]["id"] is None or report["parent"]["status"] is None or report["suggested_route"] not in ("new_batch", "resume_tickets", "finalize", "post_merge"):
