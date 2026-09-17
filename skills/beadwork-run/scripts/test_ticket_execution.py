@@ -234,6 +234,11 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         checkpoint = sorted(self.root_dispatch.parent.glob('checkpoint-*.json'))[-1]
         self.assertEqual(len(json.loads(checkpoint.read_text())['state']['stage_sources']), 1)
 
+        self.ready_writer()
+        self.assemble([self.review(blocking=True)], 'code_failure')
+        self.stage('repair')
+        self.assertEqual(self.stage_info['stage'], 2)
+
     def test_unregistered_gate_repair_recovery_rejects_generic_block(self):
         self.commit()
         self.implement('blocked')

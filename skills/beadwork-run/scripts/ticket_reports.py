@@ -130,14 +130,24 @@ def check_stage(d, report):
               and execution['root'] == d['ticket_root'], '阶段报告缺少绑定身份')
     repository.require(execution['previous_stages'] == d['prior_stages'], '阶段报告丢失历史')
     ticket_state.check_selected_review(d, (report.get('review') or {}).get('sources', []))
+    recovery = evidence.read(evidence.bound(d['stage_recovery'])) if d.get('stage_recovery') else None
+    recovered_stage = False
     previous = None
     for item in d['prior_stages']:
         old, prior = ticket_state.resolve_source(item)
         dispatch_contract.same_ticket(d, old)
         repository.require(old['stage'] == (0 if previous is None else previous + 1), '历史 stage 不连续')
         check_stage(old, prior)
-        repository.require(prior['outcome'] == 'code_failure', '只有代码失败可推进阶段')
+        if prior['outcome'] != 'code_failure':
+            repository.require(recovery and not recovered_stage and prior['outcome'] == 'blocked'
+                      and recovery['kind'] == 'unregistered-gate-repair'
+                      and recovery['stage'] == old['stage'] and recovery['selected_stage'] == item
+                      and recovery['recovered_head'] == prior['head_commit']
+                      and Path(evidence.bound(d['stage_recovery'])).parent == Path(old['dispatch_path']).parent.parent,
+                      '历史非代码失败阶段缺少匹配的恢复证据')
+            recovered_stage = True
         previous = old['stage']
+    repository.require(not recovery or recovered_stage, '恢复证据未绑定历史阶段')
     repository.require(d['stage'] == (0 if previous is None else previous + 1), 'stage 计数不符')
     repository.require(d['stage_base'] == (ticket_state.resolve_source(d['prior_stages'][-1])[1]['head_commit'] if d['prior_stages'] else d['base_commit']), 'stage 起始 HEAD 与前序交付不符')
     sources = execution['implementers']
