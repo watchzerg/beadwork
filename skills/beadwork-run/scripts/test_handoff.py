@@ -17,7 +17,7 @@ class HandoffTests(unittest.TestCase):
         self.f.setUp()
         self.addCleanup(self.f.doCleanups)
         self.bin = self.f.h.root / 'bin/just'
-        self.bin.write_text('#!' + sys.executable + '\nimport os,sys,signal\nif sys.argv[1:]==["--summary"]: print("final gate-browser gate-extra test typecheck")\nelif os.environ.get("GATE_INTERRUPT"): os.kill(os.getpid(),signal.SIGTERM)\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n')
+        self.bin.write_text('#!' + sys.executable + '\nimport os,sys,signal\nif sys.argv[1:]==["--summary"]: print("check-toolchain install test typecheck gate-plan gate-core gate-full gate-browser gate-extra env-facts fmt")\nelif sys.argv[3]=="gate-plan": print(\'{"core":"gate-core","full":["gate-core","gate-browser","gate-extra"]}\')\nelif os.environ.get("GATE_INTERRUPT"): os.kill(os.getpid(),signal.SIGTERM)\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n')
         self.bin.chmod(0o755)
         self.original_review = self.f.review
         self.original_assemble = self.f.assemble
@@ -26,7 +26,7 @@ class HandoffTests(unittest.TestCase):
         self.f.assemble = self.assemble
         self.f.done_fixer = self.done_fixer
 
-    def run_gate(self, dispatch, recipe='final', failed=False, parameters=(), interrupted=False):
+    def run_gate(self, dispatch, recipe='gate-full', failed=False, parameters=(), interrupted=False):
         result = subprocess.run([sys.executable, '-B', str(fixture.OPS.with_name('run-verification.py')),
             '--dispatch', str(dispatch), '--recipe', recipe, '--delivery', *(['--', *parameters] if parameters else [])],
             cwd=self.f.h.root, env=dict(self.f.h.env, GATE_EXIT='1' if failed else '0',
@@ -36,7 +36,7 @@ class HandoffTests(unittest.TestCase):
 
     def gates(self, dispatch):
         data = json.loads(Path(dispatch).read_text())
-        for gate in ['final', *data['required_boundary_gates']]:
+        for gate in ['gate-full']:
             self.run_gate(dispatch, gate)
 
     def review(self, stage, **kwargs):
@@ -117,7 +117,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_fixer_code_failure_requires_recorded_exhaustion(self):
         stage = self.f.stage()
-        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='final')
+        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='gate-full')
         stage = self.f.stage(previous=stage, receipt=receipt, continuation='repair')
         source = self.f.done_fixer(stage.parent / 'fixer/dispatch.json')
         report = json.loads(Path(source['report']['path']).read_text())
@@ -138,7 +138,7 @@ class HandoffTests(unittest.TestCase):
             value['gate_sources'].append({'gate': 'gate-extra', 'source': '实际影响的边界'})
             return value
         self.f.draft = draft
-        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='final')
+        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='gate-full')
         following = self.f.stage(previous=stage, receipt=receipt, continuation='repair')
         data = json.loads((following.parent / 'fixer/dispatch.json').read_text())
         self.assertIn('gate-extra', data['required_boundary_gates'])
@@ -167,9 +167,9 @@ class HandoffTests(unittest.TestCase):
     def test_latest_failure_and_missing_log_cannot_support_review(self):
         stage = self.f.stage()
         self.gates(stage)
-        self.run_gate(stage, 'final', failed=True)
+        self.run_gate(stage, 'gate-full', failed=True)
         self.f.call('review-prepare', '--dispatch', stage, ok=False)
-        run = self.run_gate(stage, 'final')
+        run = self.run_gate(stage, 'gate-full')
         (run / 'output.log').unlink()
         self.f.call('review-prepare', '--dispatch', stage, ok=False)
 
@@ -193,19 +193,25 @@ class HandoffTests(unittest.TestCase):
         self.f.h.deliver(json.loads(report.read_text()))
         self.f.h.accept()
 
-    def test_supplemental_gate_must_pass_on_final_head(self):
+    def test_gate_full_covers_supplemental_boundary_and_retains_provenance(self):
         stage = self.f.stage()
         request = self.f.h.root / 'gates.json'
         self.f.put(request, {'names': ['gate-extra'], 'sources': [{'gate': 'gate-extra', 'source': '实际边界'}]})
         self.f.call('final-gates', '--dispatch', stage, '--input', request)
         self.gates(stage)
-        self.f.call('review-prepare', '--dispatch', stage, ok=False)
-        self.run_gate(stage, 'gate-extra')
         review = self.original_review(stage)
         report, _ = self.f.assemble(stage, reviews=[review], status='READY_TO_MERGE', outcome='passed')
         self.assertIn('gate-extra', json.loads(report.read_text())['boundary_gates'])
         self.f.h.deliver(json.loads(report.read_text()))
         self.f.h.accept()
+
+    def test_gate_full_plan_must_contain_accumulated_boundary(self):
+        stage = self.f.stage()
+        request = self.f.h.root / 'gates-missing-plan.json'
+        self.f.put(request, {'names': ['gate-missing'], 'sources': [{'gate': 'gate-missing', 'source': '实际边界'}]})
+        self.f.call('final-gates', '--dispatch', stage, '--input', request)
+        self.gates(stage)
+        self.f.call('review-prepare', '--dispatch', stage, ok=False)
 
     def test_missing_log_can_deliver_partial_blocked(self):
         stage = self.f.stage()
@@ -218,7 +224,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_accepted_fixer_log_damage_can_deliver_partial_blocked(self):
         stage = self.f.stage()
-        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='final')
+        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='gate-full')
         following = self.f.stage(previous=stage, receipt=receipt, continuation='repair')
         fd = following.parent / 'fixer/dispatch.json'
         source = self.f.done_fixer(fd)
@@ -274,7 +280,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_three_fixer_repairs_are_required_before_advancing(self):
         stage = self.f.stage()
-        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='final')
+        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='gate-full')
         following = self.f.stage(previous=stage, receipt=receipt, continuation='repair')
         fd = following.parent / 'fixer/dispatch.json'
         original = self.original_fixer(fd)
@@ -297,7 +303,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_fixer_stage_cannot_advance_on_unrelated_old_failure(self):
         stage = self.f.stage()
-        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='final')
+        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='gate-full')
         following = self.f.stage(previous=stage, receipt=receipt, continuation='repair')
         self.f.assemble(following, outcome='code_failure', ok=False)
 
@@ -314,12 +320,14 @@ class HandoffTests(unittest.TestCase):
         source.write_text('内容变化')
         self.f.call('final-stage', '--dispatch', self.f.root, '--input', facts, ok=False)
 
-    def test_composite_final_requires_bound_coverage_contract(self):
+    def test_gate_full_rejects_boundary_parameters(self):
         stage = self.f.stage()
-        self.run_gate(stage, parameters=['gate-browser'])
-        self.f.call('review-prepare', '--dispatch', stage, ok=False)
-        # 缺契约不猜覆盖；独立边界运行可以补齐。
-        self.run_gate(stage, 'gate-browser')
+        result = subprocess.run([sys.executable, '-B', str(fixture.OPS.with_name('run-verification.py')),
+            '--dispatch', str(stage), '--recipe', 'gate-full', '--delivery', '--', 'gate-browser'],
+            cwd=self.f.h.root, env=self.f.h.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('不接受筛选参数', result.stderr)
+        self.gates(stage)
         self.original_review(stage)
 
     def test_controller_requires_observed_closure(self):
@@ -390,7 +398,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         for path in prepared['axes'].values():
             d = json.loads(Path(path).read_text())
             self.assertIsNone(d['writer_source'])
-            self.assertEqual(len(d['verification_sources']), 2)
+            self.assertEqual(len(d['verification_sources']), 1)
 
     def test_same_round_correction_invalidates_old_stage(self):
         stage = self.f.stage()

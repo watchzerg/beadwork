@@ -86,7 +86,7 @@ class FinalizationTests(unittest.TestCase):
         else:
             value.update(blockers=[], remaining_work=[], stopped_tasks=True)
         if failed_gate:
-            value["verification"].append({"gate": failed_gate, "command": "just final " + failed_gate,
+            value["verification"].append({"gate": failed_gate, "command": "just " + failed_gate,
                                           "result": "失败", "log_path": "/evidence/failed.log",
                                           "head_commit": self.h.h.git(self.h.wt, "rev-parse", "HEAD"), "passed": False})
         return value
@@ -125,9 +125,9 @@ class FinalizationTests(unittest.TestCase):
             self.h.h.git(self.h.wt, "commit", "-m", message)
         head = self.h.h.git(self.h.wt, "rev-parse", "HEAD")
         commits = self.h.h.git(self.h.wt, "rev-list", "--reverse", d["base_commit"] + ".." + head).splitlines()
-        verification = [{"gate": gate, "command": "just final " + gate, "result": "通过",
+        verification = [{"gate": gate, "command": "just " + gate, "result": "通过",
                          "log_path": "/evidence/" + gate + ".log", "head_commit": head, "passed": True}
-                        for gate in ["final", *d["required_boundary_gates"]]]
+                        for gate in ["gate-full"]]
         report = {"stage": d["stage"], "attempt_id": d["attempt_id"], "outcome": "passed",
                   "fix_commits": commits, "fix_commit": commits[-1], "status": "DONE",
                   "parent_id": d["parent_id"], "branch": d["branch"], "base_commit": d["base_commit"],
@@ -300,9 +300,9 @@ class FinalizationTests(unittest.TestCase):
                         "base_commit": fixer_dispatch["base_commit"], "head_commit": head, "fix_commit": head,
                         "dispositions": [{"source": "review", "action": "已修复"}],
                         "boundary_gates": ["gate-browser"], "gate_sources": [{"gate": "gate-browser", "source": "fixer"}],
-                        "verification": [{"gate": gate, "command": "just final " + gate, "result": "通过",
+                        "verification": [{"gate": gate, "command": "just " + gate, "result": "通过",
                                           "log_path": "/evidence/legacy.log", "head_commit": head, "passed": True}
-                                         for gate in ("final", "gate-browser")],
+                                         for gate in ("gate-full",)],
                         "worktree_clean": True, "stopped_tasks": True, "uncommitted_files": [], "blockers": [], "remaining_work": []}
         self.put(fixer_dispatch["report_path"], fixer_report)
         fixer_receipt = fixer_dir / "receipt.json"

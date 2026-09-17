@@ -30,8 +30,10 @@ class VerificationTests(unittest.TestCase):
 from pathlib import Path
 if sys.argv[1:] == ['--summary']:
     if os.environ.get('TEST_MODE') == 'spawnfail': Path(sys.argv[0]).unlink()
-    print('test typecheck gate-unit gate-demo'); sys.exit(0)
+    print('check-toolchain install test typecheck gate-plan gate-core gate-full env-facts fmt gate-demo'); sys.exit(0)
 assert sys.argv[1:3] == ['--one', '--']
+if sys.argv[3] == 'gate-plan':
+    print('{"core":"gate-core","full":["gate-core","gate-demo"]}'); sys.exit(0)
 mode = os.environ.get('TEST_MODE', 'pass')
 print(json.dumps({'argv': sys.argv[3:], 'cwd': os.getcwd()}), flush=True)
 if mode == 'fail': print('目标断言失败'); sys.exit(7)
@@ -130,7 +132,7 @@ if mode == 'hang':
         (e.h.root / "bin" / "just").write_bytes(self.fake.read_bytes())
         (e.h.root / "bin" / "just").chmod(0o755)
         result = subprocess.run([sys.executable, "-B", str(SCRIPT), "--dispatch", str(e.dispatch),
-                                 "--recipe", "gate-unit"], env=e.h.env, capture_output=True, text=True)
+                                 "--recipe", "gate-core"], env=e.h.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         run = json.loads(result.stdout)
         collection = e.collect(e.round())
@@ -146,20 +148,18 @@ if mode == 'hang':
     def test_real_just_rejects_extra_recipe_before_execution(self):
         self.fake.unlink()
         (self.h.wt / "justfile").write_text(
-            'gate-unit:\n    @echo UNEXPECTED_GATE\nfmt:\n    @echo UNREQUESTED_FMT\n')
-        run = self.run_record(recipe="gate-unit", parameters=("fmt",), expected=1)
-        self.assertEqual(run["outcome"], "exited")
-        self.assertNotEqual(run["exit_code"], 0)
-        self.assertNotIn("UNEXPECTED_GATE", run["log_tail"])
-        self.assertNotIn("UNREQUESTED_FMT", run["log_tail"])
-        self.assertIn("expected 1 command-line recipe invocation", run["log_tail"])
+            'gate-core:\n    @echo UNEXPECTED_GATE\nfmt:\n    @echo UNREQUESTED_FMT\n')
+        result = subprocess.run(self.command("gate-core", "fmt"), cwd=self.h.root,
+                                env=self.h.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("不接受筛选参数", result.stderr)
 
     @unittest.skipUnless(REAL_JUST, "需要安装 just 以验证真实入口")
     def test_real_just_retains_recipe_dependencies(self):
         self.fake.unlink()
         (self.h.wt / "justfile").write_text(
-            'gate-unit: dependency\n    @echo GATE\ndependency:\n    @echo DEPENDENCY\n')
-        run = self.run_record(recipe="gate-unit")
+            'gate-core: dependency\n    @echo GATE\ndependency:\n    @echo DEPENDENCY\n')
+        run = self.run_record(recipe="gate-core")
         self.assertEqual(run["log_tail"].splitlines(), ["DEPENDENCY", "GATE"])
 
     @unittest.skipUnless(REAL_JUST, "需要安装 just 以验证真实入口")
@@ -222,27 +222,27 @@ if mode == 'hang':
         self.assertIn("smoke", run["log_tail"])
 
     @unittest.skipUnless(REAL_JUST, "需要安装 just 以验证真实入口")
-    def test_executor_final_records_nested_gates_and_failure(self):
+    def test_gate_full_is_unfiltered_and_records_one_complete_run(self):
         self.fake.unlink()
         (self.h.wt / "justfile").write_text(
-            'final *GATES:\n    @just gate-full\n    @for gate in {{GATES}}; do just "$gate" || exit $?; done\n'
             'gate-full:\n    @echo FULL\ngate-browser:\n    @echo BROWSER\n'
             'gate-fail:\n    @echo FAILED\n    @exit 7\ngate-after:\n    @echo UNEXPECTED_AFTER\n')
-        green = self.run_record(recipe="final", parameters=("gate-browser",))
-        self.assertEqual(green["log_tail"].splitlines(), ["FULL", "BROWSER"])
-        failed = self.run_record(recipe="final", parameters=("gate-fail", "gate-after"), expected=1)
-        self.assertNotIn("UNEXPECTED_AFTER", Path(failed["log_path"]).read_text())
-        self.assertNotEqual(failed["exit_code"], 0)
-        for run in (green, failed):
+        green = self.run_record(recipe="gate-full")
+        self.assertEqual(green["log_tail"].splitlines(), ["FULL"])
+        rejected = subprocess.run([sys.executable, "-B", str(SCRIPT), "--dispatch", str(self.dispatch),
+                                   "--recipe", "gate-full", "--", "gate-browser"],
+                                  env=self.h.env, capture_output=True, text=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("不接受筛选参数", rejected.stderr)
+        for run in (green,):
             directory = Path(run["run_path"])
             self.assertTrue((directory / "started.json").exists())
             result = json.loads((directory / "result.json").read_text())
             self.assertEqual(result["outcome"], "exited")
             self.assertTrue(result["process_group_gone"])
         report = self.assemble()
-        self.assertEqual(len(report["verification"]), 2)
-        self.assertIn("final gate-browser", report["verification"][0]["command"])
-        self.assertIn(failed["run_path"], report["verification"][1]["result"])
+        self.assertEqual(len(report["verification"]), 1)
+        self.assertIn("gate-full", report["verification"][0]["command"])
 
 
 if __name__ == "__main__":

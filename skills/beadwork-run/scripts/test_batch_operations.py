@@ -38,9 +38,13 @@ else: print('[]')
 
     def acceptance(self, role, ticket=None):
         folder = self.root / (role + ("-" + ticket if ticket else "")); folder.mkdir()
+        gate_plan_path = folder / 'gate-plan.json'
+        evidence.write(gate_plan_path, {"core": "gate-core", "full": ["gate-core", "gate-demo"]})
         dispatch = {"role": role, "parent_id": "demo", "ticket_id": ticket,
                     "dispatch_path": str(folder / "dispatch.json")}
-        report = ({"status": "READY", "expected_children": ["demo-1"]} if role == "preflight" else
+        report = ({"status": "READY", "expected_children": ["demo-1"],
+                   "gate_plan": {"core": "gate-core", "full": ["gate-core", "gate-demo"]},
+                   "gate_plan_source": evidence.binding(gate_plan_path)} if role == "preflight" else
                   {"status": "DONE", "base_commit": self.git("rev-parse", "HEAD"),
                    "head_commit": self.git("rev-parse", "HEAD"), "implementation_commits": [],
                    "required_boundary_gates": ["gate-demo"]})
@@ -57,7 +61,7 @@ else: print('[]')
         source = self.root / "init-input.json"; evidence.write(source, {
             "repository_root": str(self.root), "parent_id": "demo", "expected_children": ["demo-1"],
             "preflight_acceptance": evidence.binding(accepted), "install_inputs": ["package.json"],
-            "boundary_gates": ["gate-demo"], "expected_assignee": "fixture"})
+            "expected_assignee": "fixture"})
         folder = self.root / ".worktrees/.evidence/demo/initialize"; folder.mkdir(parents=True)
         intent = folder / "intent.json"; batch_initialize.prepare(source, intent)
         first = batch_initialize.execute(intent)

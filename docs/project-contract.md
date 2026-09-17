@@ -51,15 +51,14 @@ beadwork-run 的安装与验证通过本项目 justfile 提供的契约 recipes 
 | `install` | 安装项目依赖，可重复执行 |
 | `typecheck` | 执行项目权威类型或等价静态检查 |
 | `test [ARGS...]` | 运行相关测试；说明支持的筛选参数和收集范围 |
-| `gate-unit` | 项目的基础回归门禁 |
-| `gate-full` | 项目的完整通用验证门禁 |
+| `gate-plan` | 无参数、只读输出 `{"core":"gate-core","full":[...]}`；不安装依赖、运行测试或探测外部服务 |
+| `gate-core` | 无参数执行静态检查及快速隔离的基础回归；必须是 `full` 成员 |
+| `gate-full` | 无参数按 `gate-plan.full` 的顺序逐项完整执行，每项一次、首错停止 |
 | `env-facts` | 输出用于检查与交接的环境事实 |
 | `fmt [FILES...]` | 格式化指定文件；遵循本项目参数约定 |
-| `smoke [BOUNDARY-GATES...]` | 验证 BASE 的通用及所需边界能力 |
-| `final [BOUNDARY-GATES...]` | 执行最终通用验证及所需边界 gates |
 | `gate-<boundary>` | 按实际 suite 提供额外边界验证，由 Test plan 引用 |
 
-这些是执行契约，不要求使用某个具体 test runner 或 formatter。文档应说明各 gate 实际覆盖什么；被声明的验证入口必须有真实实现，失败须返回非零退出码。零匹配、空命令或未实现的占位 recipe 不能代表通过。
+这些是执行契约，不要求使用某个具体 test runner 或 formatter，也不要求所有项目建立数据库、浏览器等固定分类。项目应先盘点真实测试、依赖和故障边界；没有独立 suite 时不创建空 gate。`gate-plan.full` 是唯一完整成员定义，顺序有意义；除保留入口 `gate-plan`、`gate-full` 外，每个 `gate-*` recipe 都必须登记且只出现一次，成员必须真实存在。完整 gate 均拒绝筛选参数；筛选只走 `test`。被声明的入口失败须返回非零退出码，零匹配、空命令或占位 recipe 不能代表通过。
 
 ## Git 与运行现场
 

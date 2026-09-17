@@ -43,7 +43,7 @@ class BaselineAdaptationTests(unittest.TestCase):
         draft = {"status": status, "outcome": outcome,
                  "test_plan": {"decision_source": "controller 适配记录", "red_evidence": None},
                  "acceptance": [{"criterion": "交付行为", "evidence": "现有实现和验证"}],
-                 "verification": [{"command": "just gate-unit", "result": "通过"}],
+                 "verification": [{"command": "just gate-core", "result": "通过"}],
                  "requested_context": [], "blockers": [] if status == "DONE" else ["缺陷"], "concerns": []}
         self.h.put(self.e.directory / "draft.json", draft)
         receipt = self.e.call("assemble", "--dispatch", self.e.dispatch, "--draft", self.e.directory / "draft.json",

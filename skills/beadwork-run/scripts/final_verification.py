@@ -5,6 +5,7 @@ import shlex
 
 import dispatch_contract
 import evidence
+import gate_plan
 import gate_repair
 import repository
 import verification_records
@@ -29,14 +30,8 @@ def records(d, sources, allowed, notes, successful=False):
         repository.require(start['dispatch_sha256'] == evidence.digest(source) and start['cwd'] == d['worktree'], '验证身份已变化')
         argv = start['argv']
         repository.require(len(argv) >= 4 and argv[:3] == ['just', '--one', '--'], '验证 argv 不符')
-        gates = [argv[3]]
-        if argv[3] == 'final' and len(argv) > 4:
-            contract = origin.get('final_gate_contract')
-            if contract:
-                evidence.bound(contract['source'])
-                repository.require(contract.get('boundary_parameters') is True, 'final 边界参数契约无效')
-                repository.require(all(g.startswith('gate-') for g in argv[4:]), 'final 边界参数无效')
-                gates += list(dict.fromkeys(argv[4:]))
+        repository.require(argv[3] == 'gate-full' and len(argv) == 4, '最终验证必须是无参数 gate-full')
+        gates = ['gate-full']
         valid = bool(end and end['outcome'] == 'exited' and end['process_group_gone'] is True
                      and start['before'] == end['after'] and not start['before']['status']
                      and type(end['exit_code']) is int and end['exit_code'] >= 0)
@@ -86,8 +81,11 @@ def check(d, report, live=False):
     current = [row for row in rows if row[2]['before']['head'] == head]
     latest = {row[-1]['gate']: row for row in current}
     if passed:
-        required = {'final', *report['boundary_gates'], *d['required_boundary_gates']}
-        repository.require(required <= {g for g, row in latest.items() if row[-1]['passed']}, '交付 HEAD 缺少成功最终 gates')
+        repository.require(latest.get('gate-full') and latest['gate-full'][-1]['passed'], '交付 HEAD 缺少成功 gate-full')
+        selected = latest['gate-full'][2].get('gate_plan')
+        repository.require(selected is not None, 'gate-full 缺少当次 gate-plan 定义')
+        gate_plan.require_boundaries(selected, list(dict.fromkeys(
+            [*report['boundary_gates'], *d['required_boundary_gates']])))
     if report.get('outcome') == 'code_failure' and d['role'] == 'fixer':
         repository.require(gate_repair.used_repairs(gate_repair.root(d)) == 3, 'fixer 代码失败须用尽三次修复')
         repository.require(any(row[4] and row[3]['exit_code'] > 0 and row[2].get('delivery_attempt') == 3

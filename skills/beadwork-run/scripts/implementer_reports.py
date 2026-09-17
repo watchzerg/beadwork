@@ -1,6 +1,7 @@
 """implementer 报告结构、运行事实与组装；不选择 writer 或推进阶段。"""
 
 from pathlib import Path
+import json
 
 import dispatch_contract
 import evidence
@@ -90,7 +91,7 @@ def check_implementation(d, report, live=False):
         if report['status'] == 'DONE':
             repository.require(not repository.status(d['worktree']), '实现通过需要干净现场')
     if report['status'] == 'DONE':
-        required = {'gate-unit', *report['required_boundary_gates']}
+        required = {'gate-core', *report['required_boundary_gates']}
         latest = {}
         for start, end, _ in sorted(ticket_verification.runs(d), key=lambda row: row[0]['started_ns']):
             if start.get('delivery_attempt') is not None and start['before']['head'] == head:
@@ -100,6 +101,10 @@ def check_implementation(d, report, live=False):
                   and end['outcome'] == 'exited' and end['exit_code'] == 0
                   and end['process_group_gone'] is True}
         repository.require(required <= passed, '交付 HEAD 缺少成功 gates：' + ', '.join(sorted(required - passed)))
+        definitions = {json.dumps(latest[recipe][0].get('gate_plan'), sort_keys=True)
+                       for recipe in required}
+        repository.require(len(definitions) == 1 and 'null' not in definitions,
+                           '交付 gates 未绑定同一 gate-plan 定义')
     if report['outcome'] == 'code_failure':
         repository.require(gate_repair.used_repairs(gate_repair.root(d)) == 3, '代码 gate 失败必须先用尽三次修复')
         repository.require(any(start.get('delivery_attempt') == 3 and start['before'] == end['after']

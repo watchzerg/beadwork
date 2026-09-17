@@ -15,7 +15,7 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 
 | kind | 输入与 controller 前置核对 |
 | --- | --- |
-| claim | expected_assignee：实际领取身份；parent 需 install/smoke 通过，child 需刷新后的 claim frontier 与 sync_result |
+| claim | expected_assignee：实际领取身份；parent 需 install/BASE gate-full 通过，child 需刷新后的 claim frontier 与 sync_result |
 | comment | body：核对后的完整正文；completion/integration-ready 使用 controller comment 生成正文，保留其 JSON 身份块 |
 | close | reason、prerequisite（path/sha256）；child 绑定成功 acceptance，parent 绑定成功 merge checkpoint；controller 另核对对应 completion 已写入 |
 
@@ -25,7 +25,7 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 
 ## 初始化与恢复事实
 
-新批次按 SKILL.md 第 2 节唯一的初始化路线执行：bd worktree 创建及 workspace 核对、install/env-facts/smoke、tracker claim/comment。现有 batch_initialize.py 尚未核对共享 Beads workspace，不作为默认替代入口；已有该脚本 intent 时保留来源，按 recovery-batch.md 核对实际完成步骤。
+新批次按 SKILL.md 第 2 节唯一的初始化路线执行：bd worktree 创建及 workspace 核对、install/env-facts/gate-full、tracker claim/comment。现有 batch_initialize.py 尚未核对共享 Beads workspace，不作为默认替代入口；已有该脚本 intent 时保留来源，按 recovery-batch.md 核对实际完成步骤。
 
 必要时使用只读事实入口，不能用它替代明确报告选择或宿主停止观察：
 
@@ -58,10 +58,10 @@ python3 <skill-dir>/scripts/controller.py sync-main --input <sync-input.json>
 
 输入：`repository_root`、`parent_id`、固定的 `expected_children`，以及：
 
-- `required_boundary_gates`：剩余 children 声明的边界及适用于剩余工作的已确认补充边界。脚本校验 recipe 名、去重并排除 smoke 已覆盖的 `gate-unit`。
+- `required_boundary_gates`：剩余 children 声明的边界及适用于剩余工作的已确认补充边界。脚本校验其属于当前 `gate-plan.full`、去重并排除 `gate-core` 与 `gate-full`。
 - `install_inputs`：目标仓库的安装/工具链输入文件或目录的相对路径列表。根据实际安装契约提供 manifest、lockfile、版本配置和影响安装的脚本；workspace manifest 也须包含。每批确认一次并复用，不能只列根 manifest。例如 Bun 项目需核对 `bun.lock`、各 workspace `package.json`、mise 配置及安装入口。
 
-脚本检查 topology、implementation 干净且两个 worktree 无未完成 Git 操作，重新查询 frontier，固定本地 main SHA；已包含则跳过命令，否则 fast-forward 或普通 merge。实际合入后，安装输入相对同步前 HEAD 有变化才运行 `just install`，随后顺序运行 `just env-facts` 和 `just smoke <gate>...`。所有 just 调用使用 `--one`；implementation 源码或 HEAD 在验证中变化即失败。不创建 agent、不自动解决冲突、不 fetch、不写 primary 或 Beads。
+脚本检查 topology、implementation 干净且两个 worktree 无未完成 Git 操作，重新查询 frontier，固定本地 main SHA；已包含则不重跑全量，只重新绑定只读 `gate-plan`。实际合入改变 implementation HEAD 后，安装输入有变化才运行 `just install`，随后顺序运行 `just env-facts`、`just gate-plan` 和一次无参数 `just gate-full`。所有 just 调用使用 `--one`；implementation 源码或 HEAD 在验证中变化即失败。不创建 agent、不自动解决冲突、不 fetch、不写 primary 或 Beads。
 
 成功输出 `sync_result`、`head`、`target_main`、`changed` 和刷新后的 `frontier`。只按这个 frontier 领取；无需再同步追赶随后移动的 main。`prepare executor mode=new` 必须带 `sync_result`，机械核对身份、HEAD、目标 ancestry 及验证日志；同步提交位于新票 BASE 之前。同步没有改变当前票修复阶段的入口。
 

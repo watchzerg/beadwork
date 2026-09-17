@@ -40,7 +40,9 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
         just = self.h.root / 'bin/just'
         just.write_text('#!' + sys.executable + '\n' + '''import sys
 if sys.argv[1:] == ['--summary']:
-    print('check-toolchain install typecheck test gate-unit gate-full env-facts fmt smoke final gate-browser')
+    print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser')
+elif sys.argv[1:] == ['--one', '--', 'gate-plan']:
+    print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
 else:
     assert sys.argv[1:] == ['--one', '--', 'check-toolchain'], sys.argv
 ''')
@@ -72,6 +74,8 @@ else:
         self.assertEqual([x[0] for x in calls].count('show'), 1)
         self.assertEqual(self.facts['pending_ids'], ['test-1'])
         self.assertEqual(self.facts['failed_checks'], [])
+        snapshot = json.loads(Path(self.facts['facts_path']).read_text())
+        self.assertEqual(snapshot['gate_plan'], {'core': 'gate-core', 'full': ['gate-core', 'gate-browser']})
         receipt = self.assemble()
         self.h.report = self.h.dispatch.parent / 'report.json'
         self.h.receipt = self.h.dispatch.parent / 'receipt.json'; self.h.put(self.h.receipt, receipt)
@@ -134,10 +138,25 @@ else:
         self.draft['plans']['test-1']['boundary_gates'] = ['gate-absent']
         self.assertEqual(self.assemble()['status'], 'BLOCKED')
 
+    def test_gate_plan_rejects_duplicate_and_unregistered_members(self):
+        just = self.h.root / 'bin/just'
+        just.write_text('#!' + sys.executable + '\n' + '''import sys
+if sys.argv[1:] == ['--summary']:
+    print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser gate-extra')
+elif sys.argv[1:] == ['--one', '--', 'gate-plan']:
+    print('{"core":"gate-core","full":["gate-core","gate-browser","gate-browser"]}')
+else:
+    assert sys.argv[1:] == ['--one', '--', 'check-toolchain'], sys.argv
+''')
+        just.chmod(0o755)
+        self.collect()
+        self.assertIn('gate_plan', {x['name'] for x in self.facts['failed_checks']})
+        self.assertEqual(self.assemble()['status'], 'BLOCKED')
+
     def test_command_failures_remain_inspectable(self):
         (self.h.root / 'bin/just').write_text('#!' + sys.executable + '\nimport sys\nsys.exit(9)\n')
         self.collect()
-        self.assertEqual({x['name'] for x in self.facts['failed_checks']}, {'toolchain', 'just_recipes'})
+        self.assertEqual({x['name'] for x in self.facts['failed_checks']}, {'toolchain', 'just_recipes', 'gate_plan'})
         result = json.loads((self.h.dispatch.parent / 'facts/toolchain.json').read_text())
         self.assertEqual(result['exit_code'], 9)
         self.assertEqual(self.assemble()['status'], 'BLOCKED')

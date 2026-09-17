@@ -26,7 +26,7 @@ worktree: .worktrees/<full-parent-id>
 
 ## 执行约定
 
-- controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；运行 BASE smoke 或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
+- controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；运行 BASE `gate-full` 或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
 - Beads 读取结构化结果使用 `--json`；未列出的命令语法按需查询 CLI 帮助。
 - controller 将 `<skill-dir>` 解析为本 skill 的绝对目录。内置脚本使用 python3 ≥ 3.9（仅标准库），在待检查 repository/worktree 中运行；正常调用无需读取源码。stdout 为 JSON，非零退出按停止处理，不能当作空结果。executor 的命令采集入口另按 `references/verification.md` 区分验证失败（可核对 TDD red）、记录器异常和中断。
 - 项目安装与验证经目标仓库的 `just` recipes 执行，recipe 检查由 preflight 负责。Beads 的 claim/comment/close 统一使用 controller-operations.md 的 tracker intent/读回入口。
@@ -56,9 +56,9 @@ preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gp
 
 派发全新 preflight agent，交接 `prepare preflight` 生成的 dispatch 字段，并要求子 agent 先读取 `<skill-dir>/agents/preflight.md`。
 
-按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本同时固定报告的执行计划来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发；boundary gates 用于 BASE smoke。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
+按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本同时固定报告的执行计划与 `gate-plan` 来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发；boundary gates 作为每票影响范围义务保留。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
 
-进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `graph.py next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、BASE smoke 或 claim。
+进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `graph.py next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、BASE `gate-full` 或 claim。
 
 `BLOCKED` 不推进流程。工具链缺失时 controller 按 recipe 输出安装声明版本，再派新 preflight 复查；已获得首次 children 集合时将其作为 `expected_children` 一并传入，不重置范围。其他缺事实、冲突或失败沿用停止处理，不自动补写 ticket。
 
@@ -78,7 +78,7 @@ bd worktree create .worktrees/<parent-id> --branch implement/<parent-id>
 
 4. 在新 worktree 中运行 `bd worktree info --json` 和 `bd where`，确认它属于当前仓库并共享 primary `.beads` workspace。
 5. 在 implementation worktree 运行 `just install`；失败时停止。
-6. BASE gate 冒烟：运行 `just env-facts` 和 `just smoke <boundary-gate>...`，boundary gates 为未关闭 children 的 `Boundary gates` 字段所列 recipe 的去重集合（`none` 不作为参数）。冒烟失败时保留现场并停止，报告失败命令与环境缺项；修复基线或补齐环境后重跑，通过前不派发 executor。
+6. BASE 验证：运行 `just env-facts` 和一次无参数 `just gate-full`。失败时保留现场并停止，报告失败命令与环境缺项；修复基线或补齐环境后从 `gate-full` 入口重跑，通过前不派发 executor。
 7. 使用 tracker claim 领取 parent。
 8. 给 parent 添加一条中文批次 comment，记录 branch、worktree、批次基线完整 HEAD SHA、`just env-facts` 输出与冒烟通过的命令和结果；写入成功后才能领取 child。
 
@@ -150,7 +150,7 @@ controller 核对整票交付来源、最终状态、必要 gates 和最后 revi
 
 finalizer 默认 `gpt-5.6-terra` / `medium`；复杂证据整合可用 `gpt-5.6-sol` / `medium`。
 
-执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN` 和本次 `final_sync_result`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，汇总全部实际验证边界作为 `required_boundary_gates` 下限（脚本去重并排除 `final` 已覆盖的 `gate-unit` / `gate-full`），并交接实际进度通信目标（若有）。
+执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN` 和本次 `final_sync_result`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，汇总全部实际验证边界作为 `required_boundary_gates` 下限（脚本去重并排除保留入口 `gate-core` / `gate-full`），并交接实际进度通信目标（若有）。
 
 `prior_finalization` 首次为 `null`；接替或重新运行最终集成时，先读取 `references/recovery-finalizer.md`。
 

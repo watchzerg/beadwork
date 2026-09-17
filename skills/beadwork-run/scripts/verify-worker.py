@@ -132,7 +132,8 @@ def validate(role, report, axis_schema, expected):
     if not gates.issubset({item["gate"] for item in report["gate_sources"]}):
         failures.append("boundary_gate_sources")
     latest = {item["gate"]: item for item in report["verification"] if item["head_commit"] == report["head_commit"]}
-    if not (gates | {"final"}).issubset({gate for gate, item in latest.items() if item["passed"]}):
+    required = ({'gate-full'} if role == 'fixer' else gates | {'gate-core'})
+    if not required.issubset({gate for gate, item in latest.items() if item["passed"]}):
         failures.append("final_validation_on_delivery_head")
     return failures
 

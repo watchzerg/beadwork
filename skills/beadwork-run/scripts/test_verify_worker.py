@@ -35,8 +35,8 @@ class WorkerDeliveryTests(unittest.TestCase):
         return {"status": "DONE", "parent_id": "demo-1", "branch": "implement/demo-1", "base_commit": A,
                 "head_commit": B, "fix_commit": B, "dispositions": [{"source": "finding.json", "action": "已修复"}],
                 "boundary_gates": ["gate-browser"], "gate_sources": [{"gate": "gate-browser", "source": "ticket"}],
-                "verification": [{"gate": gate, "command": "just final gate-browser", "head_commit": B,
-                                  "passed": True, "result": "通过", "log_path": "final.log"} for gate in ("final", "gate-browser")],
+                "verification": [{"gate": "gate-full", "command": "just gate-full", "head_commit": B,
+                                  "passed": True, "result": "通过", "log_path": "gate-full.log"}],
                 "worktree_clean": True, "stopped_tasks": True, "uncommitted_files": [], "blockers": [], "remaining_work": []}
 
     def invoke(self, role, report, expected=None, receipt_change=None):
@@ -139,7 +139,6 @@ class WorkerDeliveryTests(unittest.TestCase):
         report = self.fixer()
         report["boundary_gates"].append("gate-postgres")
         self.reject("fixer", report, "boundary_gate_sources")
-        self.reject("fixer", report, "final_validation_on_delivery_head")
 
     def test_fixer_last_gate_result_wins_and_failed_history_is_preserved(self):
         report = self.fixer()

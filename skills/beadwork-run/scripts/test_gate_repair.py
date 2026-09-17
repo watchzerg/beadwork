@@ -15,7 +15,7 @@ class GateRepairTests(unittest.TestCase):
         self.addCleanup(self.v.doCleanups)
         self.h = self.v.h
 
-    def run_gate(self, mode='fail', delivery=True, expected=1, recipe='gate-unit'):
+    def run_gate(self, mode='fail', delivery=True, expected=1, recipe='gate-core'):
         argv = self.v.command(recipe)
         if delivery:
             argv.insert(argv.index('--'), '--delivery')
@@ -148,10 +148,10 @@ class GateRepairTests(unittest.TestCase):
         self.h = f.h
         self.v.h = f.h
         fake = f.h.root / 'bin' / 'just'
-        fake.write_text(self.v.fake.read_text().replace('gate-unit gate-demo', 'gate-unit gate-demo final'))
+        fake.write_text(self.v.fake.read_text().replace('gate-core gate-demo', 'gate-core gate-demo gate-full'))
         fake.chmod(0o755)
         self.v.dispatch = stage1.parent / 'fixer' / 'dispatch.json'
-        failed = self.run_gate(recipe='final')
+        failed = self.run_gate(recipe='gate-full')
         first = self.begin(failed)
         _, receipt1 = f.assemble(stage1, outcome='interrupted')
         resumed = f.stage(previous=stage1, receipt=receipt1)

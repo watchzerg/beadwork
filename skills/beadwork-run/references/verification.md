@@ -1,10 +1,10 @@
 # 验证采集
 
-implementer/fixer 与 v2 finalizer 的 `typecheck`、`test`、`final` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe，参数保持独立。票据要求 `just final <gate>...` 时使用 `--recipe final -- <gate>...` 采集。`fmt` 和 controller 的 `install` 沿用原入口。
+implementer/fixer 与 v2 finalizer 的 `typecheck`、`test` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe。只有 `test` 接受定向参数；`typecheck` 与完整 gate 拒绝参数。`fmt` 和 controller 的 `install` 沿用原入口。
 
 ```bash
 python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
-python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe gate-unit
+python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe gate-core
 ```
 
 脚本在 dispatch.worktree 执行实际 `just` 命令，继承已准备好的环境，在本轮 `verification-*` 目录保存 started.json、完整 output.log 和完成后的 result.json。启动时 stderr 返回运行目录，结束时 stdout 返回命令、退出码、耗时、HEAD、dirty 状态和最多末尾 2048 字节/20 行日志。通常直接阅读摘要，需进一步诊断时搜索完整日志；不必重抄命令和结果。
@@ -28,7 +28,7 @@ python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --rec
 开发中的 TDD red 与定向验证沿用上述命令。实现提交后，完整交付 gates 增加 `--delivery`（放在 `--` 参数分隔符之前）；入口要求干净 HEAD，并在原始记录中区分交付候选与开发验证。
 
 ```bash
-python3 <skill-dir>/scripts/run-verification.py --dispatch <writer-dispatch.json> --recipe gate-unit --delivery
+python3 <skill-dir>/scripts/run-verification.py --dispatch <writer-dispatch.json> --recipe gate-core --delivery
 python3 <skill-dir>/scripts/executor-operations.py begin-gate-repair --dispatch <writer-dispatch.json> --failure <失败运行目录/result.json>
 ```
 
@@ -38,4 +38,4 @@ writer 确认交付失败由代码导致后，在修改前调用上述入口申�
 
 机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。finalizer stage 0 没有 writer，不享有机会；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，executor/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。
 
-最终阶段的运行快照、组合 final 参数覆盖、未知/损坏来源和 fixer 完整验收见 final-execution.md。finalizer 不获得 gate-fix 权限；stage 0 代码失败直接进入下一 stage。收尾说明仍不能由 process_group_gone 替代宿主和外部资源观察。
+最终阶段的运行快照、单次 `gate-full`、未知/损坏来源和 fixer 完整验收见 final-execution.md。finalizer 不获得 gate-fix 权限；stage 0 代码失败直接进入下一 stage。收尾说明仍不能由 process_group_gone 替代宿主和外部资源观察。

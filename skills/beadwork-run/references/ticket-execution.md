@@ -42,7 +42,7 @@ draft 必填：
 - `requested_context`、`blockers`、`concerns`：保留未完成任务、dirty 文件、剩余工作与失败来源。
 - `stopped_tasks`：实际停止事实，布尔值；脚本不代替宿主确认。
 
-组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求 gate-unit 和必要 boundary gates 在同一干净交付 HEAD 通过；TDD red 和直接验证的语义仍由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器同时固定该报告交付时的 verification_sources（started/result 的 hash 绑定）；同 stage 后续新增运行不会改变已交付报告的验证历史，新报告仍采集全部当前来源。来源缺失或损坏时，组装器在 `verification_issues` 保存原绑定与实际错误；这种报告只能 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
+组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求无参数 gate-core 和必要 boundary gates 在同一干净交付 HEAD 通过；每次 `--delivery` 运行绑定当时的 `gate-plan`，筛选只用于开发期 `test`。TDD red 和直接验证的语义仍由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器同时固定该报告交付时的 verification_sources（started/result 的 hash 绑定）；同 stage 后续新增运行不会改变已交付报告的验证历史，新报告仍采集全部当前来源。来源缺失或损坏时，组装器在 `verification_issues` 保存原绑定与实际错误；这种报告只能 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
 
 stdout 为短回执；executor 确认 implementer 及命令结束，保存到该 implementer 目录下的新 receipt 文件，然后执行：
 

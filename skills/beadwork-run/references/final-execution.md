@@ -16,11 +16,11 @@ fixer DONE 已验收或 review 已开始时，不再派 writer。恢复前先由
 
 ## 验证与补充边界
 
-stage 0 由 finalizer 用 run-verification.py 采集 `final`/边界 gates，交付验证加 `--delivery`。stage 1..5 由 fixer 采集；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
+stage 0 由 finalizer 用 run-verification.py 采集一次无参数 `gate-full`，交付验证加 `--delivery`。stage 1..5 由 fixer 采集同一入口；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
 
 最终成功依据 started/result/output.log 的绑定、正常退出码、相同干净 HEAD 和进程组结束事实。相同 gate 在交付 HEAD 取最新结果，较早成功不能覆盖较晚失败。未知结果需要实际收尾说明；日志损坏时可以组装 BLOCKED/blocked 或 interrupted，组装器自动保留 verification_issues，不能据此通过或推进代码修复。
 
-`final_gate_contract` 可由 controller 在 root 输入提供，形状为 `{source: {path, sha256}, boundary_parameters: true}`。source 指向本批已核实的项目 final recipe 覆盖说明。只有该契约有效时，成功的 `just final <gate>...` 计入明确传入参数的边界覆盖；否则只计 final，边界需独立采集。不得手填 passed 或从命令文字猜子 gate 结果。
+`gate-full` 的覆盖由同一 HEAD 上绑定的 `gate-plan` 定义；不得从命令文字推导子 gate、传筛选参数或拼接不同运行。一次完整失败后必须从 `gate-full` 入口重新执行；同一有效候选可复用已绑定的完整成功，但更晚的相关失败会使旧成功失效。boundary gates 继续作为需求与影响范围的来源义务保留，不把全量成功扩大解释为未声明的票据通过范围。
 
 新增边界一经确认，立即持久化，不等待成功报告：
 
@@ -40,7 +40,7 @@ python3 <skill-dir>/scripts/executor-operations.py fixer-accept --dispatch <stag
 
 draft 提供 status、outcome、dispositions（source/action）、boundary_gates、gate_sources（gate/source）、verification_notes（运行目录到说明）、stopped_tasks、uncommitted_files、blockers、remaining_work。未知验证的收尾说明也放 verification_notes。身份、HEAD、完整 fix_commits、worktree_clean、verification、verification_sources 和 verification_issues 由脚本生成。stdout 是短回执，保存原件。
 
-DONE 需当前 HEAD 的完整 final/gates；code_failure 需三次 gate-fix 已用尽及第三次候选正常非零交付结果。blocked/interrupted 可保留部分证据，不伪造成功。直接派发者先按 report-delivery.md 记录收尾，再 accept；验收会保存 fixer 选择。成功或代码失败终态不能改报中断继续写入。
+DONE 需当前 HEAD 的一次完整 `gate-full`；code_failure 需三次 gate-fix 已用尽及第三次候选正常非零交付结果。blocked/interrupted 可保留部分证据，不伪造成功。直接派发者先按 report-delivery.md 记录收尾，再 accept；验收会保存 fixer 选择。成功或代码失败终态不能改报中断继续写入。
 
 ## review 与阶段报告
 

@@ -9,6 +9,7 @@ import uuid
 
 import evidence
 import execution_plan
+import gate_plan
 import graph
 import process_runner
 import repository
@@ -53,12 +54,14 @@ def command(d, directory, argv):
 
 
 def verification_commands(d, intent, head):
-    if head == intent['before'] and ancestor(d['worktree'], intent['target_main'], head):
+    unchanged = head == intent['before'] and ancestor(d['worktree'], intent['target_main'], head)
+    if intent.get('final') and unchanged:
         return []
     install = bool(repository.git(d['worktree'], 'diff', '--name-only', intent['before'], head,
                          '--', *intent['install_inputs']))
-    recipes = (['install'] if install else []) + (['env-facts'] if intent.get('final') else ['env-facts', 'smoke'])
-    return [['just', '--one', '--', recipe] + (intent['gates'] if recipe == 'smoke' else [])
+    recipes = ((['install'] if install else []) + ['env-facts'] if intent.get('final') else
+               ((['install'] if install else []) + ['env-facts', 'gate-plan', 'gate-full'] if not unchanged else ['gate-plan']))
+    return [['just', '--one', '--', recipe]
             for recipe in recipes]
 
 
@@ -103,6 +106,10 @@ def check_result(d, path, final=False):
         repository.require(record['exit_code'] == 0 and not record['interrupted'] and record['process_group_gone'],
                   '同步验证未通过')
         repository.require(evidence.digest(Path(entry['path']).parent / 'output.log') == record['log_sha256'], '同步日志已变化')
+    if not final:
+        plan_entry = next(entry for entry, argv in zip(r['commands'], expected) if argv[-1] == 'gate-plan')
+        raw = (Path(plan_entry['path']).parent / 'output.log').read_text()
+        repository.require(r.get('gate_plan') == gate_plan.parse(raw, r.get('recipes', [])), '同步 gate-plan 定义不符')
     return r
 
 
@@ -114,13 +121,9 @@ def sync(args, final=False):
               and parent not in ('.', '..'), 'parent ID 无效')
     d = dict(data, repository_root=root, worktree=str(Path(root) / '.worktrees' / parent),
              branch='implement/' + parent)
-    gates = [] if final else d['required_boundary_gates']
     paths = d['install_inputs']
-    repository.require(isinstance(gates, list) and all(isinstance(g, str) and re.fullmatch(r'gate-[A-Za-z0-9_-]+', g) for g in gates),
-              '需要有效 boundary gates')
     repository.require(isinstance(paths, list) and paths and all(isinstance(p, str) and p and not Path(p).is_absolute()
               and '..' not in Path(p).parts and not p.startswith(':') for p in paths), '需要仓库相对安装输入路径')
-    gates = sorted(set(gates) - {'gate-unit'})
     clean(d)
     d['execution_plan_source'] = execution_plan.selected(root, parent)
     next_ = frontier(d)
@@ -137,14 +140,14 @@ def sync(args, final=False):
         intent = evidence.read(attempt / 'intent.json')
         repository.require(all(intent[k] == d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children', 'execution_plan_source')),
                   '恢复同步身份或 children 不符')
-        repository.require(intent['gates'] == gates and intent['install_inputs'] == paths, '恢复须沿用原同步验证输入')
+        repository.require(intent['install_inputs'] == paths, '恢复须沿用原同步验证输入')
         repository.require(not final or intent['target_main'] == d['reviewed_main'], '恢复最终同步须沿用原 reviewed_main')
     else:
         attempt = directory / uuid.uuid4().hex
         attempt.mkdir()
         intent = {k: d[k] for k in ('repository_root', 'worktree', 'branch', 'parent_id', 'expected_children', 'execution_plan_source')}
         intent.update(before=repository.sha(d['worktree'], 'HEAD'), target_main=d['reviewed_main'] if final else repository.sha(root, 'refs/heads/main'),
-                      gates=gates, install_inputs=paths)
+                      install_inputs=paths)
         if final:
             intent['final'] = True
         evidence.write(attempt / 'intent.json', intent)
@@ -165,8 +168,15 @@ def sync(args, final=False):
         commands.append({'path': result, 'sha256': evidence.digest(result)})
         clean(d)
         repository.require(repository.sha(d['worktree'], 'HEAD') == head, '同步验证期间 HEAD 已变化')
+    plan = None
+    recipes = []
+    if not final:
+        recipes = repository.run(['just', '--summary'], d['worktree']).split()
+        entry = next(entry for entry, argv in zip(commands, verification_commands(d, intent, head)) if argv[-1] == 'gate-plan')
+        plan = gate_plan.parse((Path(entry['path']).parent / 'output.log').read_text(), recipes)
     result = {'head': head, 'target_main': target, 'changed': changed or head != before,
-              'intent_sha256': evidence.digest(attempt / 'intent.json'), 'commands': commands}
+              'intent_sha256': evidence.digest(attempt / 'intent.json'), 'commands': commands,
+              **({'gate_plan': plan, 'recipes': recipes} if plan is not None else {})}
     clean(d)
     repository.require(repository.sha(d['worktree'], 'HEAD') == head, '同步完成前 HEAD 已变化')
     pending_result = attempt / ('ready-' + uuid.uuid4().hex + '.pending')

@@ -12,13 +12,13 @@ import time
 
 import evidence
 import execution_plan
+import gate_plan
 import graph
 import report_io
 import repository
 
 
-RECIPES = ('check-toolchain', 'install', 'typecheck', 'test', 'gate-unit',
-           'gate-full', 'env-facts', 'fmt', 'smoke', 'final')
+RECIPES = gate_plan.REQUIRED_RECIPES
 SEMANTIC = ('spec_and_test_plans', 'recovery')
 
 
@@ -187,6 +187,7 @@ class FactsCollector:
         d = self.dispatch
         self.check('toolchain', lambda: self.run('toolchain', ['just', '--one', '--', 'check-toolchain'], checkout)[1])
         recipes = []
+        plan = None
 
         def just_recipes():
             nonlocal recipes
@@ -196,6 +197,13 @@ class FactsCollector:
             return path + '；实际边界能力由 spec_and_test_plans 核对'
         self.check('just_recipes', just_recipes)
 
+        def project_gate_plan():
+            nonlocal plan
+            raw, _ = self.run('gate-plan-command', ['just', '--one', '--', 'gate-plan'], checkout)
+            plan = gate_plan.parse(raw, recipes)
+            return self.save('gate-plan', plan)
+        self.check('gate_plan', project_gate_plan)
+
         def schemas():
             for script, role in [('verify-ticket.py', None), ('verify-phase.py', 'preflight'), ('verify-phase.py', 'finalizer'),
                                  ('verify-worker.py', 'reviewer'), ('verify-worker.py', 'fixer')]:
@@ -204,7 +212,7 @@ class FactsCollector:
             return 'facts/schema-*.json：全部 schema 已生成'
         self.check('review_schema', schemas)
 
-        return recipes
+        return recipes, plan
 
     def pending_tickets(self, children):
         d = self.dispatch
@@ -236,7 +244,7 @@ def collect(args):
     parent, children, comments = capture.tracker_inputs()
     capture.repository_checks(parent, children)
     workspace, recovery_facts, checkout = capture.workspace_facts()
-    recipes = capture.toolchain_facts(checkout)
+    recipes, plan = capture.toolchain_facts(checkout)
     pending = capture.pending_tickets(children)
     inputs = capture.save('semantic-inputs', dict(parent=parent, pending_tickets=pending, comments=comments,
                  recipes=recipes, checkout=checkout, workspace=workspace, recovery_facts=recovery_facts))
@@ -244,7 +252,8 @@ def collect(args):
                     parent={'id': parent.get('id'), 'status': parent.get('status')} if parent else {'id': None, 'status': None},
                     expected_children=[x['id'] for x in children], execution_plan=capture.execution_plan,
                     tickets=[dict(id=x['id'], status=x['status']) for x in children], workspace=workspace, recovery_facts=recovery_facts,
-                    checks=capture.checks, blockers=capture.problems, recipes=recipes, inputs=inputs, sources=capture.bindings,
+                    checks=capture.checks, blockers=capture.problems, recipes=recipes, gate_plan=plan,
+                    inputs=inputs, sources=capture.bindings,
                     collection_started_at=started, collection_finished_at=time.time())
     path = directory / 'facts.json'
     evidence.write(path, snapshot)
@@ -279,6 +288,11 @@ def assemble(args):
     missing = set(gates) - set(f['recipes'])
     if missing:
         blockers.append('未知 boundary gates：' + ', '.join(sorted(missing)))
+    if f.get('gate_plan') is not None:
+        try:
+            gate_plan.require_boundaries(f['gate_plan'], gates)
+        except (ValueError, AssertionError) as error:
+            blockers.append(str(error))
     route, parent_status = draft['suggested_route'], f['parent']['status']
     if route == 'new_batch' and not (parent_status == 'open' and unresolved
             and not any(x['status'] == 'in_progress' for x in f['tickets'])
@@ -291,8 +305,10 @@ def assemble(args):
     if route == 'resume_tickets' and not unresolved:
         blockers.append('children 全部关闭，应核对 finalize/post_merge 路径')
     report = {k: draft[k] for k in ('linked_spec', 'resume_evidence', 'suggested_route', 'remaining_work')}
+    plan_path = directory / 'facts' / 'gate-plan.json'
     report.update(status='BLOCKED' if blockers else draft['status'], parent=f['parent'],
                   expected_children=f['expected_children'], execution_plan=f['execution_plan'], tickets=tickets, boundary_gates=gates,
+                  gate_plan=f.get('gate_plan'), gate_plan_source=evidence.binding(plan_path) if plan_path.exists() else None,
                   workspace=f['workspace'], checks=checks, blockers=blockers,
                   sources=[str(facts_path), *(s['path'] for s in f['sources']), *draft['sources']])
     output = Path(args.output).resolve()

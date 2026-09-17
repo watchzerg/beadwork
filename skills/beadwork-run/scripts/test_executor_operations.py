@@ -252,7 +252,7 @@ class ExecutorOperationsTests(unittest.TestCase):
         collected = self.collect(self.round())
         draft = {"status": "DONE", "outcome": "passed", "test_plan": {"decision_source": "ticket", "red_evidence": None},
             "acceptance": [{"criterion": "行为保持", "evidence": "现有测试"}],
-            "verification": [{"command": "just gate-unit", "result": "通过"}],
+            "verification": [{"command": "just gate-core", "result": "通过"}],
             "requested_context": [], "blockers": [], "concerns": []}
         draft_path = self.directory / "direct-draft.json"
         self.h.put(draft_path, draft)

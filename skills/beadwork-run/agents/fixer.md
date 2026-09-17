@@ -8,7 +8,7 @@
 
 先归纳失败破坏的不变量，核查同根因调用方、相关状态分支与正常恢复能力；复用已有测试并补齐缺失覆盖，逐项记录处置。可创建多次真实 fix commit，不创建空提交，不提交未完成代码伪造成功。
 
-修复提交后按 `../references/verification.md` 以 `--delivery` 采集完整 final 与必要 gates；同阶段最多三次就地 gate-fix，恢复继承额度。新增边界立即通知 finalizer 持久化。源码与验证不并行；gates 默认串行，除非项目保证资源隔离。
+修复提交后按 `../references/verification.md` 以 `--delivery` 采集一次无参数 `gate-full`；同阶段最多三次就地 gate-fix，恢复继承额度。新增边界立即通知 finalizer 持久化。源码与验证不并行。
 
 按 final-execution 的 fixer-assemble/check 交付：draft 填语义处置、gate 来源、验证说明、实际停止状态、未提交文件、blockers 与 remaining_work；Git 身份、HEAD、完整 fix_commits 和运行快照由脚本生成。
 

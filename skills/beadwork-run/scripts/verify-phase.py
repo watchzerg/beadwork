@@ -35,6 +35,7 @@ PREFLIGHT_CHECKS = (
     "parent_state", "children_nonempty", "ready_labels", "flat_graph", "execution_plan",
     "spec_and_test_plans", "beads_config", "primary_worktree", "worktree_ignored",
     "branch_name", "beads_clean", "toolchain", "just_recipes", "review_schema", "recovery",
+    "gate_plan",
 )
 
 
@@ -72,6 +73,8 @@ def preflight_schema() -> Dict[str, Any]:
         "tickets": {"type": "array", "items": ticket},
         "linked_spec": nullable(TEXT),
         "boundary_gates": {"type": "array", "items": TEXT, "uniqueItems": True},
+        "gate_plan": nullable(object_schema({"core": TEXT, "full": {"type": "array", "items": TEXT, "uniqueItems": True}})),
+        "gate_plan_source": nullable(object_schema({"path": TEXT, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}})),
         "workspace": object_schema({"primary_worktree": nullable(TEXT), "implementation_worktree": nullable(TEXT), "branch": nullable(TEXT), "observed_head": nullable(SHA), "clean": nullable({"type": "boolean"})}),
         "resume_evidence": TEXTS,
         "sources": TEXTS,
@@ -168,6 +171,10 @@ def preflight_failures(report: Dict[str, Any], expected: Dict[str, Any] | None) 
             failures.append(fail("children_match_dispatch"))
     if report["status"] != "READY":
         return failures
+    if report.get('gate_plan') is None or report.get('gate_plan_source') is None:
+        failures.append(fail('ready_has_gate_plan'))
+    elif report['gate_plan']['core'] != 'gate-core' or report['gate_plan']['core'] not in report['gate_plan']['full']:
+        failures.append(fail('ready_gate_plan_valid'))
     if not report["expected_children"] or not unique_ids(report["tickets"]) or set(item["id"] for item in report["tickets"]) != set(report["expected_children"]):
         failures.append(fail("tickets_match_unique_children"))
     if report.get('execution_plan') is None or set(report['execution_plan']['ticket_order']) != set(report['expected_children']):
@@ -194,6 +201,8 @@ def preflight_failures(report: Dict[str, Any], expected: Dict[str, Any] | None) 
             failures.append(fail("direct_plan_complete", ticket=item["id"]))
     if gates != set(report["boundary_gates"]):
         failures.append(fail("boundary_gates_are_ticket_union"))
+    if report.get('gate_plan') and not gates <= (set(report['gate_plan']['full']) - {report['gate_plan']['core']}):
+        failures.append(fail('boundary_gates_in_full_plan'))
     if any(not gate.startswith("gate-") for gate in gates):
         failures.append(fail("boundary_gate_names"))
     return failures
@@ -278,7 +287,7 @@ def finalizer_failures(report: Dict[str, Any], expected: Dict[str, Any] | None, 
         not gate.startswith("gate-") or gate == "gate-full" for gate in report["boundary_gates"]
     ):
         failures.append(fail("boundary_gate_names"))
-    required = set(report["required_gates"]) | set(report["boundary_gates"]) | {"final"}
+    required = {"gate-full"}
     sourced = {item["gate"] for item in report["gate_sources"]}
     if not set(report["boundary_gates"]).issubset(sourced):
         failures.append(fail("boundary_gate_sources"))

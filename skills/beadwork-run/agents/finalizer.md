@@ -11,8 +11,8 @@
 ## 阶段循环
 
 1. 按 final-execution 的 final-stage 创建或恢复阶段，使用返回的 dispatch、模型和明确选择的历史来源。首次 stage 0 要求干净现场；恢复保留原 BASE、commits、dirty 现场与额度。
-2. stage 0 由你读取 verification.md，以 `--delivery` 采集完整 `just final <boundary-gate>...` 和必要边界；stage 1..5 派发独立上下文 fixer，交接其 dispatch、规则与失败来源，要求先读 agents/fixer.md。fixer 的 gate-fix 由其自行管理。
-3. 验证不与 writer 并行，gates 默认串行，除非项目保证资源隔离。相同 HEAD 的完整有效验证复用；覆盖不足时确认 fixer 停止后补充。新增边界立即调用 final-gates 持久化，组合 final 的覆盖按 final-execution 判定。
+2. stage 0 由你读取 verification.md，以 `--delivery` 采集一次无参数 `gate-full`；stage 1..5 派发独立上下文 fixer，交接其 dispatch、规则与失败来源，要求先读 agents/fixer.md。fixer 的 gate-fix 由其自行管理。
+3. 验证不与 writer 并行。相同 HEAD 的完整有效结果可复用；更晚失败使旧成功失效，失败后从 `gate-full` 入口重跑。新增边界立即调用 final-gates 持久化其原因与票据义务；最终覆盖按 final-execution 判定。
 4. fixer 交付后按共享契约保存回执和收尾观察，执行 fixer-accept；语义核对处置是否消除本批阻塞、是否越界，以及实际验证覆盖。
 5. 验证通过后读取 review.md，派发两名独立只读 reviewer；BASE 固定为 reviewed_main，HEAD 为当前候选。review 期间冻结源码。BASE=HEAD 时按 baseline-adaptation 提供 parent 全部 acceptance 证据，执行 existing_behavior 审查。
 6. 按 final-execution 的 final-assemble 组装阶段报告。模型填写语义判断和实际收尾，脚本从检查点生成完整来源与运行事实，不手工搬运 review/fixer 数组。

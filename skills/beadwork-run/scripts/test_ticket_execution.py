@@ -26,8 +26,10 @@ class TicketExecutionTests(unittest.TestCase):
         fake = self.h.root / 'bin/just'
         fake.write_text('#!' + sys.executable + '\n' + '''import os,sys
 if sys.argv[1:] == ['--summary']:
-    print('test typecheck gate-unit gate-demo'); sys.exit(0)
+    print('check-toolchain install test typecheck gate-plan gate-core gate-full env-facts fmt gate-demo'); sys.exit(0)
 assert sys.argv[1:3] == ['--one','--']
+if sys.argv[3] == 'gate-plan':
+    print('{"core":"gate-core","full":["gate-core","gate-demo"]}'); sys.exit(0)
 print('验证结果')
 sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 ''')
@@ -61,7 +63,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.h.h.git(self.h.wt, 'add', 'ticket.txt')
         self.h.h.git(self.h.wt, 'commit', '-m', f'test-1 实现 {self.serial}')
 
-    def gate(self, recipe='gate-unit', fail=False, delivery=True):
+    def gate(self, recipe='gate-core', fail=False, delivery=True):
         argv = ['run-verification.py', '--dispatch', self.wd, '--recipe', recipe]
         if delivery: argv.append('--delivery')
         result = subprocess.run([sys.executable, '-B', str(SCRIPTS / argv[0]), *map(str, argv[1:])],
@@ -162,7 +164,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.gate(); self.gate('gate-demo'); self.implement()
         self.review()
         self.cli('executor-operations.py', 'review-prepare', '--dispatch', self.sd, ok=False)
-        self.cli('run-verification.py', '--dispatch', self.wd, '--recipe', 'gate-unit', '--delivery', ok=False)
+        self.cli('run-verification.py', '--dispatch', self.wd, '--recipe', 'gate-core', '--delivery', ok=False)
 
     def test_six_review_stages_and_models(self):
         reviews = []
@@ -316,7 +318,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 
     def test_extra_boundary_gate_survives_stage_transition(self):
         fake = self.h.root / 'bin/just'
-        fake.write_text(fake.read_text().replace('gate-unit gate-demo', 'gate-unit gate-demo gate-extra'))
+        fake.write_text(fake.read_text().replace('gate-core gate-full env-facts fmt gate-demo', 'gate-core gate-full env-facts fmt gate-demo gate-extra').replace('["gate-core","gate-demo"]', '["gate-core","gate-demo","gate-extra"]'))
         self.commit(); self.gate(); self.gate('gate-demo'); self.gate('gate-extra')
         self.implement(required_boundary_gates=['gate-demo', 'gate-extra'])
         self.assemble([self.review(blocking=True)], 'code_failure'); self.stage('repair')
@@ -326,7 +328,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 
     def test_extra_boundary_gate_survives_same_stage_resume(self):
         fake = self.h.root / 'bin/just'
-        fake.write_text(fake.read_text().replace('gate-unit gate-demo', 'gate-unit gate-demo gate-extra'))
+        fake.write_text(fake.read_text().replace('gate-core gate-full env-facts fmt gate-demo', 'gate-core gate-full env-facts fmt gate-demo gate-extra').replace('["gate-core","gate-demo"]', '["gate-core","gate-demo","gate-extra"]'))
         self.commit()
         self.implement('interrupted', required_boundary_gates=['gate-demo', 'gate-extra'])
         self.gate(); self.gate('gate-demo')
@@ -336,6 +338,13 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assemble([self.review()])
         self.deliver()
         self.assertIn('gate-extra', json.loads(self.writer_report.read_text())['required_boundary_gates'])
+
+    def test_delivery_gates_cannot_mix_gate_plan_definitions(self):
+        self.commit(); self.gate()
+        fake = self.h.root / 'bin/just'
+        fake.write_text(fake.read_text().replace('["gate-core","gate-demo"]', '["gate-core","gate-demo","gate-extra"]').replace('fmt gate-demo', 'fmt gate-demo gate-extra'))
+        self.gate('gate-demo')
+        self.implement(ok=False)
 
     def test_review_prepare_interruption_reuses_reserved_round(self):
         self.ready_writer()

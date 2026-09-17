@@ -72,7 +72,8 @@ class ControllerTests(unittest.TestCase):
             folder.mkdir(parents=True)
             intent = dict(repository_root=str(self.primary), worktree=str(self.wt), branch="implement/test",
                           parent_id="test", target_main=self.h.git(self.primary, "rev-parse", "HEAD"),
-                          before=self.h.git(self.wt, "rev-parse", "HEAD"))
+                          before=self.h.git(self.wt, "rev-parse", "HEAD"), install_inputs=[],
+                          expected_children=[d['ticket_id']])
             self.put(folder / "intent.json", intent)
             d["sync_result"] = self.put(folder / "ready.json", {
                 "head": self.h.git(self.wt, "rev-parse", "HEAD"), "commands": [],
@@ -117,8 +118,11 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             pr.update(parent={'id': 'test', 'status': 'open'}, expected_children=[d['ticket_id']], execution_plan=value,
                       tickets=[{'id': d['ticket_id'], 'status': 'open', 'test_plan': plan}],
                       linked_spec=d['linked_spec'], boundary_gates=d['required_boundary_gates'],
+                      gate_plan={'core': 'gate-core', 'full': ['gate-core', *d['required_boundary_gates']]},
                       workspace={'primary_worktree': str(self.primary), 'implementation_worktree': str(self.wt),
                                  'branch': 'implement/test', 'observed_head': self.h.head, 'clean': True})
+            gate_plan_path = pd.parent / 'gate-plan.json'; self.put(gate_plan_path, pr['gate_plan'])
+            pr['gate_plan_source'] = evidence.binding(gate_plan_path)
             rp = pd.parent / 'report.json'; self.put(rp, pr)
             rr = pd.parent / 'receipt.json'; self.put(rr, {'status': 'READY', 'report_path': str(rp),
                                                          'report_sha256': hashlib.sha256(rp.read_bytes()).hexdigest()})
@@ -131,6 +135,16 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             self.put(sync_path.parent / 'intent.json', sync_intent)
             sync_result = json.loads(sync_path.read_text())
             sync_result['intent_sha256'] = evidence.digest(sync_path.parent / 'intent.json')
+            sync_result['gate_plan'] = pr['gate_plan']
+            sync_result['recipes'] = ['check-toolchain', 'install', 'typecheck', 'test', 'gate-plan', 'gate-core', 'gate-full', 'env-facts', 'fmt', *d['required_boundary_gates']]
+            command = sync_path.parent / 'command-gate-plan'; command.mkdir()
+            argv = ['just', '--one', '--', 'gate-plan']
+            self.put(command / 'started.json', {'argv': argv, 'head': sync_result['head']})
+            (command / 'output.log').write_text(json.dumps(pr['gate_plan']))
+            self.put(command / 'result.json', {'argv': argv, 'started_sha256': evidence.digest(command / 'started.json'),
+                'exit_code': 0, 'interrupted': False, 'process_group_gone': True, 'recorder_error': None,
+                'log_sha256': evidence.digest(command / 'output.log')})
+            sync_result['commands'] = [evidence.binding(command / 'result.json')]
             self.put(sync_path, sync_result)
         result = self.call("prepare", role, "--input", self.put(self.root / "input.json", d))
         self.dispatch = Path(result["dispatch_path"])
@@ -197,9 +211,9 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
 
     def test_finalizer_filters_only_covered_common_gates(self):
         self.prepare("finalizer", required_boundary_gates=[
-            "gate-unit", "gate-browser", "gate-full", "gate-postgres", "gate-browser"])
+            "gate-core", "gate-browser", "gate-full", "gate-postgres", "gate-browser"])
         self.assertEqual(self.d["required_boundary_gates"], ["gate-browser", "gate-postgres"])
-        self.prepare("finalizer", required_boundary_gates=["gate-unit", "gate-full"])
+        self.prepare("finalizer", required_boundary_gates=["gate-core", "gate-full"])
         self.assertEqual(self.d["required_boundary_gates"], [])
 
     def upstream_beads_merge(self, tamper=False):
@@ -378,7 +392,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
 
     def test_finalizer_missing_gate_rejected(self):
         self.prepare("finalizer"); r = self.final_report()
-        r["verification"] = r["verification"][:1]
+        r["verification"] = []
         self.deliver(r); self.accept(ok=False)
 
     def test_cleanup_after_worktree_already_removed(self):

@@ -51,10 +51,13 @@ else: raise AssertionError(a)
         self.executable('just', '''import os,sys,subprocess,signal
 from pathlib import Path
 p=Path(os.environ['FIXTURE']); a=sys.argv[1:]
+if a==['--summary']:
+ print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser');sys.exit(0)
 assert a[:2]==['--one','--']
 with (p/'commands').open('a') as f: f.write(' '.join(a[2:])+'\\n')
+if a[2]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
 if (p/'signal').exists(): os.kill(os.getppid(),signal.SIGTERM); __import__('time').sleep(5)
-if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
+if (p/'fail').exists() and a[2]=='gate-full': sys.exit(1)
 ''')
         self.data = {'repository_root': str(self.primary), 'parent_id': 'demo-1',
                      'expected_children': ['demo-1.1'], 'required_boundary_gates': ['gate-browser', 'gate-browser'],
@@ -189,6 +192,8 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
                  boundary_gates=['gate-browser'], linked_spec='demo-1',
                  workspace={'primary_worktree': str(self.primary), 'implementation_worktree': str(self.wt),
                             'branch': 'implement/demo-1', 'observed_head': self.git(self.wt, 'rev-parse', 'HEAD'), 'clean': True})
+        gate_plan_path = folder / 'gate-plan.json'; evidence.write(gate_plan_path, r['gate_plan'])
+        r['gate_plan_source'] = evidence.binding(gate_plan_path)
         report = folder / 'report.json'; report.write_text(json.dumps(r))
         receipt = folder / 'receipt.json'
         receipt.write_text(json.dumps({'status': 'READY', 'report_path': str(report), 'report_sha256': hashlib.sha256(report.read_bytes()).hexdigest()}))
@@ -201,7 +206,11 @@ if (p/'fail').exists() and a[2]=='smoke': sys.exit(1)
         self.executable('just', """import os,sys
 from pathlib import Path
 p=Path(os.environ['FIXTURE'])
-if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被删除')
+if sys.argv[1:]==['--summary']:
+ print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser');sys.exit(0)
+with (p/'commands').open('a') as f: f.write(' '.join(sys.argv[3:])+'\\n')
+if sys.argv[-1]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
+if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删除')
 """)
         result = self.sync()
         self.assertEqual(result['frontier']['next'], 'blocked')
@@ -218,7 +227,7 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
         head = self.git(self.primary, 'rev-parse', 'HEAD')
         r = self.sync()
         self.assertFalse(r['changed'])
-        self.assertEqual(self.commands(), [])
+        self.assertEqual(self.commands(), ['gate-plan'])
         self.assertEqual(r['head'], head)
         self.assertEqual(r['frontier']['next'], 'claim')
 
@@ -226,10 +235,10 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
         target = self.change(self.primary)
         r = self.sync()
         self.assertEqual(r['head'], target)
-        self.assertEqual(self.commands(), ['env-facts', 'smoke gate-browser'])
+        self.assertEqual(self.commands(), ['env-facts', 'gate-plan', 'gate-full'])
         self.assertEqual(self.git(self.primary, 'rev-parse', 'HEAD'), target)
         self.assertFalse(self.sync()['changed'])
-        self.assertEqual(len(self.commands()), 2)
+        self.assertEqual(len(self.commands()), 4)
 
     def test_diverged_merge_preserves_both_histories(self):
         previous = self.change(self.wt, 'ticket')
@@ -247,7 +256,7 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
         (self.wt / 'code').write_text('resolved\n')
         self.commit(self.wt, 'resolve')
         self.sync()
-        self.assertEqual(len(self.commands()), 2)
+        self.assertEqual(len(self.commands()), 3)
 
     def test_implementation_dirty_rejected(self):
         for wt in (self.wt,):
@@ -268,7 +277,7 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
     def test_install_inputs_trigger_install(self):
         self.change(self.primary, 'bun.lock')
         self.sync()
-        self.assertEqual(self.commands(), ['install', 'env-facts', 'smoke gate-browser'])
+        self.assertEqual(self.commands(), ['install', 'env-facts', 'gate-plan', 'gate-full'])
 
     def test_failed_smoke_is_retried_even_if_main_already_merged(self):
         self.change(self.primary)
@@ -276,7 +285,7 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
         self.sync(ok=False)
         (self.root / 'fail').unlink()
         self.sync()
-        self.assertEqual(self.commands(), ['env-facts', 'smoke gate-browser'] * 2)
+        self.assertEqual(self.commands(), ['env-facts', 'gate-plan', 'gate-full'] * 2)
 
     def test_pending_sync_keeps_target_when_main_moves(self):
         target = self.change(self.primary)
@@ -295,7 +304,7 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
         r = self.sync()
         Path(r['sync_result']).unlink()  # 模拟命令完成、ready 写入前中断。
         self.sync()
-        self.assertEqual(len(self.commands()), 4)
+        self.assertEqual(len(self.commands()), 6)
 
     def test_signal_interruption_preserves_pending_and_retries(self):
         self.change(self.primary)
@@ -303,7 +312,7 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
         self.sync(ok=False)
         (self.root / 'signal').unlink()
         self.sync()
-        self.assertEqual(self.commands(), ['env-facts', 'env-facts', 'smoke gate-browser'])
+        self.assertEqual(self.commands(), ['env-facts', 'env-facts', 'gate-plan', 'gate-full'])
 
     def test_pending_sync_rejects_old_ready_even_at_same_head(self):
         r = self.sync()
@@ -324,6 +333,10 @@ if sys.argv[-1]=='gate-browser': (p/'parent-description').write_text('计划被�
         self.executable('just', """import os,subprocess,sys
 from pathlib import Path
 p=Path(os.environ['FIXTURE'])/'repo'
+if sys.argv[1:]==['--summary']:
+ print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser');sys.exit(0)
+with (Path(os.environ['FIXTURE'])/'commands').open('a') as f: f.write(' '.join(sys.argv[3:])+'\\n')
+if sys.argv[-1]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
 if sys.argv[3]=='env-facts':
     (p/'later').write_text('later')
     subprocess.run(['git','-C',str(p),'add','later'],check=True)

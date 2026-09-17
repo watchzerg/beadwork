@@ -79,7 +79,10 @@ def prepare(args):
     if args.role != 'preflight':
         require(isinstance(d['linked_spec'], str) and d['linked_spec'].strip(), '需要明确 linked_spec，parent 即 spec 时填写 parent ID')
         require(isinstance(d['required_boundary_gates'], list) and all(isinstance(g, str) and g.startswith('gate-') for g in d['required_boundary_gates']), '需要显式 boundary gate 列表，允许空列表')
+        d['required_boundary_gates'] = list(dict.fromkeys(
+            gate for gate in d['required_boundary_gates'] if gate not in ('gate-core', 'gate-full')))
     d["execution_contract"] = 2
+    d['gate_contract_version'] = 1
     d.update(repository_root=root, parent_id=parent, branch=branch,
              worktree=str(Path(root) / ".worktrees" / parent), skill_dir=str(SCRIPTS.parent), role=args.role)
     if args.role != "preflight":
@@ -101,6 +104,8 @@ def prepare(args):
                 git(d["worktree"], "merge-base", "--is-ancestor", d["base_commit"], head)
             if d["mode"] == "resume" and d.get("previous_dispatch"):
                 previous = read(d["previous_dispatch"])
+                if previous.get('ticket_execution_version'):
+                    require(previous.get('gate_contract_version') == 1, '旧 gate 活动现场与当前契约不匹配；保留原 BASE、stage 和证据并停止')
                 validate_plan(previous)
                 if previous.get("plan_adjustment"):
                     require(d["test_mode"] == previous["test_mode"] and d["approved_seams"] == previous["approved_seams"], "恢复须沿用已调整计划；改模式使用 adapt-plan")
@@ -120,9 +125,11 @@ def prepare(args):
             require(isinstance(d["reviewed_main"], str) and re.fullmatch(r"[0-9a-f]{40}", d["reviewed_main"]), "需要已合入的完整 reviewed_main SHA")
             git(d["worktree"], "merge-base", "--is-ancestor", d["reviewed_main"], head)
             d["start_head"] = head
-            d["required_boundary_gates"] = list(dict.fromkeys(
-                gate for gate in d["required_boundary_gates"] if gate not in ("gate-unit", "gate-full")))
             require("prior_finalization" in d, "必须明确 prior_finalization，首次为 null")
+            if d['prior_finalization'] and d['prior_finalization'].get('stage_path'):
+                previous = read(d['prior_finalization']['stage_path'])
+                require(previous.get('gate_contract_version') == 1,
+                        '旧 gate 活动现场与当前契约不匹配；保留原 attempt、stage 和证据并停止')
             finalization.prepare_attempt(d, head)
             if d.get('final_sync_result') and not d.get('resume_stage'):
                 import main_sync
@@ -196,6 +203,8 @@ def accept(args):
               "report_path": str(Path(args.report).resolve()), "report_sha256": result["report_sha256"],
               "receipt_path": str(Path(args.receipt).resolve()), "receipt_sha256": digest(args.receipt)}
     if d['role'] == 'preflight' and r['status'] == 'READY':
+        require(evidence.read(evidence.bound(r['gate_plan_source'])) == r['gate_plan'],
+                'gate-plan 来源已变化或与报告不符')
         _, children, _, value = execution_plan.live(d['repository_root'], d['parent_id'])
         require(value == r['execution_plan'] and set(value['ticket_order']) == set(r['expected_children']),
                 '执行计划或 children 在 preflight 后变化')

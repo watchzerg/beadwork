@@ -25,7 +25,7 @@ def git(root, *args):
 def prepare(input_path, output):
     data = evidence.read(input_path)
     required = {"repository_root", "parent_id", "expected_children", "preflight_acceptance",
-                "install_inputs", "boundary_gates", "expected_assignee"}
+                "install_inputs", "expected_assignee"}
     require(set(data) == required, "初始化输入字段不符")
     accepted = evidence.read(evidence.bound(data["preflight_acceptance"]))
     require(accepted.get("kind") == "mechanical_acceptance" and accepted.get("role") == "preflight"
@@ -36,7 +36,11 @@ def prepare(input_path, output):
     dispatch = evidence.read(accepted["dispatch_path"]); report = evidence.read(accepted["report_path"])
     require(dispatch["parent_id"] == data["parent_id"] and report["expected_children"] == data["expected_children"],
             "初始化范围与 preflight 不符")
-    intent = {"version": 1, **data, "target_main": git(data["repository_root"], "rev-parse", "refs/heads/main")}
+    require(report.get('gate_plan') and report.get('gate_plan_source'), '初始化需要 preflight gate-plan')
+    require(evidence.read(evidence.bound(report['gate_plan_source'])) == report['gate_plan'],
+            '初始化 gate-plan 来源已变化')
+    intent = {"version": 2, **data, "gate_plan": report['gate_plan'], "gate_plan_source": report['gate_plan_source'],
+              "target_main": git(data["repository_root"], "rev-parse", "refs/heads/main")}
     evidence.write(evidence.absolute(output), intent)
     return {"intent_path": str(evidence.absolute(output)), "intent_sha256": evidence.digest(output)}
 
@@ -75,7 +79,7 @@ def execute(intent_path):
     require(not git(worktree, "status", "--porcelain=v1", "--untracked-files=all"), "初始化要求干净 worktree")
     run_step(folder, 2, "install", ["just", "--one", "--", "install"], worktree)
     run_step(folder, 3, "env-facts", ["just", "--one", "--", "env-facts"], worktree)
-    run_step(folder, 4, "smoke", ["just", "--one", "--", "smoke", *intent["boundary_gates"]], worktree)
+    run_step(folder, 4, "gate-full", ["just", "--one", "--", "gate-full"], worktree)
     tracker_input = folder / "claim-input.json"; tracker_intent = folder / "claim-intent.json"
     if not tracker_intent.exists():
         evidence.write(tracker_input, {"repository_root": str(root), "parent_id": intent["parent_id"],
@@ -85,7 +89,9 @@ def execute(intent_path):
     claim = tracker_operations.execute(tracker_intent)
     result = {"intent_sha256": evidence.digest(path), "repository_root": str(root), "worktree": str(worktree),
               "branch": branch, "base_commit": git(worktree, "rev-parse", "HEAD"),
-              "expected_children": intent["expected_children"], "claim": claim}
+              "expected_children": intent["expected_children"], "gate_plan": intent['gate_plan'],
+              "gate_plan_source": intent['gate_plan_source'],
+              "claim": claim}
     evidence.write(ready, result)
     return result
 

@@ -19,6 +19,7 @@ sys.dont_write_bytecode = True
 import dispatch_contract
 import evidence
 import final_state
+import gate_plan
 import gate_repair
 import process_runner
 import repository
@@ -65,6 +66,9 @@ def run(args):
     os.umask(0o077)
     source = absolute(args.dispatch)
     d = dispatch(source)
+    if d.get('ticket_execution_version') or d.get('finalization_version') == 2:
+        repository.require(d.get('gate_contract_version') == 1,
+                           '旧 gate 活动现场与当前契约不匹配；保留历史证据并停止')
     before = state(d)
     if d.get("ticket_execution_version"):
         ticket_state.require_writer(d)
@@ -78,12 +82,21 @@ def run(args):
                 repository.require(selected['fixes'] and evidence.read(evidence.bound(selected['fixes'][-1]['report']))['stopped_tasks'],
                           '补充验证前需验收 fixer 收尾')
     repository.git(d["worktree"], "merge-base", "--is-ancestor", d.get("base_commit", d.get("reviewed_main")), before["head"])
-    repository.require(args.recipe in ("typecheck", "test", "final") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
-              "仅执行 typecheck、test、final、gate-*")
+    repository.require(args.recipe in ("typecheck", "test") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
+              "仅执行 typecheck、test、gate-*")
     executable = shutil.which("just")
     repository.require(executable is not None, "未找到 just")
     repository.require(args.recipe in repository.run([executable, "--summary"], d["worktree"]).split(), "验证 recipe 不存在")
     parameters = args.parameters[1:] if args.parameters[:1] == ["--"] else args.parameters
+    repository.require(not parameters or args.recipe == 'test', '完整 gate 与 typecheck 不接受筛选参数')
+    if args.delivery and d.get('finalization_version') == 2:
+        repository.require(args.recipe == 'gate-full', '最终交付只接受无参数 gate-full')
+    current_plan = None
+    if args.delivery:
+        recipes = repository.run([executable, '--summary'], d['worktree']).split()
+        current_plan = gate_plan.parse(repository.run([executable, '--one', '--', 'gate-plan'], d['worktree']), recipes)
+        repository.require(args.recipe == 'gate-full' or args.recipe in current_plan['full'],
+                           '交付 gate 不属于当前 gate-plan full')
     argv = ["just", "--one", "--", args.recipe, *parameters]
     attempt = None
     if args.delivery:
@@ -96,6 +109,8 @@ def run(args):
     started = {"dispatch_path": str(source), "dispatch_sha256": digest(source),
                "argv": argv, "executable": executable, "cwd": d["worktree"],
                "started_ns": time.time_ns(), "before": before}
+    if current_plan is not None:
+        started['gate_plan'] = current_plan
     if attempt is not None:
         started["delivery_attempt"] = attempt
     write(directory / "started.json", started)

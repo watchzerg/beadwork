@@ -5,6 +5,7 @@ import uuid
 
 import dispatch_contract
 import evidence
+import gate_plan
 import report_io
 import repository
 
@@ -18,10 +19,18 @@ def preflight_input(d):
     for key in ('dispatch', 'report', 'receipt'):
         repository.require(evidence.digest(accepted[key + '_path']) == accepted[key + '_sha256'], 'preflight 来源已变化')
     pd, report, _ = report_io.inspect_preflight(accepted['dispatch_path'], accepted['report_path'], accepted['receipt_path'])
+    repository.require(evidence.read(evidence.bound(report['gate_plan_source'])) == report['gate_plan'],
+                       'preflight gate-plan 来源已变化')
     repository.require(pd['parent_id'] == d['parent_id'] and pd['repository_root'] == d['repository_root'], 'preflight 批次身份不符')
     plan = next((t['test_plan'] for t in report['tickets'] if t['id'] == d['ticket_id']), None)
     repository.require(plan and plan['mode'] == d['test_mode'] and plan['approved_seams'] == d['approved_seams'], 'ticket 计划与 preflight 不符')
     repository.require(set(plan['boundary_gates']) <= set(d['required_boundary_gates']), '派发遗漏 preflight gates')
+    sync = evidence.read(d['sync_result'])
+    current_plan = sync.get('gate_plan')
+    repository.require(current_plan is not None, '同步证据缺少当前 gate-plan')
+    gate_plan.require_boundaries(current_plan, d['required_boundary_gates'])
+    d['gate_plan'] = current_plan
+    d['gate_plan_source'] = evidence.binding(d['sync_result'])
     repository.require(report['linked_spec'] == d['linked_spec'], 'linked spec 与 preflight 不符')
     d['plan_source'] = {'report': evidence.binding(accepted['report_path']), 'ticket_id': d['ticket_id']}
     d['environment_evidence'] = list(d.get('environment_evidence', [])) + [evidence.binding(d['sync_result'])]

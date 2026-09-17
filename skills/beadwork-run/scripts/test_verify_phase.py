@@ -33,8 +33,8 @@ class PhaseValidatorTests(unittest.TestCase):
         return {"mode": mode, "approved_seams": ["S1"] if mode == "TDD" else [], "boundary_gates": ["gate-browser"], "observable_behavior": "可观察行为" if mode == "TDD" else None, "expected_red": "BASE 失败" if mode == "TDD" else None, "reason": None if mode == "TDD" else "无需 red", "verification": None if mode == "TDD" else "just gate-browser"}
 
     def preflight(self, status: str = "READY") -> dict:
-        checks = [{"name": name, "passed": True, "evidence": "已核对"} for name in ("parent_state", "children_nonempty", "ready_labels", "flat_graph", "execution_plan", "spec_and_test_plans", "beads_config", "primary_worktree", "worktree_ignored", "branch_name", "beads_clean", "toolchain", "just_recipes", "review_schema", "recovery")]
-        report = {"status": status, "parent": {"id": "demo-1", "status": "open"}, "expected_children": ["demo-2", "demo-3"], "execution_plan": {"ticket_order": ["demo-2", "demo-3"]}, "tickets": [{"id": "demo-2", "status": "open", "test_plan": self.plan()}, {"id": "demo-3", "status": "open", "test_plan": self.plan("direct_verification")}], "linked_spec": "spec", "boundary_gates": ["gate-browser"], "workspace": {"primary_worktree": "/repo", "implementation_worktree": "/repo/.worktrees/demo-1", "branch": "implement/demo-1", "observed_head": SHA_A, "clean": True}, "resume_evidence": [], "sources": ["bd show"], "suggested_route": "new_batch", "checks": checks, "blockers": [], "remaining_work": []}
+        checks = [{"name": name, "passed": True, "evidence": "已核对"} for name in ("parent_state", "children_nonempty", "ready_labels", "flat_graph", "execution_plan", "spec_and_test_plans", "beads_config", "primary_worktree", "worktree_ignored", "branch_name", "beads_clean", "toolchain", "just_recipes", "gate_plan", "review_schema", "recovery")]
+        report = {"status": status, "parent": {"id": "demo-1", "status": "open"}, "expected_children": ["demo-2", "demo-3"], "execution_plan": {"ticket_order": ["demo-2", "demo-3"]}, "tickets": [{"id": "demo-2", "status": "open", "test_plan": self.plan()}, {"id": "demo-3", "status": "open", "test_plan": self.plan("direct_verification")}], "linked_spec": "spec", "boundary_gates": ["gate-browser"], "gate_plan": {"core": "gate-core", "full": ["gate-core", "gate-browser"]}, "gate_plan_source": {"path": "/evidence/gate-plan.json", "sha256": "a" * 64}, "workspace": {"primary_worktree": "/repo", "implementation_worktree": "/repo/.worktrees/demo-1", "branch": "implement/demo-1", "observed_head": SHA_A, "clean": True}, "resume_evidence": [], "sources": ["bd show"], "suggested_route": "new_batch", "checks": checks, "blockers": [], "remaining_work": []}
         if status == "BLOCKED":
             report.update(blockers=["无法读取 parent"], remaining_work=["补齐 Beads 事实"], checks=[])
             report["parent"] = {"id": None, "status": None}; report["expected_children"] = []; report["tickets"] = []; report["boundary_gates"] = []
@@ -45,7 +45,7 @@ class PhaseValidatorTests(unittest.TestCase):
         return {"standards": {"reviewed_base": base, "reviewed_head": head, "axis": "standards", "findings": [], "notes": []}, "spec": {"reviewed_base": base, "reviewed_head": head, "axis": "spec", "findings": finding, "notes": []}}
 
     def finalizer(self, status: str = "READY_TO_MERGE") -> dict:
-        report = {"status": status, "parent_id": "demo-1", "expected_children": ["demo-2", "demo-3"], "reviewed_main": SHA_A, "start_head": SHA_B, "head_commit": SHA_B, "required_gates": ["gate-browser"], "boundary_gates": ["gate-browser"], "gate_sources": [{"gate": "gate-browser", "source": "ticket"}], "verification": [{"gate": "final", "command": "just final gate-browser", "result": "通过", "log_path": "/evidence/final.log", "head_commit": SHA_B, "passed": True}, {"gate": "gate-browser", "command": "just final gate-browser", "result": "通过", "log_path": "/evidence/final.log", "head_commit": SHA_B, "passed": True}], "fix": {"used": False, "commits": [], "dispositions": []}, "review_rounds": [self.pair()], "workspace": {"branch": "implement/demo-1", "observed_head": SHA_B, "clean": True}, "sources": ["ticket evidence"], "stopped_tasks": True, "blockers": [], "remaining_work": []}
+        report = {"status": status, "parent_id": "demo-1", "expected_children": ["demo-2", "demo-3"], "reviewed_main": SHA_A, "start_head": SHA_B, "head_commit": SHA_B, "required_gates": ["gate-browser"], "boundary_gates": ["gate-browser"], "gate_sources": [{"gate": "gate-browser", "source": "ticket"}], "verification": [{"gate": "gate-full", "command": "just gate-full", "result": "通过", "log_path": "/evidence/gate-full.log", "head_commit": SHA_B, "passed": True}], "fix": {"used": False, "commits": [], "dispositions": []}, "review_rounds": [self.pair()], "workspace": {"branch": "implement/demo-1", "observed_head": SHA_B, "clean": True}, "sources": ["ticket evidence"], "stopped_tasks": True, "blockers": [], "remaining_work": []}
         if status == "BLOCKED":
             report.update(reviewed_main=None, start_head=None, head_commit=None, verification=[], review_rounds=[], stopped_tasks=False, blockers=["gate 失败"], remaining_work=["修复"], required_gates=[], boundary_gates=[])
         return report
@@ -96,7 +96,7 @@ class PhaseValidatorTests(unittest.TestCase):
 
     def test_finalizer_uses_last_delivery_head_gate_result(self) -> None:
         changed = self.finalizer()
-        changed["verification"].append({"gate": "gate-browser", "command": "just final gate-browser", "result": "失败", "log_path": "/evidence/retry.log", "head_commit": SHA_B, "passed": False})
+        changed["verification"].append({"gate": "gate-full", "command": "just gate-full", "result": "失败", "log_path": "/evidence/retry.log", "head_commit": SHA_B, "passed": False})
         self.rejected("finalizer", changed, "required_gates_covered")
 
     def test_new_batch_without_worktree_and_post_merge_without_plans(self) -> None:
@@ -123,7 +123,7 @@ class PhaseValidatorTests(unittest.TestCase):
         old_head = "c" * 40
         report["fix"] = {"used": True, "commits": [SHA_B], "dispositions": ["修复原 finding"]}
         report["review_rounds"] = [self.pair(head=old_head, blocking=True), self.pair()]
-        report["verification"].insert(0, {"gate": "final", "command": "just final gate-browser", "result": "失败", "log_path": "/evidence/initial.log", "head_commit": old_head, "passed": False})
+        report["verification"].insert(0, {"gate": "gate-full", "command": "just gate-full", "result": "失败", "log_path": "/evidence/initial.log", "head_commit": old_head, "passed": False})
         self.assertTrue(self.invoke("finalizer", report)["ok"])
         report["review_rounds"] = [self.pair()]
         self.assertTrue(self.invoke("finalizer", report)["ok"])
@@ -133,7 +133,6 @@ class PhaseValidatorTests(unittest.TestCase):
     def test_new_boundary_and_dirty_workspace_cannot_pass(self) -> None:
         report = self.finalizer()
         report["boundary_gates"].append("gate-postgres")
-        self.rejected("finalizer", report, "required_gates_covered")
         self.rejected("finalizer", report, "boundary_gate_sources")
         report = self.finalizer()
         report["workspace"]["clean"] = False
