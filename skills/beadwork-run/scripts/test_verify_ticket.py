@@ -295,6 +295,8 @@ class TicketAcceptanceTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(VERIFIER), "--schema"], capture_output=True, text=True, check=True)
         schema = json.loads(result.stdout)
         self.assertEqual(schema["$schema"], "http://json-schema.org/draft-07/schema#")
+        self.assertEqual(schema["properties"]["stage"]["enum"], list(range(11)))
+        self.assertEqual(schema["properties"]["review"]["anyOf"][0]["properties"]["rounds"]["maxItems"], 11)
         changed = copy.deepcopy(self.report)
         changed["supplement"] = {"gate": "PASS"}
         self.reject(changed, "report_schema", local=True)

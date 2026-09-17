@@ -139,7 +139,7 @@ def check_stage(d, report):
                   and extension.get('selected_stage') in d['prior_stages']
                   and extension.get('stage') == default_limit
                   and extension.get('new_stage_limit') == stage_limit
-                  and 1 <= extension.get('additional_stages', 0) <= 5,
+                  and 1 <= extension.get('additional_stages', 0) <= workflow_policy.MAX_STAGE_EXTENSION,
                   '追加 stage 缺少匹配的用户授权证据')
     ticket_state.check_selected_review(d, (report.get('review') or {}).get('sources', []))
     recovery = evidence.read(evidence.bound(d['stage_recovery'])) if d.get('stage_recovery') else None

@@ -156,7 +156,8 @@ def prepare_stage(root_path, facts):
             reason = facts.get('extension_reason')
             repository.require(previous['stage'] == stage_limit and report['outcome'] == 'code_failure'
                       and report['execution']['stopped_tasks'], '只有已耗尽的 code_failure 可追加 stage')
-            repository.require(type(additional) is int and 1 <= additional <= 5, '单次最多追加五个 stage')
+            repository.require(type(additional) is int and 1 <= additional <= workflow_policy.MAX_STAGE_EXTENSION,
+                      '单次最多追加五个 stage')
             repository.require(isinstance(reason, str) and reason.strip(), '追加 stage 需要用户授权原因')
             stage_limit += additional
             record = {'version': 1, 'kind': 'authorized-stage-extension', 'stage': previous['stage'],

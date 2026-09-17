@@ -9,5 +9,8 @@ STAGE_MODELS = [(0, 0, 2), (0, 1, 2), (1, 1, 2), (1, 2, 2), (2, 2, 2), (2, 2, 2)
 # stage 0 只验证；stage 1..5 的 fixer 依次使用 Terra-medium 两次、Terra-high 两次、Sol-medium 一次。
 FINAL_STAGE_MODELS = [(0, 1, 2), (0, 1, 2), (0, 2, 2), (1, 2, 2), (1, 2, 2), (2, 2, 2)]
 MODEL_ROLES = ("executor", "standards", "spec")
-MAX_STAGES = len(STAGE_MODELS)
+MAX_STAGE_EXTENSION = 5
+# 静态报告 schema 覆盖一次用户授权的最大扩展；运行时仍由 dispatch 的
+# stage_limit 和 append-only extension 证据决定实际可用额度。
+MAX_STAGES = len(STAGE_MODELS) + MAX_STAGE_EXTENSION
 MAX_GATE_REPAIRS = 3
