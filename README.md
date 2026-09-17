@@ -83,7 +83,18 @@ AGENTS.md 的接入片段不会自动安装工具、初始化 Beads 或实现目
 
 ## 本地开发
 
-源码在本仓库的 `skills/beadwork-run/` 维护。本机 skill 发现目录中的 `beadwork-run` 可以用整个目录的 symlink 指向这里，使开发和使用共享同一份文件。
+源码在本仓库的 `skills/beadwork-run/` 维护。每个目标项目在 primary checkout 的 `.agents/skills/beadwork-run` 建立整个目录的 symlink，指向本仓库源码，使开发和使用共享同一份文件。
+
+例如，两个仓库分别位于 `~/projects/beadwork` 和 `~/projects/grok-image-saver` 时：
+
+```sh
+mkdir -p ~/projects/grok-image-saver/.agents/skills
+ln -s ~/projects/beadwork/skills/beadwork-run ~/projects/grok-image-saver/.agents/skills/beadwork-run
+```
+
+入口已存在时先核对目标，不覆盖已有文件。将 `/.agents/skills/beadwork-run` 单独加入目标仓库的 `.git/info/exclude`，本机 symlink 不提交 Git，也不加入 `skills-lock.json`。在目标项目 `AGENTS.md` 接入 [Test seams 指引](docs/project-contract.md#agentsmd-接入)，路径固定到该项目 primary checkout 的安装入口；全局 AGENTS.md 不配置 Beadwork Test seams，用户级 skills 目录不保留同名入口。
+
+从 primary checkout 启动 Beadwork。工作流会向子角色交接真实绝对 `skill_dir`；项目规则中的 primary 路径也可从 worktree 读取。本机 symlink 不会随 Git 自动出现在新 worktree 中；若需在独立 worktree 会话中直接发现 `$beadwork-run`，须在该 worktree 的 `.agents/skills/` 另建指向相同源码的入口。
 
 修改后即可在下一次读取时使用磁盘内容，无需先 commit 或 push。本地 commit 用于保存可回退的版本，push 频率独立决定。
 

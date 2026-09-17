@@ -8,7 +8,7 @@
 
 ## 源码与本地使用
 
-- `skills/` 是 skill 源码的唯一维护位置。用户级安装入口可以是指向该目录中具体 skill 的 symlink。
+- `skills/` 是 skill 源码的唯一维护位置。目标项目的 `.agents/skills/beadwork-run` 使用目录 symlink 指向本仓库源码；安装与 Test seams 指引按项目配置，见 `docs/project-contract.md`。
 - 读取和验证路径时解析真实路径；修改源码会影响下一次调用。
 - 共用契约保留在 `skills/beadwork-run/references/`；按调用场景读取，避免在 README 或接入文档复制完整协议。
 - 修改只处理当前需求；保留既有协议字段、branch/worktree 布局和 append-only 证据语义，除非任务明确要求改变。

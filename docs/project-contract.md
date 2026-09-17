@@ -4,7 +4,9 @@
 
 ## AGENTS.md 接入
 
-将下列片段合并到适用的 AGENTS.md，保留已有项目规则。`<beadwork-run-dir>` 必须替换成当前安装位置，并在执行时解析为真实绝对路径；不要把占位符原样用于运行。
+将下列片段合并到目标项目根目录的 AGENTS.md，保留已有项目规则。安装入口位于该项目 primary checkout 的 `.agents/skills/beadwork-run`，设置方法见 [本地开发](../README.md#本地开发)。
+
+`<beadwork-run-dir>` 必须替换成该 primary checkout 的固定安装路径，例如 `~/projects/grok-image-saver/.agents/skills/beadwork-run`；x-media-saver 则使用 `~/projects/x-media-saver/.agents/skills/beadwork-run`。读取前展开 `~` 并解析为真实绝对路径，不按当前 worktree 的相对目录推算；不要把占位符原样用于运行。
 
 ```markdown
 ## Issue tracker
@@ -13,10 +15,10 @@
 
 ## Test seams
 
-共享测试契约位于 `<beadwork-run-dir>/references/`；以下文件名均相对此目录，读取前将路径解析为真实绝对路径。直接读取参考文件即可，不启动 `beadwork-run`。
+共享测试契约位于 `<beadwork-run-dir>/references/`（本项目 primary checkout 的安装入口）；以下文件名均相对此目录，读取前展开 `~` 并解析为真实绝对路径。直接读取参考文件即可，不启动 `beadwork-run`。
 
 - 使用 `to-spec` 前读取 `testing-seams.md`；确定测试模式和计划时读取 `testing-plan.md`。
-- 使用 `to-tickets` 前读取 `testing-plan.md` 和 `testing-gates.md`；解析 seam 引用时读取 `testing-seams.md`。
+- 使用 `to-tickets` 前读取 `testing-plan.md` 和 `testing-gates.md`；解析 seam 引用时读取 `testing-seams.md`。为 Beadwork 拆票或调整顺序时另读 `serial-planning.md`，在同一次确认中批准增量切片及执行顺序，并使用其脚本发布、校验和接纳 parent 计划。
 - 使用 `tdd` 前读取 `testing-seams.md`、`testing-tdd.md` 和 `testing-gates.md`；有 assigned ticket 时另读 `testing-plan.md`。
 
 ## 验证命令
@@ -26,7 +28,7 @@ beadwork-run 的安装与验证通过本项目 justfile 提供的契约 recipes 
 
 `docs/agents/issue-tracker.md` 是建议位置；已有规则放在其他位置时修改指针。该文件需要说明本项目使用 `bd`、完整 bead ID 和结构化 JSON 输出，并明确创建／读取 spec、查询 parent/child 与依赖、原子 claim、写入 comments 和关闭 ticket 的操作。
 
-当前 `beadwork-run` 直接使用 Beads。仅声明 GitHub Issues 或其他 tracker，不能替代其 Beads 执行接口。已有用户级 Test seams 指引覆盖当前项目时，无需在项目中再复制一份。
+当前 `beadwork-run` 直接使用 Beads。仅声明 GitHub Issues 或其他 tracker，不能替代其 Beads 执行接口。Test seams 指引由各目标项目声明，共享契约正文继续由 skill 源码维护，不复制到项目中。
 
 ## Spec 与 ticket
 
