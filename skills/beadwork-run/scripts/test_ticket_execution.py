@@ -536,6 +536,14 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
             if stage < 5:
                 self.stage('repair')
         self.deliver(); self.stage('repair', ok=False)
+        extended = self.stage('extend', additional_stages=5,
+                              extension_reason='用户明确授权最多五个新修复 stage')
+        self.assertEqual(extended['stage'], 6)
+        dispatch = json.loads(self.sd.read_text())
+        self.assertEqual(dispatch['stage_limit'], 10)
+        self.assertEqual(dispatch['models']['implementer'], {'model': 'gpt-5.6-sol', 'reasoning_effort': 'medium'})
+        extension = json.loads(Path(dispatch['stage_extension']['path']).read_text())
+        self.assertEqual(extension['additional_stages'], 5)
 
     def test_same_head_external_gate_retry_does_not_consume_repairs(self):
         self.commit(); self.gate(fail=True)

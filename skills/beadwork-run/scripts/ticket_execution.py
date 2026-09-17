@@ -119,18 +119,22 @@ def recover_unregistered_gate_repair(previous, report, state, reason):
 def prepare_stage(root_path, facts):
     r = dispatch_contract.dispatch(root_path)
     repository.require(r.get('ticket_scope') == 'root', 'ticket-stage 需要 executor root dispatch')
-    repository.require(set(facts) <= {'continuation', 'model_overrides', 'model_override_reason', 'recovery_reason'}, 'stage 输入字段无效')
+    repository.require(set(facts) <= {'continuation', 'model_overrides', 'model_override_reason', 'recovery_reason',
+                                      'additional_stages', 'extension_reason'}, 'stage 输入字段无效')
     repository.topology(r)
     state, _, _ = checkpoints(r)
     continuation = facts.get('continuation', 'resume')
-    repository.require(continuation in ('resume', 'repair', 'recover'), 'continuation 无效')
+    repository.require(continuation in ('resume', 'repair', 'recover', 'extend'), 'continuation 无效')
     previous = None
     recovery = None
+    extension = None
+    stage_limit = len(workflow_policy.STAGE_MODELS) - 1
     if state['stage_dispatch']:
         previous = evidence.read(evidence.bound(state['stage_dispatch']))
         if continuation == 'resume':
             repository.require(not facts.get('model_overrides'), '已有 stage 沿用模型；提前升级在新 stage 准备时指定')
             repository.require('recovery_reason' not in facts, 'resume 不接受 recovery_reason')
+            repository.require(not {'additional_stages', 'extension_reason'}.intersection(facts), 'resume 不接受额度扩展字段')
             if state['selected_stage']:
                 _, report = resolve_source(state['selected_stage'])
                 repository.require(report['outcome'] in ('interrupted', 'blocked'), '已完成或代码失败阶段不可作为中断恢复')
@@ -138,18 +142,36 @@ def prepare_stage(root_path, facts):
         repository.require(state['selected_stage'], '推进 stage 需要已验收的阶段报告')
         old, report = resolve_source(state['selected_stage'])
         check_stage(old, report)
+        stage_limit = previous.get('stage_limit', stage_limit)
         if continuation == 'repair':
             repository.require(report['outcome'] == 'code_failure', '只有 code_failure 使用 repair 推进 stage')
             repository.require(report['execution']['stopped_tasks'], '旧任务未确认停止')
             repository.require('recovery_reason' not in facts, 'repair 不接受 recovery_reason')
-        else:
+            repository.require(not {'additional_stages', 'extension_reason'}.intersection(facts), 'repair 不接受额度扩展字段')
+        elif continuation == 'recover':
+            repository.require(not {'additional_stages', 'extension_reason'}.intersection(facts), 'recover 不接受额度扩展字段')
             recovery = recover_unregistered_gate_repair(previous, report, state, facts.get('recovery_reason'))
+        else:
+            additional = facts.get('additional_stages')
+            reason = facts.get('extension_reason')
+            repository.require(previous['stage'] == stage_limit and report['outcome'] == 'code_failure'
+                      and report['execution']['stopped_tasks'], '只有已耗尽的 code_failure 可追加 stage')
+            repository.require(type(additional) is int and 1 <= additional <= 5, '单次最多追加五个 stage')
+            repository.require(isinstance(reason, str) and reason.strip(), '追加 stage 需要用户授权原因')
+            stage_limit += additional
+            record = {'version': 1, 'kind': 'authorized-stage-extension', 'stage': previous['stage'],
+                      'selected_stage': state['selected_stage'], 'additional_stages': additional,
+                      'new_stage_limit': stage_limit, 'reason': reason.strip()}
+            target = Path(previous['gate_repair_root']) / 'ticket-stage-extension.json'
+            gate_repair.record(target, record)
+            extension = evidence.binding(str(target))
         number = previous['stage'] + 1
     else:
         repository.require(continuation == 'resume', '初次 stage 只接受 resume')
         repository.require('recovery_reason' not in facts, 'resume 不接受 recovery_reason')
+        repository.require(not {'additional_stages', 'extension_reason'}.intersection(facts), 'resume 不接受额度扩展字段')
         number = 0
-    repository.require(number < len(workflow_policy.STAGE_MODELS), '六阶段已用尽，停止并保留现场')
+    repository.require(number <= stage_limit, 'stage 额度已用尽，停止并保留现场')
     if previous:
         state['stage_sources'] = state['stage_sources'] + [state['selected_stage']]
     head = repository.sha(r['worktree'], 'HEAD')
@@ -157,7 +179,7 @@ def prepare_stage(root_path, facts):
         repository.require(head == report['head_commit'], '阶段交付后 HEAD 已变化')
     else:
         repository.require(head == r['base_commit'] and not repository.status(r['worktree']), 'stage 0 需要原 BASE 的干净现场')
-    levels = dict(zip(ROLES, workflow_policy.STAGE_MODELS[number]))
+    levels = dict(zip(ROLES, workflow_policy.STAGE_MODELS[min(number, len(workflow_policy.STAGE_MODELS) - 1)]))
     if r.get('complex_ticket'):
         levels['implementer'] = max(levels['implementer'], 2)
         levels['standards'] = max(levels['standards'], 1)
@@ -182,6 +204,9 @@ def prepare_stage(root_path, facts):
              verification_dispatches=[])
     if recovery:
         d['stage_recovery'] = recovery
+    if extension:
+        d['stage_extension'] = extension
+        d['stage_limit'] = stage_limit
     d['required_boundary_gates'] = list(state['required_boundary_gates'])
     d.pop('implementer_dispatch', None)
     folder.mkdir()

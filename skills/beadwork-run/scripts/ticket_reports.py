@@ -92,7 +92,8 @@ def assemble(args):
     if "stage" in d:
         repository.require(outcome in ("passed", "code_failure", "interrupted", "blocked"), "draft 必须明确 outcome")
         report.update(stage=d["stage"], outcome=outcome)
-    repository.require(len(args.review) <= len(workflow_policy.STAGE_MODELS), "最多六轮 review")
+    repository.require(len(args.review) <= d.get('stage_limit', len(workflow_policy.STAGE_MODELS) - 1) + 1,
+              "review 轮数超过已授权 stage")
     if args.review:
         rounds = [review_evidence.collection(path, args.dispatch) for path in args.review]
         review = {"attempts": len(rounds), "gate": rounds[-1][1], "final": rounds[-1][0],
@@ -129,6 +130,17 @@ def check_stage(d, report):
     repository.require(execution and execution['stage_dispatch'] == evidence.binding(d['dispatch_path'])
               and execution['root'] == d['ticket_root'], '阶段报告缺少绑定身份')
     repository.require(execution['previous_stages'] == d['prior_stages'], '阶段报告丢失历史')
+    default_limit = len(workflow_policy.STAGE_MODELS) - 1
+    stage_limit = d.get('stage_limit', default_limit)
+    repository.require(type(stage_limit) is int and stage_limit >= default_limit, 'stage 上限无效')
+    if d['stage'] > default_limit:
+        extension = evidence.read(evidence.bound(d.get('stage_extension')))
+        repository.require(extension.get('kind') == 'authorized-stage-extension'
+                  and extension.get('selected_stage') in d['prior_stages']
+                  and extension.get('stage') == default_limit
+                  and extension.get('new_stage_limit') == stage_limit
+                  and 1 <= extension.get('additional_stages', 0) <= 5,
+                  '追加 stage 缺少匹配的用户授权证据')
     ticket_state.check_selected_review(d, (report.get('review') or {}).get('sources', []))
     recovery = evidence.read(evidence.bound(d['stage_recovery'])) if d.get('stage_recovery') else None
     recovered_stage = False
@@ -187,7 +199,8 @@ def check_ticket(d, report):
     repository.require(report['execution']['implementers'] == state['implementer_sources'], '实现来源不完整')
     check_stage(stage, report)
     if report['outcome'] == 'code_failure':
-        repository.require(stage['stage'] == len(workflow_policy.STAGE_MODELS) - 1, '未耗尽 stage 的代码失败由 executor 内部处理')
+        repository.require(stage['stage'] == stage.get('stage_limit', len(workflow_policy.STAGE_MODELS) - 1),
+                  '未耗尽 stage 的代码失败由 executor 内部处理')
     return stage
 
 

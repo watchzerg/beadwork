@@ -13,6 +13,7 @@ python3 <skill-dir>/scripts/executor-operations.py ticket-stage --dispatch <root
 - `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
 - `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到 stage 5。
 - `continuation: recover`：仅恢复已按 `blocked` 封存的未登记 gate 修正。旧阶段必须已有已绑定候选、review 尚未开始、当前干净 HEAD 是该候选的不同后继并与阶段报告一致，且旧任务已结束；同时提供非空 `recovery_reason`。脚本在旧阶段目录追加 `unregistered-gate-repair-recovery.json`，再建立下一阶段并消耗一个 stage。普通环境、spec、seam 或证据阻塞不能使用该入口。
+- `continuation: extend`：仅在最后一个已授权 stage 交付 `code_failure` 后使用。用户明确追加修复额度时，传入 `additional_stages`（1–5）和非空 `extension_reason`；脚本追加授权证据并建立下一 stage。新增 stage 沿用最高模型档，原报告、review 与计数保持不变。
 - 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
 
 模型与矩阵以 `../scripts/workflow_policy.py` 为准。三档依次为 Terra-medium、Terra-high、Sol-medium；普通 implementer 六阶段各档两次。`complex_ticket` 保留 Sol-medium 的实现起点及 Terra-high 的 Standards 下限；提前升档后不要求再凑齐低档次数。
