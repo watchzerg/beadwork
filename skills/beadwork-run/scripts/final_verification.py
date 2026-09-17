@@ -1,6 +1,7 @@
 """最终验证报告的运行来源与覆盖；不从文字或退出码判断失败根因。"""
 
 from pathlib import Path
+import re
 import shlex
 
 import dispatch_contract
@@ -30,10 +31,14 @@ def records(d, sources, allowed, notes, successful=False):
         repository.require(start['dispatch_sha256'] == evidence.digest(source) and start['cwd'] == d['worktree'], '验证身份已变化')
         argv = start['argv']
         repository.require(len(argv) >= 4 and argv[:3] == ['just', '--one', '--'], '验证 argv 不符')
-        repository.require(argv[3] == 'gate-full' and len(argv) == 4, '最终验证必须是无参数 gate-full')
-        gates = ['gate-full']
+        recipe = argv[3]
+        repository.require(recipe in ('test', 'typecheck') or re.fullmatch(r'gate-[A-Za-z0-9_-]+', recipe),
+                           '验证 recipe 不符')
+        repository.require(len(argv) == 4 or recipe == 'test', '完整 gate 与 typecheck 不接受筛选参数')
+        gates = [recipe]
         valid = bool(end and end['outcome'] == 'exited' and end['process_group_gone'] is True
-                     and start['before'] == end['after'] and not start['before']['status']
+                     and start['before'] == end['after']
+                     and (recipe != 'gate-full' or not start['before']['status'])
                      and type(end['exit_code']) is int and end['exit_code'] >= 0)
         if successful and not valid:
             repository.require(str(path.parent) in notes and str(notes[str(path.parent)]).strip(), '未知或无效验证需要实际收尾说明')
@@ -84,11 +89,14 @@ def check(d, report, live=False):
         repository.require(latest.get('gate-full') and latest['gate-full'][-1]['passed'], '交付 HEAD 缺少成功 gate-full')
         selected = latest['gate-full'][2].get('gate_plan')
         repository.require(selected is not None, 'gate-full 缺少当次 gate-plan 定义')
+        repository.require(not any(row[0] > latest['gate-full'][0] and not row[-1]['passed'] for row in current),
+                           '完整 gate-full 之后存在失败或无效验证，需重跑 gate-full')
         gate_plan.require_boundaries(selected, list(dict.fromkeys(
             [*report['boundary_gates'], *d['required_boundary_gates']])))
     if report.get('outcome') == 'code_failure' and d['role'] == 'fixer':
         repository.require(gate_repair.used_repairs(gate_repair.root(d)) == 3, 'fixer 代码失败须用尽三次修复')
-        repository.require(any(row[4] and row[3]['exit_code'] > 0 and row[2].get('delivery_attempt') == 3
+        repository.require(any(row[-1]['gate'] == 'gate-full' and row[2].get('gate_plan') is not None
+                      and row[4] and row[3]['exit_code'] > 0 and row[2].get('delivery_attempt') == 3
                       for row in current), '缺少第三次 fixer 候选失败证据')
     return rows
 

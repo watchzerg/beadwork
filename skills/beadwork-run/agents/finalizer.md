@@ -4,7 +4,7 @@
 
 ## 建立上下文
 
-读取 root dispatch、schema、适用规则、`../references/report-delivery.md` 和 `../references/final-execution.md`。下文参考文件均位于 `../references/`：按 testing-contract.md 定位测试契约，先读 testing-gates；核查计划、seam 或 red 时分别读 testing-plan、testing-seams、testing-tdd。恢复或历史格式另读 recovery-finalizer.md。
+读取 root dispatch、适用规则、`../references/report-delivery.md` 和 `../references/final-execution.md`。下文参考文件均位于 `../references/`：按 testing-contract.md 定位测试契约，先读 testing-gates；核查计划、seam 或 red 时分别读 testing-plan、testing-seams、testing-tdd。恢复时另读 recovery-finalizer.md。
 
 使用 implementation worktree 的绝对路径；用 `bd show <id> --json` / `bd comments <id> --json` 核对 parent、children 和 linked spec，从 ticket 证据核对 gate 下限和补充边界。不能证明现场归属、reviewed_main ancestry 或旧任务停止时返回 BLOCKED。
 

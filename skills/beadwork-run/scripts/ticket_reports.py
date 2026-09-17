@@ -8,6 +8,7 @@ import uuid
 
 import dispatch_contract
 import evidence
+import draft_contracts
 import handoff
 import implementer_reports
 import report_io
@@ -185,12 +186,9 @@ def assemble_stage(args):
     state, _, _ = ticket_state.checkpoints(d)
     repository.require(state['stage_dispatch'] == evidence.binding(args.dispatch), '不是当前 stage')
     selected_reviews = d['prior_reviews'] + ([state['selected_review']] if state['selected_review'] else [])
-    if args.review:
-        repository.require([evidence.binding(str(path)) for path in args.review] == selected_reviews,
-                  '显式 review 必须与检查点选择完全一致')
     review_paths = [str(evidence.bound(item)) for item in selected_reviews]
     ticket_state.check_selected_review(d, selected_reviews)
-    report = evidence.read(args.draft)
+    report = draft_contracts.read(d, args.draft, 'executor')
     stopped = report.pop('stopped_tasks')
     repository.require(type(stopped) is bool, 'stopped_tasks 必须为布尔值')
     extra = {'execution': {'root': d['ticket_root'], 'stage_dispatch': evidence.binding(args.dispatch),

@@ -10,7 +10,7 @@ Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和
 
 | Skill | 用途 |
 | --- | --- |
-| [beadwork-run](skills/beadwork-run/SKILL.md) | 串行实现一个 Beads parent 下的直接子 tickets，并在验证与审查通过后合入本地 main |
+| [beadwork-run](skills/beadwork-run/SKILL.md) | 串行实现一个 Beads parent 下的直接子 tickets，验证与审查通过后合入 main 并推送 Git 与 Beads |
 
 ## beadwork-run 做什么
 
@@ -19,10 +19,10 @@ Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和
 - 根据 Test plan 使用 TDD 或 direct verification。
 - 通过目标项目的 just recipes 执行安装与验证。
 - 对每票和最终集成执行 Standards / Spec 双轴审查。
-- 在满足交付条件后合入本地 main。
+- 在满足交付条件后合入本地 main，并推送 Git 与 Beads。
 - 遇到无法继续的阻塞时保留现场、报告和恢复证据。
 
-工作流会创建 commits、更新 Beads 状态，并在完成后进行本地集成与清理。Git 和 Dolt 的远端 push 不属于该流程。
+工作流会创建 commits、更新 Beads 状态，并在完成后进行本地集成、Git/Beads 远端推送与清理。默认无需另行确认 push；用户明确要求不 push 时遵循该限制。
 
 ## 支持范围
 
@@ -36,8 +36,8 @@ Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和
 
 目标项目需要具备：
 
-- 可用的 Git 仓库和本地 main 分支。
-- 已配置的 Beads workspace，以及包含直接子 tickets 的 parent。
+- 可用的 Git 仓库、本地 main 分支和可推送的 origin 远端。
+- 已配置的 Beads workspace 与 Dolt remote，以及包含直接子 tickets 的 parent。
 - 明确的 ticket 依赖关系、验收条件和 Test plan；未关闭的 child 带有 `ready-for-agent` label。
 - TDD ticket 对应的已批准测试 seam。
 - 符合执行契约、实际可运行的 just recipes。
@@ -62,7 +62,7 @@ $beadwork-run demo-abc
 
 该 parent 下应已有准备完成的 ticket graph。beadwork-run 不负责从需求对话创建 spec 或拆分 tickets。
 
-执行完成后，报告包含 ticket 进度、验证和审查结果、本地集成状态，以及保留的证据目录。执行阻塞时，报告包含停止原因和恢复入口。
+执行完成后，报告包含 ticket 进度、验证和审查结果、本地集成与 Git/Beads 推送状态，以及保留的证据目录。执行阻塞时，报告包含停止原因和恢复入口。
 
 ## 与 Matt Pocock skills 的关系
 

@@ -1,13 +1,13 @@
 ---
 name: beadwork-run
-description: "按批准顺序串行实现一个 Beads parent 下的 ticket 依赖图，并在双层 review 后合入本地 main。"
+description: "按批准顺序串行实现一个 Beads parent 下的 ticket 依赖图，经双层 review 合入 main 并推送 Git 与 Beads。"
 ---
 
 # Beadwork Run
 
 给定一个完整的 Beads parent ID，串行实现它的 direct child tickets。每个 ticket 使用一个全新的 executor 协调整票；其每个 stage 派发全新 implementer，同一时刻只有一个 writer。每张新票开工前按需同步本地 `main`；所有 children 完成后，把最新 `main` 合入 implementation branch，执行最终验证和 review，再 fast-forward 合入本地 `main`。
 
-本 skill 只合入本地 `main`。不 push Git，也不执行 `bd dolt pull` 或 `bd dolt push`。
+完整交付包括合入本地 `main`，随后由 controller 推送 Git 与 Beads 到已配置的远端，无需再次确认。用户明确要求不 push 时遵循该限制并在最终报告注明；不自动执行 `bd dolt pull`。
 
 ## Interface
 
@@ -42,7 +42,7 @@ controller 派发的 preflight、executor 和 finalizer 使用独立上下文（
 
 ## 不变量
 
-- controller 独占 Git/worktree 生命周期、ticket 选择、Beads 写入和最终集成；子 agent 对 Beads 只读。
+- controller 独占 Git/worktree 生命周期、ticket 选择、Beads 写入、最终集成和远端推送；子 agent 对 Beads 只读。
 - preflight/finalizer 只写证据；源码由当前 ticket implementer 或最终阶段的唯一 fixer 写入，只读研究与双轴 reviewers 可并行。
 - 不 stash、不 reset、不 amend、不 squash、不 force-remove。
 - review 后不改写已 review 的 commit。
@@ -62,25 +62,13 @@ preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gp
 
 `BLOCKED` 不推进流程。工具链缺失时 controller 按 recipe 输出安装声明版本，再派新 preflight 复查；已获得首次 children 集合时将其作为 `expected_children` 一并传入，不重置范围。其他缺事实、冲突或失败沿用停止处理，不自动补写 ticket。
 
-全部 direct children 已关闭时，先读取 `references/recovery-post-merge.md`，决定进入最终集成还是补全关闭/清理。
+全部 direct children 已关闭时，先读取 `references/recovery-post-merge.md`，决定进入最终集成还是补全关闭、推送与清理。
 
 ## 2. 创建或恢复 implementation worktree
 
 已有 branch/worktree 或 preflight 建议恢复时，读取 `references/recovery-batch.md`；仅新批次执行以下初始化步骤。
 
-1. 按 controller 入口执行 `update-main`；失败停止。
-2. 将返回的 `main_commit` 作为初始化基线；`fetch_failed` 为 true 时把返回的 note 写入批次 comment。
-3. 从更新后的 `main` 创建：
-
-```bash
-bd worktree create .worktrees/<parent-id> --branch implement/<parent-id>
-```
-
-4. 在新 worktree 中运行 `bd worktree info --json` 和 `bd where`，确认它属于当前仓库并共享 primary `.beads` workspace。
-5. 在 implementation worktree 运行 `just install`；失败时停止。
-6. BASE 验证：运行 `just env-facts` 和一次无参数 `just gate-full`。失败时保留现场并停止，报告失败命令与环境缺项；修复基线或补齐环境后从 `gate-full` 入口重跑，通过前不派发 executor。
-7. 使用 tracker claim 领取 parent。
-8. 给 parent 添加一条中文批次 comment，记录 branch、worktree、批次基线完整 HEAD SHA、`just env-facts` 输出与冒烟通过的命令和结果；写入成功后才能领取 child。
+按 `references/controller-operations.md` 的初始化入口保存 `update-main` 结果，准备并执行固定基线的初始化 intent。脚本完成 worktree/workspace、环境与 BASE 验证、parent claim 和批次 comment；收到完成记录后进入 ticket 循环。失败保留现场，使用原 intent 恢复；未完成初始化不得领取 child。
 
 ## 3. 串行 ticket 循环
 
@@ -179,11 +167,15 @@ finalizer 自行管理最终验证、修复和 review；controller 等待 final-
 4. 给 parent 添加中文 completion comment，只记录已合入的 `REVIEWED_HEAD` 和对应 `integration-ready` comment 的 ID；完整验证、review 和 smells 证据通过该引用读取，不再复制。已有对应 completion comment 则复用。
 5. 确认 completion 已写入后，使用 tracker close 关闭 parent，绑定成功 merge checkpoint；reason 概括 children、验证和最终 review。
 
-## 6. 安全清理
+## 6. 推送 Git 与 Beads
 
-parent 关闭后，执行 controller 脚本的 `cleanup`，传入本次 merge checkpoint。脚本验证合入 ancestry、branch/HEAD、worktree 归属及干净状态后非强制清理，保留证据目录；已删除部分可重跑，失败停止。
+parent completion 已写入并关闭后，controller 按 `references/controller-operations.md` 的“远端推送”顺序推送受审 Git commit 和 Beads。两者均成功才进入清理；任一失败按停止记录保留现场，报告已成功部分与重试入口。推送恢复不重跑已通过的 gates/review，也不重新 merge 或领取 tickets。
 
-历史批次缺少 checkpoint 时，读取 `references/recovery-legacy-cleanup.md`。
+用户明确限制某项 push 时跳过对应推送，按授权范围完成清理并报告未推送项。
+
+## 7. 安全清理
+
+推送完成（或按用户明确限制跳过）后，执行 controller 脚本的 `cleanup`，传入本次 merge checkpoint 和明确选中的 delivery_result。脚本验证合入 ancestry、branch/HEAD、worktree 归属及干净状态后非强制清理，保留证据目录；已删除部分可重跑，失败停止。
 
 ## 停止处理
 
@@ -205,4 +197,4 @@ parent 已领取之后发生的实际批次停止（含 ticket 修复额度耗�
 - 本地 `main` 的最终 SHA
 - worktree/branch 是否已清理
 - 保留的证据目录路径（`<primary>/.worktrees/.evidence/<parent-id>/`，供审计，不随 worktree 清理删除）
-- 明确说明 Git 和 Dolt 都没有 push
+- Git 与 Beads 各自的 push 结果；Git 远端分支及确认的 SHA，失败或按用户限制跳过的项目

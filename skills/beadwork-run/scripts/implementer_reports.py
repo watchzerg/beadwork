@@ -5,6 +5,7 @@ import json
 
 import dispatch_contract
 import evidence
+import draft_contracts
 import gate_repair
 import report_io
 import repository
@@ -125,10 +126,7 @@ def implementer_check(dispatch_path, report_path):
 
 def implementer_assemble(args):
     d = dispatch_contract.dispatch(args.dispatch)
-    report = evidence.read(args.draft)
-    fields = {'status', 'outcome', 'test_plan', 'acceptance', 'verification', 'requested_context', 'blockers', 'concerns',
-              'verification_notes', 'stopped_tasks', 'required_boundary_gates'}
-    repository.require(set(report) == fields, 'implementer draft 字段不符')
+    report = draft_contracts.read(d, args.draft, 'implementer')
     state, _, _ = ticket_state.checkpoints(d)
     report['required_boundary_gates'] = list(dict.fromkeys(
         state['required_boundary_gates'] + report['required_boundary_gates']))

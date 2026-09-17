@@ -5,14 +5,14 @@ controller、executor 和 finalizer 派发子 agent 前读取本文件；每个�
 ## 派发和验收
 
 1. 使用对应 prepare、ticket-stage、final-stage 或 review-prepare 已生成的 dispatch、schema 和报告路径，交接绝对路径、自检入口及本轮事实。身份取自派发时固定的 ticket/axis/BASE/HEAD，不能从返回报告反推；不手工重建这些产物。
-2. 子 agent 先读取 `report_schema_path` 和 `receipt_schema_path` 指向的文件，再写完整报告并自检；自检失败可在首次交付前修正。最终只回传 `status`、`report_path`、`report_sha256`，使用派发的 `self_check_argv`，或对应角色的 assemble/check 入口；成功 stdout 原样作为最终回执，不手工转换字段。该选项校验失败时非零退出、诊断写 stderr，不输出 receipt；合法 BLOCKED 报告仍可正常交付。派发者仅为设置 `outputSchema` 读取回执 schema，支持 strict 时启用；完整报告 schema 由接收方读取，派发者不为转发而加载或粘贴全文。schema 文件缺失或不可读时按角色的缺上下文/阻塞规则处理，不猜测结构。
+2. 使用 assembler 的角色只读取 `draft_schema_path` 并填写语义 draft；Git 身份、commits、验证及 review 来源由脚本生成。reviewer 直接填写 AxisReport，读取 `report_schema_path`。root 的 deliver 直接交付已选阶段报告，无需读取阶段输入 schema。完整输出 schema 由脚本校验，结构诊断时才读取。成功 assemble/check 的 stdout 原样作为最终回执，不手工转换字段；合法 BLOCKED 也可正常交付，校验失败非零退出且不产生回执。派发者仅为设置 outputSchema 读取 receipt schema，支持 strict 时启用。所需输入契约缺失时报告阻塞，不猜测字段。
 3. 派发者等待 agent 和其启动的命令、子任务结束，原样保存 `receipt.json`，读取自己指定的报告并执行带回执的完整校验。文件出现、进度消息和回执到达均不替代结束确认；无法确认 writer 停止时保留现场，不派接替 writer、不合入或清理。
 4. 对应完整校验入口成功才通过机械检查；非零退出、缺文件、结构或路径/status/hash 不一致均按调用方停止规则处理。成功回执不替代真实日志、Git 现场、需求与 finding 的语义核对，也不证明任务已经结束。
 5. 已交付报告、回执及校验结果原样保留。更正写新的 `report-N.json`/`receipt-N.json`，由派发者明确选中并重新完整验收；文件必须位于本次证据目录内，不按回执改选文件。更正只补事实，不改代码、不增加修复/review 次数；不新增自动更正循环。
 
 SHA-256 只绑定交付文件的字节，不证明报告内容正确。聚合时继续原样嵌入已验收的 AxisReport，保留原文件、回执与校验输出，不以短回执或摘要替代原始 findings。
 
-各角色的精确字段由本 skill 的脚本通过 `--schema` 生成，生成与验收共用内置结构；本文件定义交付行为和判定规则。历史报告、回执和 dispatch 保持原样，新派发使用当前命令，不执行历史记录中的旧命令。
+draft 字段由 draft_contracts 统一生成和校验；完整报告与回执字段由 verifier 的 `--schema` / `--receipt-schema` 生成。本文件定义交付行为和判定规则。历史报告、回执和 dispatch 保持原样，新派发使用当前命令，不执行历史记录中的旧命令。
 
 ## 等待与进度
 
@@ -37,7 +37,7 @@ SHA-256 只绑定交付文件的字节，不证明报告内容正确。聚合时
 python3 <skill-dir>/scripts/executor-operations.py handoff-close --dispatch <child-dispatch.json> --report <child-report.json> --input <observation.json>
 ```
 
-observation 的字段为 task_id、stopped（布尔值）、observed_at、evidence、unresolved（未结束事项数组）。填写实际宿主观察，不能把收到回执、取消请求已发送或消息静默视作停止。返回 closure_source（path/sha256），将此对象保存到新 JSON 文件。
+observation 的字段为 task_id、stopped（布尔值）、observed_at、evidence、unresolved（未结束事项数组）。填写实际宿主观察，不能把收到回执、取消请求已发送或消息静默视作停止。将 `handoff-close` 的原始 JSON 输出保存到新文件，直接传给 `--closure`；也接受只保存 `closure_source` 字段值的 path/sha256 binding，内部统一保存 binding。
 
 controller accept、implementer-accept、fixer-accept 增加 `--closure <closure-source.json>`；review selection 的各轴增加 `closure: <closure_source.path>`。绑定必须对应本次 dispatch 和报告。成功或 code_failure 推进需要 stopped: true 且 unresolved 为空；未知停止状态可保存 BLOCKED 交付，但不能据此派接替 writer、合入或清理。收尾事实冲突时先更正来源，旧报告与旧观察保留。
 

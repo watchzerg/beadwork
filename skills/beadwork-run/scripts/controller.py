@@ -15,6 +15,7 @@ sys.dont_write_bytecode = True
 
 import dispatch_contract
 import evidence
+import draft_contracts
 import execution_plan
 import finalization
 import handoff
@@ -46,7 +47,6 @@ MODEL_LEVELS = workflow_policy.MODEL_LEVELS
 STAGE_MODELS = workflow_policy.STAGE_MODELS
 FINAL_STAGE_MODELS = workflow_policy.FINAL_STAGE_MODELS
 MODEL_ROLES = workflow_policy.MODEL_ROLES
-prepare_stage = ticket_execution.prepare_legacy_stage
 check_stage_report_core = ticket_reports.check_stage_report_core
 check_stage_report = ticket_reports.check_stage_report
 
@@ -156,12 +156,15 @@ def prepare(args):
     write(d["receipt_schema_path"], verifier(args.role, "--receipt-schema"))
     if args.role == "preflight":
         d["self_check_argv"] = [sys.executable, "-B", str(SCRIPTS / "verify-phase.py"), "--check-report", "preflight", d["report_path"], "--expected", d["dispatch_path"], "--emit-receipt"]
+    if args.role == 'preflight':
+        draft_contracts.publish(d, 'preflight')
     write(d["dispatch_path"], d)
     return {"repository_root": root, "worktree": d["worktree"], "branch": branch,
             "dispatch_path": d["dispatch_path"], "report_path": d["report_path"],
             "report_schema_path": str(directory / "report-schema.json"), "receipt_schema_path": str(directory / "receipt-schema.json"),
             "base_commit": d.get("base_commit"), "start_head": d.get("start_head"), "reviewed_main": d.get("reviewed_main"),
-            **({"coordinator_model": d["coordinator_model"]} if args.role == "executor" else {})}
+            **({"coordinator_model": d["coordinator_model"]} if args.role == "executor" else {}),
+            **({"draft_schema_path": d["draft_schema_path"]} if args.role == "preflight" else {})}
 
 
 adapt_plan = ticket_execution.adapt_plan_dispatch
@@ -195,7 +198,7 @@ def inspect(dispatch_path, report_path, receipt_path):
 def accept(args):
     require(Path(args.output).resolve().parent == Path(args.dispatch).resolve().parent, "验收记录必须留在 dispatch 证据目录")
     d, r, result = inspect(args.dispatch, args.report, args.receipt)
-    closure = read(args.closure) if getattr(args, 'closure', None) else None
+    closure = handoff.closure_binding(read(args.closure)) if getattr(args, 'closure', None) else None
     handoff.check_close(str(args.dispatch), str(args.report), closure,
                         required=d.get('finalization_version') == 2 or bool(d.get('preflight_acceptance')))
     record = {"kind": "mechanical_acceptance", "role": d["role"], "status": r["status"],
@@ -327,7 +330,14 @@ def merge(args):
     return {**record, "merged": True}
 
 
+def push(args):
+    import batch_delivery
+    return batch_delivery.push(args.input)
+
+
 def cleanup(args):
+    import batch_delivery
+    batch_delivery.check(args.delivery_result, args.merge_record)
     d = read(args.merge_record)
     require(d.get("kind") == "merge_checkpoint", "需要合入 checkpoint")
     topology(d, allow_missing=True)
@@ -364,7 +374,8 @@ def main():
     p.add_argument("--evidence", action="append", default=[])
     p = commands.add_parser("merge")
     for name in ("acceptance", "comment-id", "output"): p.add_argument("--" + name, required=True)
-    p = commands.add_parser("cleanup"); p.add_argument("--merge-record", required=True)
+    p = commands.add_parser("push"); p.add_argument("--input", required=True)
+    p = commands.add_parser("cleanup"); p.add_argument("--merge-record", required=True); p.add_argument("--delivery-result", required=True)
     args = parser.parse_args()
     try:
         print(json.dumps(globals()[args.command.replace("-", "_")](args), ensure_ascii=False))

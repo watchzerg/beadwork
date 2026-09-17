@@ -4,7 +4,7 @@
 
 ## 1. 一次采集
 
-读取 controller 交接的 `dispatch_path`、`report_schema_path`、`receipt_schema_path` 和 `rules_paths`；按 `../references/testing-contract.md` 定位 `testing-plan.md`、`testing-seams.md`、`testing-gates.md`。路径均为绝对路径。
+读取 controller 交接的 `dispatch_path`、`draft_schema_path` 和 `rules_paths`；按 `../references/testing-contract.md` 定位 `testing-plan.md`、`testing-seams.md`、`testing-gates.md`。路径均为绝对路径。
 
 ```bash
 python3 <skill-dir>/scripts/preflight-operations.py collect --dispatch <dispatch.json>
@@ -27,24 +27,7 @@ python3 <skill-dir>/scripts/preflight-operations.py collect --dispatch <dispatch
 
 ## 3. 组装并交付
 
-语义草稿只包含下列字段（报告与计划字段类型见已交接的 report schema）：
-
-```json
-{
-  "status": "READY",
-  "plans": {"<未关闭 child ID>": "<对应 test_plan 对象；未知时为 null>"},
-  "linked_spec": "<spec 来源>",
-  "resume_evidence": [],
-  "sources": [],
-  "suggested_route": "resume_tickets",
-  "checks": [
-    {"name": "spec_and_test_plans", "passed": true, "evidence": "<计划与授权来源>"},
-    {"name": "recovery", "passed": true, "evidence": "<路径判断依据>"}
-  ],
-  "blockers": [],
-  "remaining_work": []
-}
-```
+按 draft_schema_path 填写语义草稿：检查仅为 spec_and_test_plans、recovery；plans 对应未关闭 child 的测试计划；补充实际使用的需求来源、恢复证据和路线判断。机械事实由采集器注入，不能由草稿覆盖。
 
 缺事实/冲突时使用 BLOCKED，保留具体 blockers 和未完成工作；plans 以未关闭票 ID 为键，closed 票无需填写。sources 只补本轮语义判断使用的来源。
 

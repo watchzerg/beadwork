@@ -6,6 +6,7 @@ import uuid
 
 import dispatch_contract
 import evidence
+import draft_contracts
 import handoff
 import implementer_reports
 import report_io
@@ -63,6 +64,7 @@ def save_dispatch(d, folder, role):
     else:
         evidence.write(d['report_schema_path'], report_io.verifier('executor', '--schema'))
         evidence.write(d['receipt_schema_path'], report_io.verifier('executor', '--receipt-schema'))
+    draft_contracts.publish(d, role)
     evidence.write(d['dispatch_path'], d)
     return d
 
@@ -259,89 +261,6 @@ def assemble_stage(args):
     state['selected_stage'] = item
     checkpoint(d, state)
     return receipt
-
-
-def prepare_legacy_stage(d, head):
-    previous = None
-    report = None
-    stage = 0
-    prior_reviews = []
-    continuation = d.get("continuation", "resume")
-    repository.require(continuation in ("resume", "repair"), "continuation 必须为 resume 或 repair")
-    if d["mode"] == "new":
-        repository.require(not any(d.get(k) for k in ("previous_dispatch", "previous_report", "previous_receipt"))
-                and continuation == "resume", "新票不能携带恢复输入")
-    else:
-        repository.require(d.get("previous_dispatch"), "恢复必须提供前次 dispatch")
-        previous = evidence.read(d["previous_dispatch"])
-        keys = ("repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
-        repository.require(previous.get("role") == "executor" and all(previous.get(k) == d[k] for k in keys),
-                "前次 dispatch 不属于同票同 BASE")
-        repository.require(previous.get("dispatch_path") == str(Path(d["previous_dispatch"]).resolve()), "前次 dispatch 路径不符")
-        repository.require(bool(d.get("previous_report")) == bool(d.get("previous_receipt")), "前次报告和回执必须成对提供")
-        if d.get("previous_report"):
-            for key in ("previous_report", "previous_receipt"):
-                repository.require(Path(d[key]).resolve().parent == Path(d["previous_dispatch"]).resolve().parent,
-                        "前次报告和回执必须位于原 dispatch 目录")
-            report_io.verifier("executor", "--check-report", d["previous_report"], d["previous_receipt"])
-            report = evidence.read(d["previous_report"])
-            repository.require(report["base_commit"] in (None, d["base_commit"]), "前次报告 BASE 不符")
-            if report["head_commit"]:
-                repository.git(d["worktree"], "merge-base", "--is-ancestor", report["head_commit"], head)
-            repository.require(report["status"] != "DONE", "已完成报告应验收关闭，不再派发 writer")
-        if "stage" in previous:
-            stage = previous["stage"]
-            prior_reviews = previous["prior_reviews"]
-            if report:
-                ticket_reports.check_stage_report(previous, report)
-                prior_reviews = (report.get("review") or {}).get("sources", [])
-            if continuation == "repair":
-                repository.require(report is not None and report["outcome"] == "code_failure",
-                        "下一修复阶段需要前阶段 code_failure 报告")
-                stage += 1
-            elif report:
-                repository.require(len(prior_reviews) == len(previous["prior_reviews"]),
-                        "本阶段已有完整 review，保留报告并更正/验收或进入下一修复阶段")
-                repository.require(report["outcome"] in ("interrupted", "blocked"),
-                        "代码失败必须进入下一阶段，不能作为中断恢复")
-        else:
-            # 旧 executor 最多初审和一次复审；原始报告及 collection 保持不变。
-            repository.require(report is not None, "旧 dispatch 恢复需要原始报告和回执")
-            review = report.get("review")
-            expected = [] if review is None else ([review["initial"]] if "initial" in review else []) + [review["final"]]
-            paths = d.get("legacy_reviews", [])
-            repository.require(len(paths) == len(expected), "必须显式提供旧报告的全部 review collections")
-            prior_reviews = [evidence.binding(path) for path in paths]
-            for item, pair in zip(prior_reviews, expected):
-                repository.require(review_evidence.collection(item["path"], d["previous_dispatch"])[0] == pair,
-                        "旧 collection 与原报告不符")
-            stage = max(0, len(expected) - 1)
-            if continuation == "repair":
-                repository.require(report["status"] == "BLOCKED" and d.get("legacy_code_failure_reason"),
-                        "旧报告进入修复须说明代码失败依据")
-                repository.require(review is None or review["gate"] == "BLOCKED", "旧 PASS 不进入修复")
-                stage += 1
-        d["previous_dispatch_sha256"] = evidence.digest(d["previous_dispatch"])
-        if report:
-            d["previous_report_sha256"] = evidence.digest(d["previous_report"])
-    repository.require(type(stage) is int and 0 <= stage < len(workflow_policy.STAGE_MODELS), "六阶段已用尽，停止并保留现场")
-    levels = dict(zip(workflow_policy.MODEL_ROLES, workflow_policy.STAGE_MODELS[stage]))
-    if d.get("complex_ticket"):
-        levels["executor"] = max(levels["executor"], 2)
-        levels["standards"] = max(levels["standards"], 1)
-    if previous and "models" in previous:
-        for role in workflow_policy.MODEL_ROLES:
-            levels[role] = max(levels[role], workflow_policy.MODEL_LEVELS.index(previous["models"][role]))
-    overrides = d.get("model_overrides", {})
-    repository.require(isinstance(overrides, dict) and set(overrides) <= set(workflow_policy.MODEL_ROLES), "model_overrides 角色无效")
-    if overrides:
-        repository.require(isinstance(d.get("model_override_reason"), str) and d["model_override_reason"].strip(),
-                "提前升级必须记录理由")
-        for role, model in overrides.items():
-            repository.require(model in workflow_policy.MODEL_LEVELS and workflow_policy.MODEL_LEVELS.index(model) >= levels[role], "模型只能升级，不能降档")
-            levels[role] = workflow_policy.MODEL_LEVELS.index(model)
-    d.update(stage=stage, start_head=head, prior_reviews=prior_reviews,
-             models={role: workflow_policy.MODEL_LEVELS[level] for role, level in levels.items()})
 
 
 def adapt_plan_dispatch(args):

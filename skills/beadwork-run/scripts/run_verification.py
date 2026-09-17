@@ -89,6 +89,9 @@ def run(args):
     repository.require(args.recipe in repository.run([executable, "--summary"], d["worktree"]).split(), "验证 recipe 不存在")
     parameters = args.parameters[1:] if args.parameters[:1] == ["--"] else args.parameters
     repository.require(not parameters or args.recipe == 'test', '完整 gate 与 typecheck 不接受筛选参数')
+    if d.get('finalization_version') == 2 and d['role'] == 'finalizer':
+        repository.require(args.delivery and args.recipe == 'gate-full',
+                           'finalizer 只采集带 --delivery 的无参数 gate-full')
     if args.delivery and d.get('finalization_version') == 2:
         repository.require(args.recipe == 'gate-full', '最终交付只接受无参数 gate-full')
     current_plan = None

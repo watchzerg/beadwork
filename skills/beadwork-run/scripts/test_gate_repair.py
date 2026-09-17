@@ -90,7 +90,7 @@ class GateRepairTests(unittest.TestCase):
         self.h.put(path, report)
         receipt = self.v.dispatch.parent / 'receipt.json'
         self.h.put(receipt, {'status': 'BLOCKED', 'report_path': str(path), 'report_sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
-        self.h.prepare(previous_dispatch=str(self.v.dispatch), previous_report=str(path), previous_receipt=str(receipt), continuation='repair')
+        self.h.prepare(previous_dispatch=str(self.v.dispatch), previous_report=str(path), previous_receipt=str(receipt), continuation='repair', fixture_stage=1)
         self.v.dispatch = self.h.dispatch
         self.assertEqual(self.h.d['stage'], 1)
         self.assertEqual(self.h.d['base_commit'], report['base_commit'])
@@ -142,14 +142,16 @@ class GateRepairTests(unittest.TestCase):
         f = final_fixture.FinalizationTests()
         f.setUp()
         self.addCleanup(f.doCleanups)
-        stage0 = f.stage()
-        _, receipt0 = f.assemble(stage0, outcome='code_failure', failed_gate='gate-browser')
-        stage1 = f.stage(previous=stage0, receipt=receipt0, continuation='repair')
+        fake = f.h.root / 'bin' / 'just'
+        fake.write_text(self.v.fake.read_text().replace('gate-demo', 'gate-browser'))
+        fake.chmod(0o755)
         self.h = f.h
         self.v.h = f.h
-        fake = f.h.root / 'bin' / 'just'
-        fake.write_text(self.v.fake.read_text().replace('gate-core gate-demo', 'gate-core gate-demo gate-full'))
-        fake.chmod(0o755)
+        stage0 = f.stage()
+        self.v.dispatch = stage0
+        self.run_gate(recipe='gate-full')
+        _, receipt0 = f.assemble(stage0, outcome='code_failure')
+        stage1 = f.stage(previous=stage0, receipt=receipt0, continuation='repair')
         self.v.dispatch = stage1.parent / 'fixer' / 'dispatch.json'
         failed = self.run_gate(recipe='gate-full')
         first = self.begin(failed)
@@ -157,10 +159,10 @@ class GateRepairTests(unittest.TestCase):
         resumed = f.stage(previous=stage1, receipt=receipt1)
         self.v.dispatch = resumed.parent / 'fixer' / 'dispatch.json'
         self.assertEqual(self.begin(failed), first)
-        self.assertEqual(self.begin(self.run_gate())['repair_number'], 2)
-        self.assertEqual(self.begin(self.run_gate())['repair_number'], 3)
-        self.begin(self.run_gate(), expected=1)
-        self.run_gate(mode='pass', expected=0)
+        self.assertEqual(self.begin(self.run_gate(recipe='gate-full'))['repair_number'], 2)
+        self.assertEqual(self.begin(self.run_gate(recipe='gate-full'))['repair_number'], 3)
+        self.begin(self.run_gate(recipe='gate-full'), expected=1)
+        self.run_gate(mode='pass', expected=0, recipe='gate-full')
 
     def test_tampered_log_and_other_stage_are_rejected(self):
         failure = self.run_gate()

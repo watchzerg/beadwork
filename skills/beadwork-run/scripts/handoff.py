@@ -86,7 +86,16 @@ def close(dispatch_path, report_path, facts):
     return {'closure_source': evidence.binding(str(path))}
 
 
+def closure_binding(source):
+    """CLI 可直接接收 handoff-close stdout；内部始终使用裸 binding。"""
+    if isinstance(source, dict) and set(source) == {'closure_source'}:
+        source = source['closure_source']
+        evidence.bound(source)
+    return source
+
+
 def check_close(dispatch_path, report_path, source, required=True):
+    source = closure_binding(source)
     repository.require(source or not required, '缺少直接派发者的收尾确认来源')
     if not source:
         return None

@@ -6,6 +6,7 @@ import uuid
 
 import dispatch_contract
 import evidence
+import draft_contracts
 import final_state
 import final_state as fs
 import final_verification as fv
@@ -23,18 +24,17 @@ same_attempt = dispatch_contract.same_attempt
 
 def prepare_attempt(d, head):
     prior = d["prior_finalization"]
-    # 调用输入可以沿用旧 dispatch，但身份只由显式恢复来源继承。
+    # 恢复身份只由显式选择的阶段来源继承。
     for key in ("attempt_id", "attempt_path", "resume_stage", "stage", "models"):
         d.pop(key, None)
     previous = None
     if prior and "stage_path" in prior:
         previous = evidence.read(prior["stage_path"])
-        repository.require(previous.get("finalization_version") in (1, 2), "需要有效的旧最终阶段")
+        repository.require(previous.get("finalization_version") == 2, "需要有效的旧最终阶段")
         for key in ("repository_root", "worktree", "branch", "parent_id", "expected_children"):
             repository.require(previous[key] == d[key], "恢复批次身份变化")
-        if fs.strict(previous):
-            _, selection = fs.selected(previous)
-            d['required_boundary_gates'] = list(dict.fromkeys(d['required_boundary_gates'] + selection['gates']))
+        _, selection = fs.selected(previous)
+        d['required_boundary_gates'] = list(dict.fromkeys(d['required_boundary_gates'] + selection['gates']))
         changed_main = previous["reviewed_main"] != d["reviewed_main"]
         if not changed_main and not d.get("new_attempt_reason"):
             d.update(attempt_id=previous["attempt_id"], attempt_path=previous["attempt_path"],
@@ -47,13 +47,7 @@ def prepare_attempt(d, head):
             d['historical_finalization'] = prior
             d['prior_finalization'] = None
     elif prior:
-        # 保留旧调用契约；导入时再核对原始报告和 fixer/collection 来源。
-        repository.require(all(k in prior for k in ("fix_used", "review_rounds_used", "report_path")), "旧恢复信息不完整")
-        repository.require(not repository.status(d["worktree"]) or prior["fix_used"] is True, "旧 dirty 现场须有已派发 fixer")
-        old = evidence.read(prior["report_path"])
-        repository.require(old.get("parent_id") == d["parent_id"] and old.get("reviewed_main") == d["reviewed_main"]
-                  and old.get("start_head"), "旧最终集成身份不完整")
-        d["start_head"] = old["start_head"]
+        raise ValueError("恢复需要当前阶段的 stage_path")
     else:
         repository.require(not repository.status(d["worktree"]), "首次最终验收需要干净现场")
     if "attempt_id" not in d:
@@ -93,29 +87,28 @@ def models(stage, previous, facts):
 
 def prepare_stage(dispatch_path, facts):
     root = dispatch_contract.dispatch(dispatch_path)
-    repository.require(root["role"] == "finalizer" and root.get("finalization_version") in (1, 2), "需要新版 finalizer dispatch")
+    repository.require(root["role"] == "finalizer" and root.get("finalization_version") == 2, "需要新版 finalizer dispatch")
     repository.topology(root)
     head = repository.sha(root["worktree"], "HEAD")
     repository.git(root["worktree"], "merge-base", "--is-ancestor", root["reviewed_main"], head)
-    if fs.strict(root):
-        value, _, _ = fs.state(root)
-        if value['current'] is not None:
-            chosen = value['stages'][str(value['current'])]
-            path = str(evidence.bound(chosen['dispatch']))
-            repository.require(not facts.get('previous_stage') or facts['previous_stage'] == path, '必须恢复当前最终阶段')
-            old = dispatch_contract.dispatch(path)
-            if facts.get('continuation', 'resume') == 'resume':
-                if chosen['report']:
-                    prior = evidence.read(evidence.bound(chosen['report']['report']))
-                    repository.require(prior['outcome'] in ('blocked', 'interrupted'), '已完成或代码失败阶段不能作为中断恢复')
-                return fs.result(old)
-            repository.require(chosen['report'], '推进阶段需要明确选中的报告')
-            facts = dict(facts, previous_stage=path,
-                         previous_report=str(evidence.bound(chosen['report']['report'])),
-                         previous_receipt=str(evidence.bound(chosen['report']['receipt'])))
-        elif root.get('prior_finalization'):
-            repository.require(root.get('resume_stage') and evidence.read(root['resume_stage']).get('finalization_version') == 2,
-                      '历史 attempt 缺少严格检查点；保留原件，需补齐可证明的选择与验证来源后恢复')
+    value, _, _ = fs.state(root)
+    if value['current'] is not None:
+        chosen = value['stages'][str(value['current'])]
+        path = str(evidence.bound(chosen['dispatch']))
+        repository.require(not facts.get('previous_stage') or facts['previous_stage'] == path, '必须恢复当前最终阶段')
+        old = dispatch_contract.dispatch(path)
+        if facts.get('continuation', 'resume') == 'resume':
+            if chosen['report']:
+                prior = evidence.read(evidence.bound(chosen['report']['report']))
+                repository.require(prior['outcome'] in ('blocked', 'interrupted'), '已完成或代码失败阶段不能作为中断恢复')
+            return fs.result(old)
+        repository.require(chosen['report'], '推进阶段需要明确选中的报告')
+        facts = dict(facts, previous_stage=path,
+                     previous_report=str(evidence.bound(chosen['report']['report'])),
+                     previous_receipt=str(evidence.bound(chosen['report']['receipt'])))
+    elif root.get('prior_finalization'):
+        repository.require(root.get('resume_stage') and evidence.read(root['resume_stage']).get('finalization_version') == 2,
+                  '历史 attempt 缺少严格检查点；保留原件，需补齐可证明的选择与验证来源后恢复')
     previous_path = facts.get("previous_stage", root.get("resume_stage"))
     continuation = facts.get("continuation", "resume")
     repository.require(continuation in ("resume", "repair"), "continuation 必须为 resume 或 repair")
@@ -134,7 +127,7 @@ def prepare_stage(dispatch_path, facts):
     repository.require(not repository.status(root["worktree"]) or stage > 0, "首次验收不能包含 dirty 现场")
     repository.git(root["worktree"], "merge-base", "--is-ancestor", base, head)
     gates = list(root['required_boundary_gates'])
-    if fs.strict(root) and previous:
+    if previous:
         _, selected = fs.selected(previous)
         gates = list(dict.fromkeys(gates + selected['gates']))
     directory = Path(root["attempt_path"]) / ("stage-" + uuid.uuid4().hex)
@@ -152,6 +145,7 @@ def prepare_stage(dispatch_path, facts):
         d["model_override_reason"] = facts["model_override_reason"]
     evidence.write(d["report_schema_path"], report_io.verifier("finalizer", "--schema"))
     evidence.write(d["receipt_schema_path"], report_io.verifier("finalizer", "--receipt-schema"))
+    draft_contracts.publish(d, 'finalizer')
     evidence.write(d["dispatch_path"], d)
     # 已通过 fixer 的同阶段恢复只接续验证/review，不再派 writer。
     fixer_done = False
@@ -160,10 +154,8 @@ def prepare_stage(dispatch_path, facts):
         if worker.get("stage", 1) == stage and result["status"] == "DONE" and result["head_commit"] == head:
             fixer_done = True
     fixer_path = publish_fixer(d, previous, fixer_done)
-    if fs.strict(d):
-        fs.start(d, fixer_path)
-        return fs.result(d)
-    return {"stage_path": d["dispatch_path"], "stage": stage, "models": d["models"], "fixer_dispatch": fixer_path}
+    fs.start(d, fixer_path)
+    return fs.result(d)
 
 
 read_fixer = fixer_reports.read_fixer
@@ -213,7 +205,8 @@ def check_report(expected, report):
         if not new_blocking:
             if d['stage'] == 0:
                 rows = fv.check(d, report)
-                code_failure_evidence = any(row[4] and row[3]['exit_code'] > 0
+                code_failure_evidence = any(row[-1]['gate'] == 'gate-full' and row[2].get('gate_plan') is not None
+                    and row[4] and row[3]['exit_code'] > 0
                     and row[2]['dispatch_path'] == d['dispatch_path'] and row[2]['before']['head'] == report['head_commit'] for row in rows)
             else:
                 code_failure_evidence = bool(fixes and evidence.read(evidence.bound(fixes[-1]['dispatch']))['stage'] == d['stage']
@@ -231,24 +224,15 @@ def check_report(expected, report):
         repository.require(report["status"] == "BLOCKED", "未通过必须 BLOCKED")
 
 
-def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
+def assemble(dispatch_path, draft_path, output_path):
     d = dispatch_contract.dispatch(dispatch_path)
-    repository.require(d.get("finalization_version") in (1, 2) and "stage" in d, "需要最终阶段 dispatch")
-    if fs.strict(d):
-        _, selected = fs.selected(d)
-        selected_reviews = list(d['prior_reviews']) + ([selected['review']] if selected['review'] else [])
-        if reviews:
-            repository.require([evidence.binding(path) for path in reviews] == selected_reviews,
-                      '显式 review 必须与检查点选择完全一致')
-        if fixes is not None:
-            repository.require(fixes == selected['fixes'], '显式 fixer 来源必须与检查点选择完全一致')
-        reviews = [str(evidence.bound(item)) for item in selected_reviews]
-        fixes = selected['fixes']
-    else:
-        repository.require(fixes is not None, 'legacy final assemble 需要显式 fixer 来源')
-    r = evidence.read(draft_path)
-    if fs.strict(d):
-        r['verification_notes'] = {**selected_verification_notes(d), **r.get('verification_notes', {})}
+    repository.require(fs.strict(d) and "stage" in d, "需要当前最终阶段 dispatch")
+    _, selected = fs.selected(d)
+    selected_reviews = list(d['prior_reviews']) + ([selected['review']] if selected['review'] else [])
+    reviews = [str(evidence.bound(item)) for item in selected_reviews]
+    fixes = selected['fixes']
+    r = draft_contracts.read(d, draft_path, 'finalizer')
+    r['verification_notes'] = {**selected_verification_notes(d), **r.get('verification_notes', {})}
     head = repository.sha(d["worktree"], "HEAD")
     r.update(parent_id=d["parent_id"], expected_children=d["expected_children"], reviewed_main=d["reviewed_main"],
              start_head=d["start_head"], head_commit=head, required_gates=d["required_boundary_gates"],
@@ -256,11 +240,10 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
              review_sources=[evidence.binding(path) for path in reviews], fix_sources=fixes,
              review_rounds=[review_evidence.collection(path, dispatch_path)[0] for path in reviews],
              workspace={"branch": d["branch"], "observed_head": head, "clean": not repository.status(d["worktree"])})
-    if fs.strict(d):
-        fs.gates(d, r['boundary_gates'], r['gate_sources'])
-        _, chosen = fs.selected(d)
-        r['boundary_gates'] = chosen['gates']
-        r['gate_sources'] = chosen['gate_sources']
+    fs.gates(d, r['boundary_gates'], r['gate_sources'])
+    _, chosen = fs.selected(d)
+    r['boundary_gates'] = chosen['gates']
+    r['gate_sources'] = chosen['gate_sources']
     current_verification = r["verification"]
     r["verification"] = list(d["prior_verification"])
     for item in d["prior_gate_sources"]:
@@ -280,17 +263,16 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
         r["boundary_gates"] = list(dict.fromkeys(r["boundary_gates"] + fr["boundary_gates"]))
     r["verification"].extend(current_verification)
     r["fix"] = {"used": d["stage"] > 0, "commits": commits, "dispositions": dispositions}
-    if fs.strict(d):
-        inherited = []
-        for source in fixes:
-            fr = evidence.read(evidence.bound(source['report']))
-            inherited += [s for s in fr['verification_sources'] if s not in inherited]
-            r.setdefault('verification_notes', {}).update(fr.get('verification_notes', {}))
-        if d.get('previous_result'):
-            prior = evidence.read(evidence.bound(d['previous_result']))
-            inherited = prior['verification_sources'] + [s for s in inherited if s not in prior['verification_sources']]
-            r.setdefault('verification_notes', {}).update(prior.get('verification_notes', {}))
-        fv.populate(d, r, inherited)
+    inherited = []
+    for source in fixes:
+        fr = evidence.read(evidence.bound(source['report']))
+        inherited += [s for s in fr['verification_sources'] if s not in inherited]
+        r.setdefault('verification_notes', {}).update(fr.get('verification_notes', {}))
+    if d.get('previous_result'):
+        prior = evidence.read(evidence.bound(d['previous_result']))
+        inherited = prior['verification_sources'] + [s for s in inherited if s not in prior['verification_sources']]
+        r.setdefault('verification_notes', {}).update(prior.get('verification_notes', {}))
+    fv.populate(d, r, inherited)
     check_report(d, r)
     output = dispatch_contract.output_path(output_path, Path(dispatch_path).parent)
     evidence.write(output, r)
@@ -298,8 +280,7 @@ def assemble(dispatch_path, draft_path, output_path, reviews, fixes):
     result = {"status": r["status"], "report_path": str(output), "report_sha256": checked["report_sha256"]}
     receipt_path = output.parent / ("result-" + uuid.uuid4().hex + ".json")
     evidence.write(receipt_path, result)
-    if fs.strict(d):
-        fs.select_report(d, output, receipt_path)
+    fs.select_report(d, output, receipt_path)
     return result
 
 
@@ -448,45 +429,7 @@ def initial_stage_sources(root, dispatch_path, facts, head, continuation):
     stage, base, reviews, fixes, history = 0, head, [], [], []
     verification, gate_sources = [], []
     repository.require(not list(Path(root["attempt_path"]).glob("stage-*/dispatch.json")), "已有阶段，不能重新从阶段 0 开始")
-    prior = root.get("prior_finalization")
-    if prior and "fix_used" in prior:
-        legacy = evidence.read(prior["report_path"])
-        repository.require(facts.get("legacy_dispatch") and facts.get("legacy_receipt"), "导入须提供旧 dispatch 和 receipt")
-        old_dispatch = dispatch_contract.dispatch(facts["legacy_dispatch"])
-        repository.require(old_dispatch["role"] == "finalizer" and not old_dispatch.get("finalization_version"), "需要旧格式 finalizer 来源")
-        for key in ("parent_id", "branch", "repository_root", "worktree", "reviewed_main", "start_head", "expected_children"):
-            repository.require(old_dispatch[key] == root[key] and (key not in legacy or legacy[key] == root[key]), "旧最终集成范围不符")
-        report_io.verifier("finalizer", "--check-report", prior["report_path"], facts["legacy_receipt"], "--expected", facts["legacy_dispatch"])
-        repository.require(legacy.get("parent_id") == root["parent_id"] and legacy.get("reviewed_main") == root["reviewed_main"], "旧报告身份不符")
-        repository.require(legacy["status"] == "BLOCKED", "旧成功报告应验收交付")
-        repository.require(type(prior["fix_used"]) is bool and prior["fix_used"] == legacy["fix"]["used"], "旧修复额度不符")
-        stage = int(prior["fix_used"])
-        paths = facts.get("legacy_reviews", [])
-        repository.require(len(paths) == prior["review_rounds_used"] == len(legacy["review_rounds"]), "必须提供全部旧 review 来源")
-        for path, pair in zip(paths, legacy["review_rounds"]):
-            repository.require(review_evidence.collection(path, dispatch_path)[0] == pair, "旧 review 来源不符")
-        reviews = [evidence.binding(path) for path in paths]
-        fixes = facts.get("legacy_fixes", [])
-        if stage:
-            fixer = evidence.read(facts["legacy_fixer_dispatch"])
-            repository.require(fixer["parent_id"] == root["parent_id"] and fixer["branch"] == root["branch"], "旧 fixer 身份不符")
-            base = fixer["base_commit"]
-        verification, gate_sources = legacy["verification"], legacy["gate_sources"]
-        imported_commits = []
-        for source in fixes:
-            _, _, commits = read_fixer(source, dict(root, stage=stage))
-            imported_commits += [commit for commit in commits if commit not in imported_commits]
-        repository.require(imported_commits == legacy["fix"]["commits"], "旧修复提交缺少完整 fixer 来源")
-        if len(reviews) == stage + 1 and legacy["review_rounds"] and any(
-            finding["blocking"] for axis in legacy["review_rounds"][-1].values() for finding in axis["findings"]
-        ):
-            repository.require(continuation == "repair", "旧完整 blocking review 必须进入下一阶段")
-        if continuation == "repair":
-            repository.require(facts.get("legacy_code_failure_reason"), "旧报告进入下一修复阶段需代码失败依据")
-            stage += 1
-            base = head
-    else:
-        repository.require(continuation == "resume", "首次验收不能跳过阶段 0")
+    repository.require(continuation == "resume", "首次验收不能跳过阶段 0")
     return {'previous': previous, 'report': report, 'stage': stage, 'base': base, 'reviews': reviews, 'fixes': fixes, 'history': history, 'verification': verification, 'gate_sources': gate_sources}
 
 
@@ -502,10 +445,9 @@ def publish_fixer(d, previous, fixer_done):
               "report_schema_path": str(folder / "report-schema.json"), "receipt_schema_path": str(folder / "receipt-schema.json")}
         for name, flag in (("report_schema_path", "--schema"), ("receipt_schema_path", "--receipt-schema")):
             evidence.write(fd[name], report_io.load_command([sys.executable, "-B", report_io.SCRIPTS / "verify-worker.py", flag, "fixer"]))
-        fd["self_check_argv"] = [sys.executable, "-B", str(report_io.SCRIPTS / "verify-worker.py"), "--check-report", "fixer", fd["report_path"], "--expected", fd["dispatch_path"], "--emit-receipt"]
-        if fs.strict(d):
-            fd['self_check_argv'] = [sys.executable, '-B', str(report_io.SCRIPTS / 'executor-operations.py'),
-                                    'fixer-check', '--dispatch', fd['dispatch_path'], '--report', fd['report_path']]
+        fd['self_check_argv'] = [sys.executable, '-B', str(report_io.SCRIPTS / 'executor-operations.py'),
+                                'fixer-check', '--dispatch', fd['dispatch_path'], '--report', fd['report_path']]
+        draft_contracts.publish(fd, 'fixer')
         evidence.write(fd["dispatch_path"], fd)
         fixer_path = fd["dispatch_path"]
     return fixer_path

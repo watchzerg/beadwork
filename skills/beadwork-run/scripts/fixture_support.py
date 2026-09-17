@@ -1,4 +1,4 @@
-"""共享临时证据与历史 stage fixture；不包含测试用例或真实项目数据。"""
+"""共享临时证据与工具级 stage fixture；不包含测试用例或真实项目数据。"""
 
 from pathlib import Path
 import json
@@ -10,7 +10,7 @@ import gate_repair
 import handoff
 import report_io
 import repository
-import ticket_execution
+import workflow_policy
 
 SCRIPT = Path(__file__).with_name("controller.py")
 
@@ -39,7 +39,13 @@ def prepare_utility_stage(data):
             repository.require(d["test_mode"] == previous["test_mode"] and d["approved_seams"] == previous["approved_seams"], "恢复须沿用已调整计划")
             d["plan_adjustment"] = previous["plan_adjustment"]
         d["verification_dispatches"] = list(dict.fromkeys(previous.get("verification_dispatches", []) + [d["previous_dispatch"]]))
-    ticket_execution.prepare_legacy_stage(d, head)
+    number = d.pop('fixture_stage', 0)
+    levels = dict(zip(workflow_policy.MODEL_ROLES, workflow_policy.STAGE_MODELS[number]))
+    if d.get('complex_ticket'):
+        levels['executor'] = 2
+        levels['standards'] = max(levels['standards'], 1)
+    d.update(stage=number, start_head=head, prior_reviews=d.pop('fixture_reviews', []),
+             models={role: workflow_policy.MODEL_LEVELS[level] for role, level in levels.items()})
     folder = Path(root) / ".worktrees/.evidence" / d["parent_id"] / uuid.uuid4().hex
     folder.mkdir(parents=True)
     d.update(dispatch_path=str(folder / "dispatch.json"), report_path=str(folder / "report.json"),

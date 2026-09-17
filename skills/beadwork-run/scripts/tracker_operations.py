@@ -60,6 +60,16 @@ def comment_text(row):
                  if isinstance(row.get(key), str)), "")
 
 
+def matching_comment(rows, marker):
+    matches = [row for row in rows if marker in comment_text(row)]
+    require(len(matches) <= 1, "comment marker 匹配不唯一")
+    if not matches:
+        return None
+    value = matches[0].get('id')
+    require(type(value) in (str, int) and str(value).strip(), "comment 缺少实际 ID")
+    return str(value)
+
+
 def prepare(input_path, output):
     value = evidence.read(input_path)
     require(set(value) <= {"repository_root", "parent_id", "issue_id", "kind", "body",
@@ -125,7 +135,7 @@ def execute(intent_path):
                 execution_plan.record_progress(root, intent['parent_id'], issue_id, 'started', evidence.binding(path))
             write_result = command(root, "update", issue_id, "--claim")
     elif kind == "comment":
-        already = any(marker in comment_text(row) for row in comments(root, issue_id))
+        already = matching_comment(comments(root, issue_id), marker) is not None
         if not already:
             body_path = path.with_name(path.stem + "-body.txt")
             body = intent["body"].rstrip() + "\n\n<!-- " + marker + " -->\n"
@@ -145,12 +155,15 @@ def execute(intent_path):
         if intent.get("expected_assignee"):
             require(after.get("assignee") == intent["expected_assignee"], "claim assignee 不符")
     elif kind == "comment":
-        require(any(marker in comment_text(row) for row in comments(root, issue_id)), "comment 写入结果未知")
+        comment_id = matching_comment(comments(root, issue_id), marker)
+        require(comment_id is not None, "comment 写入结果未知")
     else:
         require(after.get("status") == "closed", "close 未读回")
     result = {"intent_sha256": evidence.digest(path), "kind": kind, "issue_id": issue_id,
               "already_applied": already, "before": before, "after": after,
               "write_exit_code": None if write_result is None else write_result["exit_code"]}
+    if kind == 'comment':
+        result['comment_id'] = comment_id
     evidence.write(result_path, result)
     if kind == 'close' and issue_id != intent['parent_id'] and execution_plan.selected(root, intent['parent_id'], False):
         execution_plan.record_progress(root, intent['parent_id'], issue_id, 'closed', evidence.binding(path))

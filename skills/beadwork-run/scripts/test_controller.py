@@ -39,6 +39,7 @@ class ControllerTests(unittest.TestCase):
         self.put(self.root / "parent.json", [{"id": "test", "status": "closed"}])
         self.put(self.root / "comments.json", [])
         self.counter = 0
+        self.delivery_result = self.root / "missing-delivery.json"
 
     def put(self, path, value):
         Path(path).write_text(json.dumps(value, ensure_ascii=False))
@@ -78,23 +79,6 @@ class ControllerTests(unittest.TestCase):
             d["sync_result"] = self.put(folder / "ready.json", {
                 "head": self.h.git(self.wt, "rev-parse", "HEAD"), "commands": [],
                 "intent_sha256": hashlib.sha256((folder / "intent.json").read_bytes()).hexdigest()})
-        if role == "executor" and d["mode"] == "resume" and "previous_dispatch" not in d:
-            # 旧票 fixture：已存在实现 commit，但尚未完成 review。
-            self.counter += 1
-            directory = self.root / f"legacy-{self.counter}"
-            directory.mkdir()
-            previous = directory / "dispatch.json"
-            old = dict(d, role="executor", repository_root=str(self.primary), worktree=str(self.wt),
-                       branch="implement/test", dispatch_path=str(previous), report_path=str(directory / "report.json"))
-            self.put(previous, old)
-            report = dict(self.h.report, status="BLOCKED", review=None, blockers=["会话中断"],
-                          acceptance=[], verification=[], test_plan=None)
-            report_path = directory / "report.json"
-            self.put(report_path, report)
-            receipt = directory / "receipt.json"
-            self.put(receipt, {"status": "BLOCKED", "report_path": str(report_path),
-                              "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()})
-            d.update(previous_dispatch=str(previous), previous_report=str(report_path), previous_receipt=str(receipt))
         if role == 'executor' and d['mode'] == 'new' and not getattr(self, 'utility_fixture', True):
             # 用公开 prepare/accept 构造已核实的准入来源，不以字符串模拟来源绑定。
             value = {'ticket_order': [d['ticket_id']]}
@@ -199,7 +183,15 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.merge_record = self.dispatch.parent / "merge.json"
 
     def merge(self, ok=True):
-        return self.call("merge", "--acceptance", self.acceptance, "--comment-id", "7", "--output", self.merge_record, ok=ok)
+        result = self.call("merge", "--acceptance", self.acceptance, "--comment-id", "7", "--output", self.merge_record, ok=ok)
+        if ok:
+            request = self.root / 'push-skip.json'
+            self.put(request, {'merge_record': evidence.binding(self.merge_record), 'policy': {
+                'git': {'action': 'skip', 'reason': 'fixture 只验证本地流程'},
+                'beads': {'action': 'skip', 'reason': 'fixture 只验证本地流程'}}})
+            delivered = self.call('push', '--input', request)
+            self.delivery_result = Path(delivered['delivery_result']['path'])
+        return result
 
     def test_prepare_resume_preserves_base_and_unique_evidence(self):
         first = self.prepare()
@@ -323,9 +315,9 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
     def test_full_merge_cleanup_and_repeat_cleanup(self):
         self.ready(); self.merge()
         self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.head)
-        self.call("cleanup", "--merge-record", self.merge_record)
+        self.call("cleanup", "--merge-record", self.merge_record, "--delivery-result", self.delivery_result)
         self.assertFalse(self.wt.exists())
-        self.call("cleanup", "--merge-record", self.merge_record)
+        self.call("cleanup", "--merge-record", self.merge_record, "--delivery-result", self.delivery_result)
         self.assertTrue(self.report.exists())
 
     def test_missing_integration_comment_blocks_merge(self):
@@ -342,20 +334,20 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
     def test_cleanup_parent_open_preserves_worktree(self):
         self.ready(); self.merge()
         self.put(self.root / "parent.json", [{"id": "test", "status": "in_progress"}])
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
+        self.call("cleanup", "--merge-record", self.merge_record, "--delivery-result", self.delivery_result, ok=False)
         self.assertTrue(self.wt.exists())
 
     def test_cleanup_dirty_preserves_changes(self):
         self.ready(); self.merge()
         (self.wt / "behavior.txt").write_text("new work")
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
+        self.call("cleanup", "--merge-record", self.merge_record, "--delivery-result", self.delivery_result, ok=False)
         self.assertEqual((self.wt / "behavior.txt").read_text(), "new work")
 
     def test_cleanup_branch_moved_preserves_commit(self):
         self.ready(); self.merge()
         (self.wt / "behavior.txt").write_text("new commit")
         self.h.git(self.wt, "add", "."); self.h.git(self.wt, "commit", "-m", "new")
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
+        self.call("cleanup", "--merge-record", self.merge_record, "--delivery-result", self.delivery_result, ok=False)
         self.assertTrue(self.wt.exists())
 
     def test_merge_retry_uses_existing_checkpoint(self):
@@ -398,7 +390,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
     def test_cleanup_after_worktree_already_removed(self):
         self.ready(); self.merge()
         self.h.git(self.primary, "worktree", "remove", str(self.wt))
-        self.call("cleanup", "--merge-record", self.merge_record)
+        self.call("cleanup", "--merge-record", self.merge_record, "--delivery-result", self.delivery_result)
         self.assertFalse(self.h.git(self.primary, "branch", "--list", "implement/test"))
 
     def test_wrong_integration_identity_blocks_merge(self):
@@ -421,7 +413,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.merge(ok=False)
         self.assertTrue(self.merge_record.is_file())
         self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
+        self.call("cleanup", "--merge-record", self.merge_record, "--delivery-result", self.delivery_result, ok=False)
         self.assertTrue(self.wt.exists())
         fail_flag.unlink()
         self.merge()

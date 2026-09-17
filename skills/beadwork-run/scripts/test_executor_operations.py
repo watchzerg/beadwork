@@ -96,21 +96,6 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.h.put(self.h.receipt, receipt)
         self.h.accept()
 
-    def test_external_blocking_review_delivers_but_cannot_enter_repair(self):
-        collection = self.collect(self.round(blocking=True))
-        receipt, report = self.assemble([collection], status="BLOCKED", outcome="blocked")
-        self.h.report = report
-        self.h.receipt = self.directory / "receipt.json"
-        self.h.put(self.h.receipt, receipt)
-        self.h.accept()
-        result = self.h.call("prepare", "executor", "--input", self.h.put(
-            self.h.root / "external-repair.json", {
-                **self.h.d, "mode": "resume", "continuation": "repair",
-                "previous_dispatch": str(self.dispatch), "previous_report": str(report),
-                "previous_receipt": str(self.h.receipt),
-            }), ok=False)
-        self.assertIn("code_failure", result["error"])
-
     def test_missing_axis_does_not_create_collection(self):
         data = self.round()
         self.h.put(data[1], {"standards": data[2]["standards"]})
@@ -197,13 +182,11 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.assemble([initial, final, final], ok=False)
 
     def test_finalizer_uses_reviewed_main(self):
-        self.h.prepare("finalizer")
-        # 此工具级用例使用既有 v1 root；v2 的阶段准入由 test_handoff 覆盖。
-        self.h.d['finalization_version'] = 1
-        self.h.put(self.h.dispatch, self.h.d)
-        self.dispatch = self.h.dispatch
-        collected = self.collect(self.round())
-        self.assertEqual(json.loads(collected.read_text())["pair"]["spec"]["reviewed_base"], self.h.h.base)
+        import test_finalization
+        f = test_finalization.FinalizationTests(); f.setUp(); self.addCleanup(f.doCleanups)
+        stage = f.stage(); f.gate(stage)
+        collected = f.review(stage)
+        self.assertEqual(json.loads(collected.read_text())["pair"]["spec"]["reviewed_base"], f.h.h.base)
 
     def test_existing_output_is_not_overwritten(self):
         data = self.round()
@@ -261,121 +244,16 @@ class ExecutorOperationsTests(unittest.TestCase):
             "--output", output, "--review", collected)
         self.assertEqual(json.loads(output.read_text())["test_plan"]["approved_seams"], [])
 
-    def continue_stage(self, receipt=None, report=None, continuation="resume", ok=True, **overrides):
-        data = json.loads(self.dispatch.read_text())
-        data.update(mode="resume", previous_dispatch=str(self.dispatch), continuation=continuation)
-        for key in ("previous_report", "previous_receipt", "legacy_reviews", "legacy_code_failure_reason"):
-            data.pop(key, None)
-        if report:
-            receipt_path = self.directory / f"stage-receipt-{self.serial}.json"
-            self.h.put(receipt_path, receipt)
-            data.update(previous_report=str(report), previous_receipt=str(receipt_path))
-        data.update(overrides)
-        self.serial += 1
-        input_path = self.h.root / f"stage-input-{self.serial}.json"
-        self.h.put(input_path, data)
-        result = self.h.call("prepare", "executor", "--input", input_path, ok=ok)
-        if ok:
-            self.dispatch = Path(result["dispatch_path"])
-            self.directory = self.dispatch.parent
-            self.h.dispatch = self.dispatch
-            self.h.d = json.loads(self.dispatch.read_text())
-        return result
 
-    def commit_fix(self, number):
-        (self.h.wt / "behavior.txt").write_text(f"修复 {number}")
-        self.h.h.git(self.h.wt, "add", ".")
-        self.h.h.git(self.h.wt, "commit", "-m", f"test-1 修复 {number}")
 
-    def test_six_stages_preserve_all_rounds_and_pass(self):
-        tm, th, sm = ("gpt-5.6-terra", "medium"), ("gpt-5.6-terra", "high"), ("gpt-5.6-sol", "medium")
-        expected = [
-            [tm, tm, sm], [tm, th, sm], [th, th, sm],
-            [th, sm, sm], [sm, sm, sm], [sm, sm, sm],
-        ]
-        reviews = []
-        for stage in range(6):
-            d = json.loads(self.dispatch.read_text())
-            self.assertEqual(d["stage"], stage)
-            self.assertEqual([(d["models"][role]["model"], d["models"][role]["reasoning_effort"])
-                              for role in ("executor", "standards", "spec")], expected[stage])
-            data = self.round(blocking=stage < 5)
-            for axis in ("standards", "spec"):
-                identity = json.loads((data[0].parent / axis / "dispatch.json").read_text())
-                self.assertEqual((identity["model"], identity["reasoning_effort"]), expected[stage][1 if axis == "standards" else 2])
-            reviews.append(self.collect(data))
-            receipt, report = self.assemble(reviews, status="BLOCKED" if stage < 5 else "DONE",
-                                            outcome="code_failure" if stage < 5 else "passed")
-            if stage < 5:
-                self.continue_stage(receipt, report, "repair")
-                self.commit_fix(stage + 1)
-        value = json.loads(report.read_text())
-        self.assertEqual(value["stage"], 5)
-        self.assertEqual(value["review"]["attempts"], 6)
-        self.assertEqual(len(value["review"]["rounds"]), 6)
-        self.h.report = report
-        self.h.receipt = self.directory / "final-receipt.json"
-        self.h.put(self.h.receipt, receipt)
-        self.h.accept()
-        self.continue_stage(receipt, report, "repair", ok=False)
 
-    def test_gate_failures_exhaust_stages_without_reviews(self):
-        for stage in range(6):
-            self.assertEqual(json.loads(self.dispatch.read_text())["stage"], stage)
-            receipt, report = self.assemble(status="BLOCKED", outcome="code_failure")
-            self.assertIsNone(json.loads(report.read_text())["review"])
-            if stage < 5:
-                self.continue_stage(receipt, report, "repair")
-        before = self.h.h.git(self.h.wt, "rev-parse", "HEAD")
-        error = self.continue_stage(receipt, report, "repair", ok=False)
-        self.assertIn("六阶段已用尽", error["error"])
-        self.assertEqual(self.h.h.git(self.h.wt, "rev-parse", "HEAD"), before)
 
-    def test_interruption_and_correction_keep_stage_but_code_failure_advances(self):
-        receipt, report = self.assemble(status="BLOCKED", outcome="code_failure")
-        self.continue_stage(receipt, report, "resume", ok=False)
-        self.continue_stage(receipt, report, "repair")
-        (self.h.wt / "unfinished.txt").write_text("未完成")
-        for _ in range(3):
-            receipt, report = self.assemble(status="BLOCKED", outcome="interrupted")
-            self.continue_stage(receipt, report)
-            self.assertEqual(json.loads(self.dispatch.read_text())["stage"], 1)
-        # 无回执的宿主中断也只能续接同阶段。
-        self.continue_stage()
-        self.assertEqual(json.loads(self.dispatch.read_text())["stage"], 1)
-        self.assertEqual((self.h.wt / "unfinished.txt").read_text(), "未完成")
 
     def test_blocked_review_cannot_be_disguised_as_interruption(self):
         review = self.collect(self.round(blocking=True))
         self.assemble([review], status="BLOCKED", outcome="interrupted", ok=False)
 
-    def test_history_omission_and_duplicate_rounds_rejected(self):
-        first = self.collect(self.round(blocking=True))
-        receipt, report = self.assemble([first], status="BLOCKED", outcome="code_failure")
-        self.continue_stage(receipt, report, "repair")
-        self.commit_fix(1)
-        second = self.collect(self.round())
-        self.assemble([second], ok=False)
-        self.assemble([first, first, second], ok=False)
-        self.assemble([second, first], ok=False)
-        self.assemble([first, second])
 
-    def test_complex_start_and_upgrade_never_downgrade(self):
-        # 新票的复杂度提高模型起点，但阶段仍为 0。
-        self.h.prepare(mode="new", complex_ticket=True)
-        self.dispatch = self.h.dispatch; self.directory = self.dispatch.parent
-        d = json.loads(self.dispatch.read_text())
-        self.assertEqual(d["stage"], 0)
-        self.assertEqual(d["models"]["executor"]["model"], "gpt-5.6-sol")
-        self.assertEqual(d["models"]["standards"]["reasoning_effort"], "high")
-        self.continue_stage()
-        self.assertEqual(json.loads(self.dispatch.read_text())["models"], d["models"])
-        upgrade = {"standards": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}}
-        self.continue_stage(model_overrides=upgrade, model_override_reason="契约分歧")
-        self.continue_stage(model_overrides={})
-        self.assertEqual(json.loads(self.dispatch.read_text())["models"]["standards"], upgrade["standards"])
-        self.continue_stage(model_overrides={"executor": {"model": "gpt-5.6-terra", "reasoning_effort": "medium"}},
-                            model_override_reason="不应降档", ok=False)
 
     def test_same_head_report_correction_does_not_consume_stage(self):
         data = self.round(blocking=True)
@@ -401,32 +279,7 @@ class ExecutorOperationsTests(unittest.TestCase):
         value = json.loads(corrected.read_text())
         self.assertEqual((value["stage"], value["review"]["attempts"]), (0, 1))
         self.assertEqual(report.read_bytes(), original_bytes)
-        self.continue_stage(receipt, corrected, "repair", ok=False)
 
-    def test_legacy_two_rounds_import_without_reset_or_rewriting(self):
-        d = json.loads(self.dispatch.read_text())
-        for key in ("stage", "models", "prior_reviews"):
-            d.pop(key)
-        self.h.put(self.dispatch, d)
-        first = self.collect(self.round(blocking=True))
-        self.commit_fix(1)
-        second = self.collect(self.round(blocking=True))
-        _, report = self.assemble([first, second], status="BLOCKED", outcome="code_failure")
-        old = json.loads(report.read_text())
-        old["review"].pop("rounds"); old["review"].pop("sources")
-        legacy_report = self.directory / "legacy-report.json"
-        self.h.put(legacy_report, old)
-        before = legacy_report.read_bytes()
-        receipt = {"status": "BLOCKED", "report_path": str(legacy_report),
-                   "report_sha256": hashlib.sha256(before).hexdigest()}
-        result = self.continue_stage(receipt, legacy_report, "repair", legacy_reviews=[str(first), str(second)],
-                                     legacy_code_failure_reason="旧复审仍有代码缺陷")
-        self.assertEqual(result["stage"], 2)
-        self.commit_fix(2)
-        third = self.collect(self.round())
-        _, final = self.assemble([first, second, third])
-        self.assertEqual(json.loads(final.read_text())["review"]["attempts"], 3)
-        self.assertEqual(legacy_report.read_bytes(), before)
 
     def context_fixture(self):
         self.h.put(self.h.root / "ticket.json", [{"id": "test-1", "status": "in_progress",

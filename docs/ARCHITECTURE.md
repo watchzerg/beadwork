@@ -4,7 +4,7 @@
 
 ## 总体关系
 
-一个 parent 对应一个批次：**准入检查 → 串行完成 tickets → 最终验证与修复 → 合入本地 main 并收尾**。
+一个 parent 对应一个批次：**准入检查 → 串行完成 tickets → 最终验证与修复 → 合入本地 main → 推送 Git 与 Beads → 清理**。
 
 下图箭头表示直接派发关系；子角色向派发者交付结果。controller 是顶层协调者，由 skill 主流程承担。
 
@@ -26,7 +26,7 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 
 | 角色与规则入口 | 负责什么 | 交付给谁 |
 | --- | --- | --- |
-| [controller](../skills/beadwork-run/SKILL.md) | 选择、领取、关闭 tickets；环境准备、Git/worktree 生命周期、整票与最终交付验收、集成收尾；独占 Beads 写入 | 用户 |
+| [controller](../skills/beadwork-run/SKILL.md) | 选择、领取、关闭 tickets；环境准备、Git/worktree 生命周期、整票与最终交付验收、集成、远端推送与收尾；独占 Beads 写入 | 用户 |
 | [preflight](../skills/beadwork-run/agents/preflight.md) | 固定 children 范围，核对工具链、recipes、spec/Test plan 和恢复事实；只写证据 | controller：`READY` / `BLOCKED` |
 | [executor](../skills/beadwork-run/agents/ticket-executor.md) | 协调整张 ticket；管理 stages、计划适配、实现语义验收与双轴 review；只写证据 | controller：`DONE` / `NEEDS_CONTEXT` / `BLOCKED` |
 | [implementer](../skills/beadwork-run/agents/implementer.md) | 当前 stage 的源码实现、测试、分层提交和交付 gates；自行处理阶段内 gate-fix | executor：实现结果与验证证据 |
@@ -71,6 +71,6 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 
 `handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排。`test_module_boundaries.py` 检查 import 回路、依赖方向、schema 冷启动和安装 symlink 入口。
 
-源码拆分的范围与验证结果见[实施方案](script-modularization-plan.md)及[验收记录](script-modularization-acceptance.md)。`batch_initialize.py` 仍为辅助入口，默认初始化路线继续以现行 controller 协议为准。
+源码拆分的范围与验证结果见[实施方案](script-modularization-plan.md)及[验收记录](script-modularization-acceptance.md)。正常流程的后续精简见[改造计划](normal-flow-simplification-plan.md)：初始化由 `batch_initialize.py` 完整执行；推送返回交付结果，清理校验该结果；角色只填写生成的 draft 输入契约。
 
 串行顺序由 parent 的 `ticket_order` 区块声明；`execution_plan.py` 负责解析、依赖与状态校验、批次计划来源链，`plan-operations.py` 提供发布和显式接纳入口。`expected_children` 仍表示成员集合。详见[串行规划契约](../skills/beadwork-run/references/serial-planning.md)。

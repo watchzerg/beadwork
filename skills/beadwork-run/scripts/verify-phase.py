@@ -15,6 +15,7 @@ import os
 import re
 import sys
 from typing import Any, Dict, List
+import draft_contracts
 import schema_validation
 import review_schema
 import workflow_policy
@@ -51,16 +52,7 @@ def receipt_schema(phase: str) -> Dict[str, Any]:
     })
 
 
-def plan_schema() -> Dict[str, Any]:
-    return object_schema({
-        "mode": {"enum": ["TDD", "direct_verification"]},
-        "approved_seams": {"type": "array", "items": TEXT, "uniqueItems": True},
-        "boundary_gates": {"type": "array", "items": TEXT, "uniqueItems": True},
-        "observable_behavior": nullable(TEXT),
-        "expected_red": nullable(TEXT),
-        "reason": nullable(TEXT),
-        "verification": nullable(TEXT),
-    })
+plan_schema = draft_contracts.plan_schema
 
 
 def preflight_schema() -> Dict[str, Any]:

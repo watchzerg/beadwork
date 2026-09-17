@@ -107,7 +107,6 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         draft = dict(self.draft(outcome), stopped_tasks=True, **changes)
         output = self.file('unused', {}, self.sd.parent); output.unlink()
         argv = ['ticket-assemble', '--dispatch', self.sd, '--draft', self.file('stage-draft', draft), '--output', output]
-        for review in reviews: argv += ['--review', review]
         result = self.cli('executor-operations.py', *argv, ok=ok)
         if ok: self.stage_report = output
         return result
@@ -133,6 +132,16 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assemble([self.review()])
         self.deliver()
         self.stage(ok=False)
+
+    def test_implementer_accepts_wrapped_closure(self):
+        self.commit(); self.gate(); self.gate('gate-demo')
+        self.implement(accept=False)
+        from test_controller import closure_source
+        cp = closure_source(self.wd, self.writer_report)
+        self.h.put(cp, {'closure_source': json.loads(cp.read_text())})
+        result = self.cli('executor-operations.py', 'implementer-accept', '--dispatch', self.sd,
+                          '--report', self.writer_report, '--receipt', self.writer_receipt, '--closure', cp)
+        self.assertTrue(result['accepted'])
 
     def test_stage_assemble_uses_checkpoint_selected_review(self):
         self.ready_writer()
@@ -307,14 +316,25 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         review = e.collect(round_data)
         self.assemble([review]); self.deliver()
 
-    def test_history_omission_and_duplicate_review_rejected(self):
-        self.ready_writer()
+    def test_review_history_is_selected_without_manual_arguments(self):
+        self.stage(); self.ready_writer()
         first = self.review(blocking=True)
-        self.assemble([first], 'code_failure'); self.stage('repair')
-        self.ready_writer(); second = self.review()
-        self.assemble([second], ok=False)
-        self.assemble([first, first, second], ok=False)
-        self.assemble([first, second]); self.deliver()
+        self.assemble(outcome='code_failure'); self.stage('repair'); self.ready_writer()
+        second = self.review()
+        self.assemble()
+        report = json.loads(self.stage_report.read_text())
+        self.assertEqual([x['path'] for x in report['review']['sources']], [str(first), str(second)])
+
+    def test_draft_rejects_mechanical_fields_before_writing_report(self):
+        draft = dict(self.draft('blocked'), verification_notes={}, stopped_tasks=False,
+                     required_boundary_gates=[], head_commit=self.h.h.base)
+        output = self.wd.parent / 'injected-report.json'
+        before = set(self.root_dispatch.parent.glob('checkpoint-*'))
+        error = self.cli('executor-operations.py', 'implementer-assemble', '--dispatch', self.wd,
+                         '--draft', self.file('injected-draft', draft), '--output', output, ok=False)
+        self.assertIn('head_commit', error['error'])
+        self.assertFalse(output.exists())
+        self.assertEqual(set(self.root_dispatch.parent.glob('checkpoint-*')), before)
 
     def test_extra_boundary_gate_survives_stage_transition(self):
         fake = self.h.root / 'bin/just'

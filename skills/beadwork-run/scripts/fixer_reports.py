@@ -5,6 +5,7 @@ import sys
 
 import dispatch_contract
 import evidence
+import draft_contracts
 import final_state as fs
 import final_verification as fv
 import handoff
@@ -70,13 +71,12 @@ def fixer_check(dispatch_path, report_path, receipt_path=None, live=True):
 def fixer_assemble(dispatch_path, draft_path, output):
     d = dispatch_contract.dispatch(dispatch_path)
     repository.require(d['role'] == 'fixer' and fs.strict(d), '需要新版 fixer dispatch')
-    r = evidence.read(draft_path)
+    r = draft_contracts.read(d, draft_path, 'fixer')
     head = repository.sha(d['worktree'], 'HEAD')
     r.update(stage=d['stage'], attempt_id=d['attempt_id'], parent_id=d['parent_id'], branch=d['branch'],
              base_commit=d['base_commit'], head_commit=head,
              fix_commits=repository.git(d['worktree'], 'rev-list', '--reverse', d['base_commit'] + '..' + head).splitlines(),
              worktree_clean=not repository.status(d['worktree']))
-    r.pop('fix_commit', None)
     fv.populate(d, r)
     target = dispatch_contract.output_path(output, Path(dispatch_path).parent)
     evidence.write(target, r)

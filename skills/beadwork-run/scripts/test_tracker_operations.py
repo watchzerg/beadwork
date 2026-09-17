@@ -59,11 +59,26 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
 
     def test_comment_marker_prevents_duplicate_after_lost_local_result(self):
         path = self.intent("comment", body="阶段完成")
-        tracker.execute(path)
+        first = tracker.execute(path)
+        self.assertEqual(first['comment_id'], '1')
+        self.assertEqual(first, tracker.execute(path))
         path.with_name(path.stem + "-result.json").unlink()
         result = tracker.execute(path)
         self.assertTrue(result["already_applied"])
+        self.assertEqual(result['comment_id'], first['comment_id'])
         self.assertEqual(len(json.loads(self.state.read_text())["comments"]), 1)
+
+    def test_duplicate_marker_and_missing_id_are_rejected(self):
+        path = self.intent('comment', body='发布')
+        tracker.execute(path)
+        result_path = path.with_name(path.stem + '-result.json')
+        result_path.unlink()
+        state = json.loads(self.state.read_text())
+        original = state['comments'][0]
+        for rows in ([original, dict(original, id=2)], [{'text': original['text']}]):
+            state['comments'] = rows; self.state.write_text(json.dumps(state))
+            with self.assertRaises(ValueError): tracker.execute(path)
+            self.assertFalse(result_path.exists())
 
     def test_close_requires_bound_prerequisite_and_reads_back(self):
         report = self.root / "accepted.json"; evidence.write(report, {"kind": "mechanical_acceptance"})

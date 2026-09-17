@@ -6,6 +6,7 @@ import subprocess
 import sys
 import unittest
 import evidence
+import draft_contracts
 
 import test_finalization as fixture
 
@@ -26,13 +27,128 @@ class HandoffTests(unittest.TestCase):
         self.f.assemble = self.assemble
         self.f.done_fixer = self.done_fixer
 
-    def run_gate(self, dispatch, recipe='gate-full', failed=False, parameters=(), interrupted=False):
+    def run_gate(self, dispatch, recipe='gate-full', failed=False, parameters=(), interrupted=False, delivery=True):
         result = subprocess.run([sys.executable, '-B', str(fixture.OPS.with_name('run-verification.py')),
-            '--dispatch', str(dispatch), '--recipe', recipe, '--delivery', *(['--', *parameters] if parameters else [])],
+            '--dispatch', str(dispatch), '--recipe', recipe, *(['--delivery'] if delivery else []),
+            *(['--', *parameters] if parameters else [])],
             cwd=self.f.h.root, env=dict(self.f.h.env, GATE_EXIT='1' if failed else '0',
                                       GATE_INTERRUPT='1' if interrupted else ''), text=True, capture_output=True)
         self.assertEqual(result.returncode, 3 if interrupted else 1 if failed else 0, result.stdout + result.stderr)
         return Path(json.loads(result.stdout)['run_path'])
+
+    def test_finalizer_rejects_auxiliary_calls_before_recording(self):
+        stage = self.f.stage()
+        for recipe in ('test', 'typecheck', 'gate-browser', 'gate-full'):
+            with self.subTest(recipe=recipe):
+                result = subprocess.run([sys.executable, '-B', str(fixture.OPS.with_name('run-verification.py')),
+                    '--dispatch', str(stage), '--recipe', recipe], cwd=self.f.h.root,
+                    env=self.f.h.env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn('finalizer 只采集', result.stderr)
+                self.assertEqual(list(stage.parent.glob('verification-*')), [])
+
+    def historical_auxiliary(self, stage, failed=False, unknown=False):
+        # 构造旧采集器允许的辅助记录，重算绑定；不改动真实执行证据。
+        run = self.run_gate(stage, failed=failed)
+        start = json.loads((run / 'started.json').read_text())
+        start['argv'][-1] = 'gate-browser'
+        start.pop('gate_plan')
+        self.f.put(run / 'started.json', start)
+        result = json.loads((run / 'result.json').read_text())
+        result['started_sha256'] = evidence.digest(run / 'started.json')
+        self.f.put(run / 'result.json', result)
+        if unknown:
+            (run / 'result.json').unlink()
+        return run
+
+    def test_historical_auxiliary_and_full_survive_delivery(self):
+        stage = self.f.stage()
+        auxiliary = self.historical_auxiliary(stage)
+        original = (auxiliary / 'started.json').read_bytes()
+        self.f.call('review-prepare', '--dispatch', stage, ok=False)
+        self.gates(stage)
+        review = self.original_review(stage)
+        report, _ = self.f.assemble(stage, reviews=[review], status='READY_TO_MERGE', outcome='passed')
+        value = json.loads(report.read_text())
+        self.assertEqual([v['gate'] for v in value['verification']], ['gate-browser', 'gate-full'])
+        self.assertEqual(len(value['verification_sources']), 2)
+        self.assertEqual((auxiliary / 'started.json').read_bytes(), original)
+        result = self.f.call('final-deliver', '--dispatch', self.f.root, '--output', self.f.root.parent / 'mixed.json')
+        self.assertEqual(result['status'], 'READY_TO_MERGE')
+
+    def test_later_auxiliary_failure_requires_new_full_run(self):
+        stage = self.f.stage()
+        self.gates(stage)
+        self.historical_auxiliary(stage, failed=True)
+        error = self.f.call('review-prepare', '--dispatch', stage, ok=False)
+        self.assertIn('之后存在失败', error['error'])
+        self.gates(stage)
+        self.original_review(stage)
+
+    def test_auxiliary_failure_cannot_authorize_repair_stage(self):
+        stage = self.f.stage()
+        self.historical_auxiliary(stage, failed=True)
+        error = self.f.assemble(stage, outcome='code_failure', ok=False)
+        self.assertIn('代码失败须有', error['error'])
+
+    def test_unknown_auxiliary_requires_bound_recovery_note(self):
+        stage = self.f.stage()
+        run = self.historical_auxiliary(stage, unknown=True)
+        self.gates(stage)
+        error = self.f.call('review-prepare', '--dispatch', stage, ok=False)
+        self.assertIn('收尾说明', error['error'])
+        draft = self.f.draft('BLOCKED', 'interrupted')
+        draft['verification_notes'] = {str(run): '已确认历史辅助命令结束，完整门禁已重跑。'}
+        path = stage.parent / 'auxiliary-recovery.json'; self.f.put(path, draft)
+        self.f.call('final-assemble', '--dispatch', stage, '--draft', path, '--output', stage.parent / 'recovery.json')
+        self.original_review(stage)
+
+    def test_fixer_dirty_targeted_checks_survive_full_pipeline(self):
+        stage = self.f.stage()
+        _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='gate-full')
+        following = self.f.stage(previous=stage, receipt=receipt, continuation='repair')
+        fd = following.parent / 'fixer/dispatch.json'
+        (self.f.h.wt / 'targeted-test.txt').write_text('修复开发中的测试')
+        red = self.run_gate(fd, 'test', failed=True, parameters=('targeted-test.txt',), delivery=False)
+        green = self.run_gate(fd, 'test', parameters=('targeted-test.txt',), delivery=False)
+        self.run_gate(fd, 'typecheck', delivery=False)
+        source = self.f.done_fixer(fd)
+        value = json.loads(Path(source['report']['path']).read_text())
+        self.assertEqual([v['gate'] for v in value['verification']], ['test', 'test', 'typecheck', 'gate-full'])
+        self.assertFalse(value['verification'][0]['passed'])
+        self.assertTrue(value['verification'][1]['passed'])
+        self.assertTrue(json.loads((red / 'started.json').read_text())['before']['status'])
+        self.assertTrue(json.loads((green / 'started.json').read_text())['before']['status'])
+        review = self.f.review(following)
+        self.f.assemble(following, reviews=[review], fixes=[source], status='READY_TO_MERGE', outcome='passed')
+        result = self.f.call('final-deliver', '--dispatch', self.f.root, '--output', self.f.root.parent / 'fixed.json')
+        self.assertEqual(result['status'], 'READY_TO_MERGE')
+
+    def test_controller_accepts_raw_closure_stdout_and_rejects_extra_fields(self):
+        stage = self.f.stage()
+        self.f.assemble(stage, reviews=[self.f.review(stage)], status='READY_TO_MERGE', outcome='passed')
+        target = self.f.root.parent / 'root.json'
+        self.f.call('final-deliver', '--dispatch', self.f.root, '--output', target)
+        observation = target.parent / 'observation.json'
+        self.f.put(observation, {'task_id': 'finalizer', 'stopped': True, 'observed_at': '2026-09-17T00:00:00Z',
+                                'evidence': '测试子进程已退出', 'unresolved': []})
+        raw = subprocess.run([sys.executable, '-B', str(fixture.OPS), 'handoff-close',
+            '--dispatch', str(self.f.root), '--report', str(target), '--input', str(observation)],
+            env=self.f.h.env, text=True, capture_output=True)
+        self.assertEqual(raw.returncode, 0, raw.stderr)
+        cp = target.parent / 'closure-stdout.json'; cp.write_text(raw.stdout)
+        output = target.parent / 'accepted.json'
+        args = ('accept', '--dispatch', self.f.root, '--report', target,
+                '--receipt', target.with_name('root-receipt.json'), '--closure', cp, '--output', output)
+        valid = json.loads(raw.stdout)
+        for invalid in (dict(valid, extra=True), {'closure_source': dict(valid['closure_source'], extra=True)},
+                        {'closure_source': None}):
+            self.f.put(cp, invalid)
+            self.f.h.call(*args, ok=False)
+            self.assertFalse(output.exists())
+        cp.write_text(raw.stdout)
+        self.f.h.call(*args)
+        self.assertEqual(json.loads(output.read_text())['closure_source'], valid['closure_source'])
 
     def gates(self, dispatch):
         data = json.loads(Path(dispatch).read_text())
@@ -56,12 +172,14 @@ class HandoffTests(unittest.TestCase):
         self.gates(dispatch)
         folder = Path(dispatch).parent
         draft = folder / 'recorded-draft.json'
-        self.f.put(draft, r)
+        r['verification_notes'] = {}
+        self.f.put(draft, {k: r[k] for k in draft_contracts.schema('fixer')['properties']})
         result = self.f.call('fixer-assemble', '--dispatch', dispatch, '--draft', draft, '--output', folder / 'recorded-report.json')
         receipt = folder / 'recorded-receipt.json'
         self.f.put(receipt, result)
         from test_controller import closure_source
         cp = closure_source(dispatch, result['report_path'])
+        self.f.put(cp, {'closure_source': json.loads(cp.read_text())})
         accepted = self.f.call('fixer-accept', '--dispatch', Path(dispatch).parent.parent / 'dispatch.json',
                               '--report', result['report_path'], '--receipt', receipt, '--closure', cp)
         return accepted['source']
@@ -70,6 +188,18 @@ class HandoffTests(unittest.TestCase):
         stage = self.f.stage()
         self.f.review(stage, blocking=True)
         self.f.call('review-prepare', '--dispatch', stage, ok=False)
+
+    def test_final_draft_cannot_inject_sources_or_git_identity(self):
+        stage = self.f.stage()
+        before = set(self.f.root.parent.glob('checkpoint-*'))
+        draft = self.f.draft('BLOCKED', 'blocked')
+        draft['fix_sources'] = []
+        path = stage.parent / 'injected-draft.json'; self.f.put(path, draft)
+        output = stage.parent / 'injected-report.json'
+        error = self.f.call('final-assemble', '--dispatch', stage, '--draft', path, '--output', output, ok=False)
+        self.assertIn('fix_sources', error['error'])
+        self.assertFalse(output.exists())
+        self.assertEqual(set(self.f.root.parent.glob('checkpoint-*')), before)
 
     def recover_verification(self, unknown=False):
         stage = self.f.stage()
@@ -236,7 +366,7 @@ class HandoffTests(unittest.TestCase):
         self.f.stage(previous=following, receipt=receipt, continuation='repair', ok=False)
 
     def test_six_stage_models_and_success_reach_strict_root_acceptance(self):
-        self.f.test_six_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance()
+        self.f.six_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance()
 
     def test_fixer_upgrade_inherits_and_resume_preserves_model(self):
         stage = self.f.stage()
@@ -290,7 +420,8 @@ class HandoffTests(unittest.TestCase):
             run = self.run_gate(fd, failed=True)
             if number < 3:
                 self.f.call('begin-gate-repair', '--dispatch', fd, '--failure', run / 'result.json')
-        path = fd.parent / 'failure-draft.json'; self.f.put(path, draft)
+        draft['verification_notes'] = {}
+        path = fd.parent / 'failure-draft.json'; self.f.put(path, {k: draft[k] for k in draft_contracts.schema('fixer')['properties']})
         result = self.f.call('fixer-assemble', '--dispatch', fd, '--draft', path, '--output', fd.parent / 'failed.json')
         rp = fd.parent / 'failed-receipt.json'; self.f.put(rp, result)
         from test_controller import closure_source
@@ -423,8 +554,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         draft = stage.parent / 'fixed-draft.json'
         self.f.put(draft, self.f.draft('READY_TO_MERGE', 'passed'))
         fixes = stage.parent / 'empty-fixes.json'; self.f.put(fixes, [])
-        self.f.call('final-assemble', '--dispatch', stage, '--draft', draft, '--output', stage.parent / 'corrected-report.json',
-                    '--fixers', fixes, '--review', fixed)
+        self.f.call('final-assemble', '--dispatch', stage, '--draft', draft, '--output', stage.parent / 'corrected-report.json')
         result = self.f.call('final-deliver', '--dispatch', self.f.root, '--output', self.f.root.parent / 'corrected-root.json')
         self.assertEqual(result['status'], 'READY_TO_MERGE')
         self.assertEqual(report.read_bytes(), original)

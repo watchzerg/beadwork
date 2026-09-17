@@ -24,23 +24,14 @@ root 目录的 `checkpoint-NNNNNN.json` 保存 hash 绑定的连续检查点，�
 
 ## implementer 交付
 
-首次执行前，implementer 读取 dispatch 指向的 report/receipt schema。输入事实、规则/spec、必要 gate 范围和恢复来源由 executor 显式交接。`inspect`/`check-layer` 的用法见 `executor-operations.md`；验证记录和三次修复见 `verification.md`。
+首次执行前，implementer 读取 dispatch 指向的 draft_schema_path 指向的输入 schema。输入事实、规则/spec、必要 gate 范围和恢复来源由 executor 显式交接。`inspect`/`check-layer` 的用法见 `executor-operations.md`；验证记录和三次修复见 `verification.md`。
 
 ```bash
 python3 <skill-dir>/scripts/executor-operations.py implementer-assemble --dispatch <implementer-dispatch.json> --draft <draft.json> --output <report.json>
 python3 <skill-dir>/scripts/executor-operations.py implementer-check --dispatch <implementer-dispatch.json> --report <report.json>
 ```
 
-draft 必填：
-
-- `status`、`outcome`：见 `agents/implementer.md`；passed 仅表示实现/gates 通过。
-- `test_plan`：未知时 null，否则只填写 `decision_source` 和 `red_evidence`；mode/seams 从绑定的执行计划读取。
-- `acceptance`：criterion/evidence 映射。
-- `verification`：人工验证场景的 command/result；已采集 just 命令不用重复填，通常为 `[]`。
-- `verification_notes`：运行目录绝对路径到非空说明的映射，无补充时 `{}`。填写有效 red 判断、新增 gate 原因或未完成记录的实际收尾等语义事实。
-- `required_boundary_gates`：原声明及实际补充的 gate 下限。implementer 报告一经验收，新增 gate 与报告来源写入 ticket checkpoint；同 stage 恢复、计划适配、后续 stage 和 review 均沿用累计集合。组装器自动保留累计范围，但当前 HEAD 缺少对应成功运行时仍拒绝完成。
-- `requested_context`、`blockers`、`concerns`：保留未完成任务、dirty 文件、剩余工作与失败来源。
-- `stopped_tasks`：实际停止事实，布尔值；脚本不代替宿主确认。
+draft 结构读取生成的输入 schema。只提供语义判断：acceptance 的证据映射、test_plan 的判断依据与 red 证据、未采集的人工验证、实际收尾与阻塞事项。verification_notes 按运行目录记录有效 red、新增 gate 原因或未知运行收尾；required_boundary_gates 保留已声明及实际补充下限。脚本生成 mode/seams、身份和验证来源，不手工复制。
 
 组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求无参数 gate-core 和必要 boundary gates 在同一干净交付 HEAD 通过；每次 `--delivery` 运行绑定当时的 `gate-plan`，筛选只用于开发期 `test`。TDD red 和直接验证的语义仍由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器同时固定该报告交付时的 verification_sources（started/result 的 hash 绑定）；同 stage 后续新增运行不会改变已交付报告的验证历史，新报告仍采集全部当前来源。来源缺失或损坏时，组装器在 `verification_issues` 保存原绑定与实际错误；这种报告只能 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
 
@@ -61,12 +52,12 @@ python3 <skill-dir>/scripts/executor-operations.py implementer-accept --dispatch
 同 HEAD 的审查更正必须来自同一 round；选中新 collection 后清除当前 `selected_stage`，重新组装前不能整票交付或推进 stage。原阶段报告和检查点保留。进入下一 stage 后，旧 stage 不再接受新的 collection 选择。
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py ticket-assemble --dispatch <stage-dispatch.json> --draft <stage-draft.json> --output <stage-report.json> [--review <collection.json> ...]
+python3 <skill-dir>/scripts/executor-operations.py ticket-assemble --dispatch <stage-dispatch.json> --draft <stage-draft.json> --output <stage-report.json>
 ```
 
-stage draft 必填 `status`、`outcome`、`test_plan`、`acceptance`、`verification`、`requested_context`、`blockers`、`concerns` 和 `stopped_tasks`。test_plan 同上；verification 只填 executor 额外核对的人工场景，implementer 和前阶段日志由组装器自动纳入。
+stage draft 使用本阶段 draft_schema_path；verification 只填额外核对的人工场景，实现与前阶段日志自动纳入。
 
-`--review` 必须依次提供 dispatch.prior_reviews 和检查点的 selected_review（非 null 时）；遗漏或使用更正前的 collection 均被拒绝。缺轴或未完成轮次保留在 concerns，不能伪造完整 review。组装器保留两轴原始报告、前阶段与 implementer 的 dispatch/report/receipt hash 绑定；自动生成旁边的 `<stage-report-stem>-receipt.json` 并追加阶段选择检查点。stdout 同样是短回执。
+组装器自动读取 checkpoint 选中的 review 与完整历史，不接受手工来源列表。缺轴或未完成轮次保留在 concerns，不能伪造完整 review。组装器保留两轴原始报告、前阶段与 implementer 的 dispatch/report/receipt hash 绑定；自动生成旁边的 `<stage-report-stem>-receipt.json` 并追加阶段选择检查点。stdout 同样是短回执。
 
 - gates 通过且两轴 PASS：DONE/passed。
 - implementer 三次 gate-fix 后仍失败，或完整双轴代码类 blocking：BLOCKED/code_failure；stage < 5 时 executor 内部 repair。

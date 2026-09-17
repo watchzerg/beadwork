@@ -143,8 +143,6 @@ def main():
         p = commands.add_parser(command)
         for name in ("dispatch", "draft", "output"):
             p.add_argument("--" + name, required=True)
-        if command == "ticket-assemble":
-            p.add_argument("--review", action="append", default=[])
     p = commands.add_parser("implementer-check")
     p.add_argument("--dispatch", required=True); p.add_argument("--report", required=True)
     p = commands.add_parser("implementer-accept")
@@ -171,8 +169,6 @@ def main():
     p = commands.add_parser("final-assemble")
     for name in ("dispatch", "draft", "output"):
         p.add_argument("--" + name, required=True)
-    p.add_argument("--review", action="append", default=[])
-    p.add_argument("--fixers", help="兼容参数；当前检查点流程省略时自动使用已选 fixer 来源")
     p = commands.add_parser("inspect"); p.add_argument("--dispatch", required=True)
     p = commands.add_parser("check-layer")
     p.add_argument("--dispatch", required=True); p.add_argument("--input", required=True)
@@ -206,8 +202,7 @@ def main():
               'fixer-accept': lambda a: finalization.accept_fixer(a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None),
               'final-gates': lambda a: final_state.gates(dispatch(a.dispatch), **load(a.input)),
               "final-stage": lambda a: finalization.prepare_stage(a.dispatch, load(a.input)),
-              "final-assemble": lambda a: finalization.assemble(a.dispatch, a.draft, a.output, a.review,
-                                                                   load(a.fixers) if a.fixers else None),
+              "final-assemble": lambda a: finalization.assemble(a.dispatch, a.draft, a.output),
               "inspect": inspect_context, "check-layer": check_layer,
               "review-prepare": prepare_review, "review-collect": collect_review,
               "assemble": assemble, "check": lambda a: check_report(a.dispatch, a.report)}

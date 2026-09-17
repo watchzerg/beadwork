@@ -25,4 +25,4 @@ python3 <skill-dir>/scripts/verify-worker.py --check-report <implementer|fixer|r
 
 需核对 schema 时，对应 verifier 使用 `--schema` / `--receipt-schema`，phase/worker 后带角色，ticket 不带角色。仅按已知角色与身份生成，不猜测不可读取的 schema 或更改 dispatch 绕过失败。无法形成合法报告时向派发者返回具体错误、已有文件与未知事项，恢复材料后再正式交付。
 
-自检非零退出不产生有效回执；修正使用新文件，保留旧报告和错误。派发者仍使用正常 accept/collect；历史报告只读兼容不自动授予当前契约的成功状态。
+自检非零退出不产生有效回执；修正使用新文件，保留旧报告和错误。派发者仍使用正常 accept/collect；历史报告只能作为诊断材料，不导入当前执行流程。

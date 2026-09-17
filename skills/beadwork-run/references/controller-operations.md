@@ -1,6 +1,6 @@
 # controller 脚本入口
 
-controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent。除本文件明确列出的 `tracker_operations.py` 外，其余脚本不写 Beads；tracker 入口也只能由 controller 在前置证据完整时调用。controller 负责交付契约验收、异常证据追查和 writer 收尾确认；单票实现与测试的日常语义验收由 executor 负责。
+controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent。tracker、初始化和 push 入口只由 controller 调用；初始化复用 tracker 写入，push 负责远端交付。controller 负责交付契约验收、异常证据追查和 writer 收尾确认；单票实现与测试的日常语义验收由 executor 负责。
 
 ## Beads 写入
 
@@ -19,13 +19,22 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 | comment | body：核对后的完整正文；completion/integration-ready 使用 controller comment 生成正文，保留其 JSON 身份块 |
 | close | reason、prerequisite（path/sha256）；child 绑定成功 acceptance，parent 绑定成功 merge checkpoint；controller 另核对对应 completion 已写入 |
 
-脚本保存 intent，写后读回 show/comments；它验证 prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。execute 成功返回 before/after、already_applied 和 write_exit_code；comment 的实际 ID 由 controller 用 `bd comments <id> --json` 按正文中的 `beadwork-operation:<intent SHA-256>` marker 唯一读回，再用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。
+脚本保存 intent，写后读回 show/comments；它验证 prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。execute 成功返回 before/after、already_applied 和 write_exit_code；comment 结果直接包含唯一读回的字符串 `comment_id`，用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。
 
-未知结果使用原 intent 重试，先读回协调；不创建新 intent 盲目重发。claim 竞争失败重新计算 frontier；已由其他身份领取时不采用。旧批次没有 intent 的已完成操作先读回确认，不重复发布。
+未知结果使用原 intent 重试，先读回协调；不创建新 intent 盲目重发。claim 竞争失败重新计算 frontier；已由其他身份领取时不采用。
 
 ## 初始化与恢复事实
 
-新批次按 SKILL.md 第 2 节唯一的初始化路线执行：bd worktree 创建及 workspace 核对、install/env-facts/gate-full、tracker claim/comment。现有 batch_initialize.py 尚未核对共享 Beads workspace，不作为默认替代入口；已有该脚本 intent 时保留来源，按 recovery-batch.md 核对实际完成步骤。
+先执行 `update-main` 并将成功 JSON 原样保存到批次证据目录的新文件，再准备初始化：
+
+```bash
+python3 <skill-dir>/scripts/batch_initialize.py prepare --input <initialize-input.json> --output <primary>/.worktrees/.evidence/<parent>/initialize/<唯一目录>/intent.json
+python3 <skill-dir>/scripts/batch_initialize.py execute --intent <intent.json>
+```
+
+prepare 输入为 repository_root、parent_id、固定 expected_children、expected_assignee，以及 preflight_acceptance、update_main_result 两个 path/sha256 bindings。先建立唯一目录；脚本绑定固定 main、READY preflight 和执行计划。execute 自动创建 Beads worktree，核对共享 workspace，完成 install/env-facts/BASE gate-full、parent claim 与中文批次 comment，全部成功才发布 ready.json，返回 base_commit、comment_id 和来源。正常调用不手写步骤或 comment。
+
+失败使用原 intent 重试，保留旧日志；成功步骤仅在上游来源一致时复用。未知或中断命令先确认宿主任务与外部资源结束，再加 `--recovery <observations.json>`。文件为观察数组，每项包含 run_path（错误指向的运行目录）、task_id、stopped、observed_at、evidence、unresolved；stopped 必须为 true 且 unresolved 为空。脚本保存观察，不自行探测宿主任务。已进入 child 工作时走 recovery-batch.md，不重跑初始化。ready 只证明初始化完成，后续仍执行实时 frontier 和 sync-main。
 
 必要时使用只读事实入口，不能用它替代明确报告选择或宿主停止观察：
 
@@ -34,7 +43,7 @@ python3 <skill-dir>/scripts/batch_evidence.py --output <facts.json> inspect --re
 python3 <skill-dir>/scripts/batch_evidence.py --output <manifest.json> manifest --input <manifest-input.json>
 ```
 
-manifest-input 为 parent_id、固定 expected_children、按该顺序一一对应的成功 ticket acceptance bindings。输出 tickets 和 required_boundary_gates；controller 核对实际补充边界，并继续交接原始 ticket/completion pointers，不能用 manifest 替代 review findings 或顺序执行记录。历史批次缺 acceptance 时保留原始成功证据，不伪造 binding。
+manifest-input 为 parent_id、固定 expected_children、按该顺序一一对应的成功 ticket acceptance bindings。输出 tickets 和 required_boundary_gates；controller 核对实际补充边界，并继续交接原始 ticket/completion pointers，不能用 manifest 替代 review findings 或顺序执行记录。
 
 以下 controller.py 命令成功 stdout 为 JSON，非零退出停止；证据使用新文件名，输入路径均为绝对路径。
 
@@ -93,17 +102,17 @@ python3 <skill-dir>/scripts/controller.py prepare <preflight|executor|finalizer>
 
 - preflight：重新派发时提供首次固定的 `expected_children`。
 - executor：`ticket_id`、`mode: new|resume`、`test_mode: TDD|direct_verification`、`approved_seams`、`testing_seams_doc`（本 skill 的 references/testing-seams.md 绝对路径；其他契约与项目事实按 `testing-contract.md` 定位）、`linked_spec`、`required_boundary_gates`（本票声明及已补充 gate 下限）、环境/冒烟证据及恢复事实。新票另提供 preflight_acceptance（已验收 READY preflight 的 acceptance 文件 path/sha256）；prepare 核对 ticket 计划、spec 和 gate 下限，自动保存 plan_source 与 sync_result 的环境来源。`resume` 必须额外提供从 start comment 核实的完整 `base_commit`；脚本不会猜测或补写缺失 BASE。
-- finalizer：`expected_children`、`linked_spec`、`ticket_evidence`、`required_boundary_gates`、`prior_finalization`、已合入 implementation 的完整 `reviewed_main` SHA，以及由本次 `sync-final` 的 `sync_result` 填入的 `final_sync_result`。`prior_finalization` 首次为 null；接替时按 `recovery-finalizer.md` 准备；历史 dispatch 无环境同步字段时保留原件。
+- finalizer：`expected_children`、`linked_spec`、`ticket_evidence`、`required_boundary_gates`、`prior_finalization`、已合入 implementation 的完整 `reviewed_main` SHA，以及由本次 `sync-final` 的 `sync_result` 填入的 `final_sync_result`。`prior_finalization` 首次为 null；接替时按 `recovery-finalizer.md` 准备。
 
 executor prepare 建立整票 root dispatch，返回 `coordinator_model`。`complex_ticket: true` 提高协调与实现起点；controller 不填写 stage/models/prior_reviews，也不传 repair。恢复提供原 root 的 `previous_dispatch` 和完整 BASE；返回原 root，不新建 stage 或重置额度。执行阶段、模型、implementer 和计划适配由 executor 使用 `ticket-execution.md` 的入口管理。
 
 finalizer root dispatch 建立 attempt 身份；finalizer 使用 final-stage 管理阶段、模型及修复，controller 等待 root 终态。具体流程由 agents/finalizer.md 和 final-execution.md 定义。
 
-同一 main 基线的 finalizer 重跑必须提供 `prior_finalization.stage_path`，恢复原 attempt，不重置 stage、BASE、历史来源或 dirty 修复现场。只有 main 实际变化或用户明确额外修复授权才传 `new_attempt_reason` 建立新 attempt，且需干净现场。历史 v1 格式读取仍保留；v2 恢复不能缺少严格检查点和实测来源。旧格式导入除旧报告外还必须给 `legacy_dispatch`、`legacy_receipt`、全部 `legacy_reviews`，以及有 fixer 时的 dispatch/report/receipt 来源；导入只读取并绑定，不改写旧证据。
+同一 main 基线的 finalizer 重跑必须提供 `prior_finalization.stage_path`，恢复原 attempt，不重置 stage、BASE、历史来源或 dirty 修复现场。只有 main 实际变化或用户明确额外修复授权才传 `new_attempt_reason` 建立新 attempt，且需干净现场。
 
 脚本定位 primary、检查 `.worktrees` 已被忽略、生成固定 branch/worktree 路径和唯一 dispatch 目录，写入 `dispatch.json`、报告/回执 schema；executor root 写入 `expected-plan.json`。新票从干净 worktree 记录 BASE；恢复票保留传入 BASE；finalizer 新 attempt 从已合入 main 的干净现场核对传入的 `reviewed_main` 并记录 `start_head`，同阶段恢复按恢复来源保留原值及修复现场。
 
-返回文件路径和本轮 SHA；dispatch 包含 `report_schema_path` 和 `receipt_schema_path`。controller 将生成的 dispatch 字段、角色入口及本轮事实交给子 agent，schema 按共享交付契约传路径；额外输入事实会保留在 dispatch。脚本不 claim、不写 start comment、不安装环境。
+返回文件路径和本轮 SHA；dispatch 保留报告/回执 schema 路径；需要填写 draft 的角色另外生成 `draft_schema_path`，正常只读取输入契约。controller 将生成的 dispatch 字段、角色入口及本轮事实交给子 agent，schema 按共享交付契约传路径；额外输入事实会保留在 dispatch。脚本不 claim、不写 start comment、不安装环境。
 
 ## 机械验收
 
@@ -139,15 +148,27 @@ python3 <skill-dir>/scripts/controller.py merge --acceptance <acceptance-N.json>
 
 命令中断或失败后恢复前，读取 `recovery-merge.md`；checkpoint 本身不证明合入成功。
 
-## 安全清理
+## 远端推送
 
-controller 完成 parent completion comment 和关闭后调用：
+parent completion 已写入并关闭后执行：
 
 ```bash
-python3 <skill-dir>/scripts/controller.py cleanup --merge-record <merge-checkpoint.json>
+python3 <skill-dir>/scripts/controller.py push --input <push-input.json>
 ```
 
-脚本只读查询 parent 已关闭，确认受审 HEAD 已在 main 历史中、尚存 branch 仍指向该 SHA、worktree 属于该仓库和 branch 且干净，再非强制删除。已删除的部分跳过，可重跑；证据目录保留。失败保留未清理部分。
+输入为 merge_record（merge checkpoint 的 path/sha256 binding）和 policy。policy 显式包含 git、beads 两项，每项为 `{"action":"push"}`，或按用户限制填写 `{"action":"skip","reason":"用户限制说明"}`。脚本固定受审 SHA，按 Git push → 远端 main SHA 读回 → Beads push 顺序执行；Git 被明确跳过时可单独推送 Beads。正常 stdout 返回 delivery_result binding 和每项结果，日志保存在本批 delivery 目录。
+
+失败保留现场和部分成功结果，错误给出 result.json 路径；写停止记录后使用相同输入重试。每次调用重新执行所需推送，包含新增的 Beads 停止记录；不自动 pull、force push 或改配远端。成功结果不能代替失败后的新交付。成功推送到 cleanup 之间不再写本流程的 Beads 记录。
+
+## 安全清理
+
+controller 完成 parent completion、关闭和远端推送（或按用户明确限制跳过）后调用：
+
+```bash
+python3 <skill-dir>/scripts/controller.py cleanup --merge-record <merge-checkpoint.json> --delivery-result <本次result.json>
+```
+
+脚本先校验交付结果与 merge checkpoint 绑定、必要推送及远端读回成功或明确跳过，再只读查询 parent 已关闭，确认受审 HEAD 已在 main 历史中、尚存 branch 仍指向该 SHA、worktree 属于该仓库和 branch 且干净，再非强制删除。已删除的部分跳过，可重跑；证据目录保留。失败保留未清理部分。
 
 ## 基线适配
 

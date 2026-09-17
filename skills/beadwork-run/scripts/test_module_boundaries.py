@@ -56,6 +56,15 @@ class ModuleBoundaryTests(unittest.TestCase):
                      'implementer_reports', 'ticket_reports', 'fixer_reports'):
             self.assertFalse(edges[name] & operations, (name, edges[name] & operations))
 
+    def test_production_never_imports_test_fixtures(self):
+        for path in SCRIPTS.glob('*.py'):
+            if path.name.startswith(('test_', 'fixture_')):
+                continue
+            for node in ast.walk(ast.parse(path.read_text())):
+                names = ([x.name for x in node.names] if isinstance(node, ast.Import)
+                         else [node.module or ''] if isinstance(node, ast.ImportFrom) else [])
+                self.assertFalse(any(x.startswith(('test_', 'fixture_')) for x in names), path.name)
+
     def test_schema_construction_does_not_run_commands_or_scan_checkpoints(self):
         code = '''from unittest.mock import patch
 import runpy,sys

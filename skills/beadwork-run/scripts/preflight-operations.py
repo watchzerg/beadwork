@@ -11,6 +11,7 @@ import sys
 import time
 
 import evidence
+import draft_contracts
 import execution_plan
 import gate_plan
 import graph
@@ -273,9 +274,7 @@ def assemble(args):
     for source in f['sources']:
         repository.require(Path(source['path']).resolve().parent == directory / 'facts'
                   and evidence.digest(source['path']) == source['sha256'], '原始采集证据已变化')
-    draft = evidence.read(args.draft)
-    fields = {'status', 'plans', 'linked_spec', 'resume_evidence', 'sources', 'suggested_route', 'checks', 'blockers', 'remaining_work'}
-    repository.require(set(draft) == fields, '语义草稿字段不符')
+    draft = draft_contracts.read(d, args.draft, 'preflight')
     repository.require({x['name'] for x in draft['checks']} == set(SEMANTIC) and len(draft['checks']) == 2,
               '语义草稿只能填写 spec_and_test_plans 与 recovery')
     unresolved = {x['id'] for x in f['tickets'] if x['status'] != 'closed'}

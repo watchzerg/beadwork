@@ -119,20 +119,6 @@ class BaselineAdaptationTests(unittest.TestCase):
         Path(self.h.d["expected_plan_path"]).write_text('{"mode":"TDD","approved_seams":["S1"]}')
         self.e.call("review-prepare", "--dispatch", self.e.dispatch, ok=False)
 
-    def test_blocking_existing_review_repairs_without_reset(self):
-        self.select(self.adapt())
-        self.deliver(self.e.collect(self.e.round(blocking=True, evidence=self.evidence())), "BLOCKED", "code_failure")
-        previous = self.h.d.copy()
-        self.h.prepare(mode="resume", test_mode="direct_verification", approved_seams=["S1"],
-                       base_commit=previous["base_commit"], previous_dispatch=str(self.e.dispatch),
-                       previous_report=str(self.h.report), previous_receipt=str(self.h.receipt), continuation="repair")
-        self.select(self.h.d)
-        self.assertEqual(self.h.d["stage"], 1)
-        self.select(self.adapt(mode="TDD", reason="review 证明仍需修改生产行为"))
-        self.assertEqual(self.h.d["stage"], 1)
-        self.assertEqual(self.h.d["base_commit"], previous["base_commit"])
-        self.assertEqual(self.h.d["test_mode"], "TDD")
-
     def test_resume_preserves_selected_plan(self):
         self.select(self.adapt())
         old = self.h.d.copy()
@@ -206,11 +192,10 @@ class EmptyBatchTests(unittest.TestCase):
         f.h.h.git(f.h.primary, "merge", "--ff-only", f.h.h.head)
         f.h.h.base = f.h.h.head
         f.h.prepare("finalizer"); f.root = f.h.dispatch
-        f.h.d['finalization_version'] = 1
-        f.h.put(f.root, f.h.d)
         stage = f.stage()
         evidence = Path(stage).parent / "acceptance.json"
         f.put(evidence, [{"criterion": "parent 全部要求", "evidence": "当前实现与完整验证"}])
+        f.gate(stage)
         review = f.review(stage, evidence=evidence)
         report, receipt = f.assemble(stage, reviews=[review], status="READY_TO_MERGE", outcome="passed")
         root_report = Path(f.h.d["report_path"])
@@ -223,7 +208,7 @@ class EmptyBatchTests(unittest.TestCase):
         f.h.put(f.h.root / "comments.json", [{"id": 7, "text": comment.read_text()}])
         f.h.merge_record = root_report.with_name("merge.json")
         self.assertTrue(f.h.merge()["merged"])
-        self.assertTrue(f.h.call("cleanup", "--merge-record", f.h.merge_record)["cleaned"])
+        self.assertTrue(f.h.call("cleanup", "--merge-record", f.h.merge_record, "--delivery-result", f.h.delivery_result)["cleaned"])
 
 
 if __name__ == "__main__":
