@@ -7,6 +7,7 @@ import uuid
 import dispatch_contract
 import evidence
 import draft_contracts
+import gate_repair
 import handoff
 import implementer_reports
 import report_io
@@ -84,19 +85,52 @@ def stage_result(d, state):
             'review_started': (Path(d['gate_repair_root']) / 'gate-review-started.json').exists()}
 
 
+def recover_unregistered_gate_repair(previous, report, state, reason):
+    repository.require(report['outcome'] == 'blocked' and report['execution']['stopped_tasks'],
+              '未登记 gate 修正恢复需要已停止的 blocked 阶段')
+    repository.require(isinstance(reason, str) and reason.strip(), '未登记 gate 修正恢复需要记录原因')
+    p = gate_repair.root(previous)
+    repository.require(not state['selected_review'] and not (p / 'gate-review-started.json').exists()
+              and not any(x.is_dir() for x in p.glob('review-*')), 'review 已开始，不能恢复未登记 gate 修正')
+    used = gate_repair.used_repairs(p)
+    repository.require(used > 0, '没有可恢复的 gate 修正候选')
+    candidate_path = gate_repair.repair_path(p, used, candidate=True)
+    repository.require(candidate_path.exists(), 'gate 修正候选尚未绑定')
+    candidate = evidence.read(candidate_path)
+    head = repository.sha(previous['worktree'], 'HEAD')
+    repository.require(not repository.status(previous['worktree']) and head == report['head_commit']
+              and head != candidate['head'], '恢复需要报告绑定的不同干净 HEAD')
+    repository.git(previous['worktree'], 'merge-base', '--is-ancestor', candidate['head'], head)
+    recovery = {
+        'version': 1,
+        'kind': 'unregistered-gate-repair',
+        'stage': previous['stage'],
+        'selected_stage': state['selected_stage'],
+        'gate_repair': evidence.binding(str(gate_repair.repair_path(p, used))),
+        'previous_candidate': evidence.binding(str(candidate_path)),
+        'recovered_head': head,
+        'reason': reason.strip(),
+    }
+    target = p / 'unregistered-gate-repair-recovery.json'
+    gate_repair.record(target, recovery)
+    return evidence.binding(str(target))
+
+
 def prepare_stage(root_path, facts):
     r = dispatch_contract.dispatch(root_path)
     repository.require(r.get('ticket_scope') == 'root', 'ticket-stage 需要 executor root dispatch')
-    repository.require(set(facts) <= {'continuation', 'model_overrides', 'model_override_reason'}, 'stage 输入字段无效')
+    repository.require(set(facts) <= {'continuation', 'model_overrides', 'model_override_reason', 'recovery_reason'}, 'stage 输入字段无效')
     repository.topology(r)
     state, _, _ = checkpoints(r)
     continuation = facts.get('continuation', 'resume')
-    repository.require(continuation in ('resume', 'repair'), 'continuation 无效')
+    repository.require(continuation in ('resume', 'repair', 'recover'), 'continuation 无效')
     previous = None
+    recovery = None
     if state['stage_dispatch']:
         previous = evidence.read(evidence.bound(state['stage_dispatch']))
         if continuation == 'resume':
             repository.require(not facts.get('model_overrides'), '已有 stage 沿用模型；提前升级在新 stage 准备时指定')
+            repository.require('recovery_reason' not in facts, 'resume 不接受 recovery_reason')
             if state['selected_stage']:
                 _, report = resolve_source(state['selected_stage'])
                 repository.require(report['outcome'] in ('interrupted', 'blocked'), '已完成或代码失败阶段不可作为中断恢复')
@@ -104,11 +138,16 @@ def prepare_stage(root_path, facts):
         repository.require(state['selected_stage'], '推进 stage 需要已验收的阶段报告')
         old, report = resolve_source(state['selected_stage'])
         check_stage(old, report)
-        repository.require(report['outcome'] == 'code_failure', '只有 code_failure 推进 stage')
-        repository.require(report['execution']['stopped_tasks'], '旧任务未确认停止')
+        if continuation == 'repair':
+            repository.require(report['outcome'] == 'code_failure', '只有 code_failure 使用 repair 推进 stage')
+            repository.require(report['execution']['stopped_tasks'], '旧任务未确认停止')
+            repository.require('recovery_reason' not in facts, 'repair 不接受 recovery_reason')
+        else:
+            recovery = recover_unregistered_gate_repair(previous, report, state, facts.get('recovery_reason'))
         number = previous['stage'] + 1
     else:
-        repository.require(continuation == 'resume', '初次 stage 不接受 repair')
+        repository.require(continuation == 'resume', '初次 stage 只接受 resume')
+        repository.require('recovery_reason' not in facts, 'resume 不接受 recovery_reason')
         number = 0
     repository.require(number < len(workflow_policy.STAGE_MODELS), '六阶段已用尽，停止并保留现场')
     if previous:
@@ -141,6 +180,8 @@ def prepare_stage(root_path, facts):
              prior_reviews=(report.get('review') or {}).get('sources', []) if previous else [],
              prior_stages=state['stage_sources'], previous_stage=state['selected_stage'],
              verification_dispatches=[])
+    if recovery:
+        d['stage_recovery'] = recovery
     d['required_boundary_gates'] = list(state['required_boundary_gates'])
     d.pop('implementer_dispatch', None)
     folder.mkdir()

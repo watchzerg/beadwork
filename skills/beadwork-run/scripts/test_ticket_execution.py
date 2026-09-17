@@ -210,6 +210,49 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         result = self.cli('executor-operations.py', 'begin-gate-repair', '--dispatch', self.wd, '--failure', failure)
         self.assertEqual(result['repair_number'], 1)
 
+    def test_unregistered_gate_repair_recovery_advances_with_append_only_record(self):
+        self.commit()
+        failure = self.gate(fail=True)
+        self.cli('executor-operations.py', 'begin-gate-repair', '--dispatch', self.wd, '--failure', failure)
+        self.gate()
+        candidate = self.h.h.git(self.h.wt, 'rev-parse', 'HEAD')
+        self.commit()
+        recovered = self.h.h.git(self.h.wt, 'rev-parse', 'HEAD')
+        self.implement('blocked')
+        self.assemble(outcome='blocked')
+
+        result = self.stage('recover', recovery_reason='修正提交早于第二次 begin-gate-repair 登记')
+
+        self.assertEqual(result['stage'], 1)
+        dispatch = json.loads(self.sd.read_text())
+        self.assertEqual(dispatch['stage_base'], recovered)
+        recovery_path = Path(dispatch['stage_recovery']['path'])
+        recovery = json.loads(recovery_path.read_text())
+        self.assertEqual(recovery['previous_candidate']['path'], str(recovery_path.parent / 'gate-repair-candidate.json'))
+        self.assertEqual(json.loads(Path(recovery['previous_candidate']['path']).read_text())['head'], candidate)
+        self.assertEqual(recovery['recovered_head'], recovered)
+        checkpoint = sorted(self.root_dispatch.parent.glob('checkpoint-*.json'))[-1]
+        self.assertEqual(len(json.loads(checkpoint.read_text())['state']['stage_sources']), 1)
+
+    def test_unregistered_gate_repair_recovery_rejects_generic_block(self):
+        self.commit()
+        self.implement('blocked')
+        self.assemble(outcome='blocked')
+        error = self.stage('recover', recovery_reason='普通外部阻塞', ok=False)
+        self.assertIn('gate 修正候选', error['error'])
+
+    def test_unregistered_gate_repair_recovery_requires_reason_and_clean_head(self):
+        self.commit()
+        failure = self.gate(fail=True)
+        self.cli('executor-operations.py', 'begin-gate-repair', '--dispatch', self.wd, '--failure', failure)
+        self.gate()
+        self.commit()
+        self.implement('blocked')
+        self.assemble(outcome='blocked')
+        self.assertIn('记录原因', self.stage('recover', ok=False)['error'])
+        (self.h.wt / 'dirty.txt').write_text('未提交')
+        self.assertIn('干净 HEAD', self.stage('recover', recovery_reason='遗漏登记', ok=False)['error'])
+
     def test_interruption_and_executor_resume_preserve_stage_and_dirty_work(self):
         (self.h.wt / 'unfinished.txt').write_text('保留')
         self.implement('interrupted'); self.assemble(outcome='interrupted'); self.deliver()
