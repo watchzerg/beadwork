@@ -11,9 +11,9 @@ python3 <skill-dir>/scripts/executor-operations.py ticket-stage --dispatch <root
 首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round`、`review_started`、`required_boundary_gates` 和 `gate_sources`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
 
 - `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
-- `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到 stage 5。
+- `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到当前授权上限（dispatch.stage_limit，未设置时为默认 stage 5）。
 - `continuation: recover`：仅恢复已按 `blocked` 封存的未登记 gate 修正。旧阶段必须已有已绑定候选、review 尚未开始、当前干净 HEAD 是该候选的不同后继并与阶段报告一致，且旧任务已结束；同时提供非空 `recovery_reason`。脚本在旧阶段目录追加 `unregistered-gate-repair-recovery.json`，再建立下一阶段并消耗一个 stage。普通环境、spec、seam 或证据阻塞不能使用该入口。
-- `continuation: extend`：仅在最后一个已授权 stage 交付 `code_failure` 后使用。用户明确追加修复额度时，传入 `additional_stages`（1–5）和非空 `extension_reason`；脚本追加授权证据并建立下一 stage。新增 stage 沿用最高模型档，原报告、review 与计数保持不变。
+- `continuation: extend`：每张 ticket 仅可追加一次，仅在默认 stage 5 交付 `code_failure` 且旧任务已停止后使用。controller 交接用户明确追加的额度与授权说明，executor 传入 `additional_stages`（整数 1–5）和非空 `extension_reason`；普通“继续”、自动重试或接替会话不构成追加授权。脚本在检查通过后追加授权证据并建立下一 stage，上限为默认上限加追加数量。新增 stage 沿用最高模型档；repair/resume 继承授权及计数，扩展上限耗尽后停止，不能再次 extend。
 - 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
 
 模型与矩阵以 `../scripts/workflow_policy.py` 为准。三档依次为 Terra-medium、Terra-high、Sol-medium；普通 implementer 六阶段各档两次。`complex_ticket` 保留 Sol-medium 的实现起点及 Terra-high 的 Standards 下限；提前升档后不要求再凑齐低档次数。
@@ -62,7 +62,7 @@ stage draft 使用本阶段 draft_schema_path；verification 只填额外核对�
 组装器自动读取 checkpoint 选中的 review 与完整历史，不接受手工来源列表。缺轴或未完成轮次保留在 concerns，不能伪造完整 review。组装器保留两轴原始报告、前阶段与 implementer 的 dispatch/report/receipt hash 绑定；自动生成旁边的 `<stage-report-stem>-receipt.json` 并追加阶段选择检查点。stdout 同样是短回执。
 
 - gates 通过且两轴 PASS：DONE/passed。
-- implementer 三次 gate-fix 后仍失败，或完整双轴代码类 blocking：BLOCKED/code_failure；stage < 5 时 executor 内部 repair。
+- implementer 三次 gate-fix 后仍失败，或完整双轴代码类 blocking：BLOCKED/code_failure；未达到当前授权上限时 executor 内部 repair。
 - 环境/spec/seam/证据阻塞：BLOCKED/blocked。
 - 未完成阶段的中断：BLOCKED/interrupted。已完成 blocking review 不能标作中断重置阶段。
 
@@ -72,7 +72,7 @@ stage draft 使用本阶段 draft_schema_path；verification 只填额外核对�
 python3 <skill-dir>/scripts/executor-operations.py ticket-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
-该入口将明确选中的阶段报告原样复制到 root 目录，重新执行完整验收并返回 root 短回执；不重跑 gates 或 review。stage 0..4 的 code_failure 不允许交付给 controller 作为最终代码失败。controller 使用 root dispatch 和这份报告/回执运行 `accept`；成功后生成 completion 并关闭 ticket。
+该入口将明确选中的阶段报告原样复制到 root 目录，重新执行完整验收并返回 root 短回执；不重跑 gates 或 review。未达到当前授权上限的 code_failure 不允许交付给 controller 作为最终代码失败。controller 使用 root dispatch 和这份报告/回执运行 `accept`；成功后生成 completion 并关闭 ticket。
 
 所有输出使用新文件名。更正只能补事实，不改源码、不增加阶段或 review 次数；原件保留。验证与完整双轴 review 未通过时不能返回 ticket DONE。
 

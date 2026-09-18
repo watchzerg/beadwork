@@ -127,7 +127,7 @@ def prepare_stage(root_path, facts):
     repository.require(continuation in ('resume', 'repair', 'recover', 'extend'), 'continuation 无效')
     previous = None
     recovery = None
-    extension = None
+    extension_record = None
     stage_limit = len(workflow_policy.STAGE_MODELS) - 1
     if state['stage_dispatch']:
         previous = evidence.read(evidence.bound(state['stage_dispatch']))
@@ -154,18 +154,18 @@ def prepare_stage(root_path, facts):
         else:
             additional = facts.get('additional_stages')
             reason = facts.get('extension_reason')
+            repository.require(stage_limit == len(workflow_policy.STAGE_MODELS) - 1
+                      and not previous.get('stage_extension'), '每张 ticket 仅允许追加一次 stage')
+            repository.require('recovery_reason' not in facts, 'extend 不接受 recovery_reason')
             repository.require(previous['stage'] == stage_limit and report['outcome'] == 'code_failure'
                       and report['execution']['stopped_tasks'], '只有已耗尽的 code_failure 可追加 stage')
             repository.require(type(additional) is int and 1 <= additional <= workflow_policy.MAX_STAGE_EXTENSION,
                       '单次最多追加五个 stage')
             repository.require(isinstance(reason, str) and reason.strip(), '追加 stage 需要用户授权原因')
             stage_limit += additional
-            record = {'version': 1, 'kind': 'authorized-stage-extension', 'stage': previous['stage'],
+            extension_record = {'version': 1, 'kind': 'authorized-stage-extension', 'stage': previous['stage'],
                       'selected_stage': state['selected_stage'], 'additional_stages': additional,
                       'new_stage_limit': stage_limit, 'reason': reason.strip()}
-            target = Path(previous['gate_repair_root']) / 'ticket-stage-extension.json'
-            gate_repair.record(target, record)
-            extension = evidence.binding(str(target))
         number = previous['stage'] + 1
     else:
         repository.require(continuation == 'resume', '初次 stage 只接受 resume')
@@ -205,8 +205,10 @@ def prepare_stage(root_path, facts):
              verification_dispatches=[])
     if recovery:
         d['stage_recovery'] = recovery
-    if extension:
-        d['stage_extension'] = extension
+    if extension_record:
+        target = Path(previous['gate_repair_root']) / 'ticket-stage-extension.json'
+        gate_repair.record(target, extension_record)
+        d['stage_extension'] = evidence.binding(str(target))
         d['stage_limit'] = stage_limit
     d['required_boundary_gates'] = list(state['required_boundary_gates'])
     d.pop('implementer_dispatch', None)

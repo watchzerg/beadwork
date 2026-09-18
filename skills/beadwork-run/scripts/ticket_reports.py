@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+import hashlib
 import json
 import sys
 import uuid
@@ -125,21 +126,38 @@ def check_report(dispatch_path, report_path):
 
 
 def check_stage(d, report):
+    _check_stage(d, report, set())
+
+
+def _check_stage(d, report, verified):
     repository.require(d.get('ticket_scope') == 'stage', '需要阶段 dispatch')
     execution = report.get('execution')
     repository.require(execution and execution['stage_dispatch'] == evidence.binding(d['dispatch_path'])
               and execution['root'] == d['ticket_root'], '阶段报告缺少绑定身份')
     repository.require(execution['previous_stages'] == d['prior_stages'], '阶段报告丢失历史')
+    # 仅复用本次调用内完整通过的相同内容；来源 hash/receipt 仍由调用方逐项核对。
+    key = (d['dispatch_path'], *(hashlib.sha256(json.dumps(value, sort_keys=True,
+           ensure_ascii=False, separators=(',', ':')).encode()).hexdigest() for value in (d, report)))
+    if key in verified:
+        return
     default_limit = len(workflow_policy.STAGE_MODELS) - 1
     stage_limit = d.get('stage_limit', default_limit)
-    repository.require(type(stage_limit) is int and stage_limit >= default_limit, 'stage 上限无效')
+    repository.require(type(stage_limit) is int
+              and default_limit <= stage_limit < workflow_policy.MAX_STAGES
+              and type(d['stage']) is int and 0 <= d['stage'] <= stage_limit, 'stage 上限无效')
+    repository.require(d['stage'] > default_limit or
+              (stage_limit == default_limit and not d.get('stage_extension')), '默认阶段不能预授追加额度')
     if d['stage'] > default_limit:
         extension = evidence.read(evidence.bound(d.get('stage_extension')))
+        additional = extension.get('additional_stages')
         repository.require(extension.get('kind') == 'authorized-stage-extension'
-                  and extension.get('selected_stage') in d['prior_stages']
+                  and len(d['prior_stages']) > default_limit
+                  and extension.get('selected_stage') == d['prior_stages'][default_limit]
                   and extension.get('stage') == default_limit
                   and extension.get('new_stage_limit') == stage_limit
-                  and 1 <= extension.get('additional_stages', 0) <= workflow_policy.MAX_STAGE_EXTENSION,
+                  and type(additional) is int and 1 <= additional <= workflow_policy.MAX_STAGE_EXTENSION
+                  and stage_limit == default_limit + additional
+                  and isinstance(extension.get('reason'), str) and extension['reason'].strip(),
                   '追加 stage 缺少匹配的用户授权证据')
     ticket_state.check_selected_review(d, (report.get('review') or {}).get('sources', []))
     recovery = evidence.read(evidence.bound(d['stage_recovery'])) if d.get('stage_recovery') else None
@@ -149,7 +167,7 @@ def check_stage(d, report):
         old, prior = ticket_state.resolve_source(item)
         dispatch_contract.same_ticket(d, old)
         repository.require(old['stage'] == (0 if previous is None else previous + 1), '历史 stage 不连续')
-        check_stage(old, prior)
+        _check_stage(old, prior, verified)
         if prior['outcome'] != 'code_failure':
             repository.require(recovery and not recovered_stage and prior['outcome'] == 'blocked'
                       and recovery['kind'] == 'unregistered-gate-repair'
@@ -187,6 +205,7 @@ def check_stage(d, report):
     if report['status'] == 'DONE' or report['outcome'] == 'code_failure':
         repository.require(execution['stopped_tasks'], '成功或阶段推进必须确认任务结束')
     check_stage_report_core(d, report)
+    verified.add(key)
 
 
 def check_ticket(d, report):

@@ -7,7 +7,10 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 import evidence
+import ticket_reports
+import workflow_policy
 import test_controller as fixture
 import test_executor_operations as review_fixture
 
@@ -127,6 +130,62 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
     def ready_writer(self):
         self.commit(); self.gate(); self.gate('gate-demo'); self.implement()
 
+    def exhaust_default_stages(self):
+        for stage in range(len(workflow_policy.STAGE_MODELS)):
+            self.ready_writer(); self.assemble([self.review(blocking=True)], 'code_failure')
+            if stage < len(workflow_policy.STAGE_MODELS) - 1:
+                self.stage('repair')
+
+    def evidence_snapshot(self):
+        return {str(p): evidence.digest(p) for p in self.root_dispatch.parent.rglob('*') if p.is_file()}
+
+    def test_history_validation_reuses_each_stage_only_within_one_call(self):
+        for _ in range(2):
+            self.ready_writer(); self.assemble([self.review(blocking=True)], 'code_failure')
+            self.stage('repair')
+        self.ready_writer(); self.assemble([self.review()])
+        dispatch, report = evidence.read(self.sd), evidence.read(self.stage_report)
+        with patch.dict(os.environ, self.h.env), patch.object(
+                ticket_reports.report_io, 'implementer', wraps=ticket_reports.report_io.implementer) as checks:
+            ticket_reports.check_stage(dispatch, report)
+            self.assertEqual(checks.call_count, 3)
+            ticket_reports.check_stage(dispatch, report)
+            self.assertEqual(checks.call_count, 6)
+            historical = Path(dispatch['prior_stages'][0]['report']['path'])
+            original = historical.read_bytes()
+            historical.write_bytes(original + b'\n')
+            try:
+                with self.assertRaisesRegex(ValueError, '证据文件已变化'):
+                    ticket_reports.check_stage(dispatch, report)
+            finally:
+                historical.write_bytes(original)
+            ticket_reports.check_stage(dispatch, report)
+            self.assertEqual(checks.call_count, 9)
+
+    def test_stage_validation_distinguishes_corrections_and_does_not_cache_failure(self):
+        self.ready_writer(); self.assemble([self.review()])
+        dispatch, report = evidence.read(self.sd), evidence.read(self.stage_report)
+        verified = set()
+        original_check = ticket_reports.check_stage_report_core
+        with patch.dict(os.environ, self.h.env), patch.object(
+                ticket_reports, 'check_stage_report_core', side_effect=ValueError('模拟校验失败')):
+            with self.assertRaisesRegex(ValueError, '模拟校验失败'):
+                ticket_reports._check_stage(dispatch, report, verified)
+        self.assertEqual(verified, set())
+        with patch.dict(os.environ, self.h.env), patch.object(
+                ticket_reports, 'check_stage_report_core', wraps=original_check) as checks:
+            ticket_reports._check_stage(dispatch, report, verified)
+            ticket_reports._check_stage(dispatch, report, verified)
+            self.assertEqual(checks.call_count, 1)
+            corrected = copy.deepcopy(report)
+            corrected['concerns'].append('追加核对说明')
+            ticket_reports._check_stage(dispatch, corrected, verified)
+            self.assertEqual(checks.call_count, 2)
+            invalid = copy.deepcopy(report)
+            invalid['execution']['stopped_tasks'] = False
+            with self.assertRaisesRegex(ValueError, '确认任务结束'):
+                ticket_reports._check_stage(dispatch, invalid, verified)
+
     def test_full_ticket_and_controller_accept(self):
         self.ready_writer()
         self.assemble([self.review()])
@@ -238,6 +297,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assemble([self.review(blocking=True)], 'code_failure')
         self.stage('repair')
         self.assertEqual(self.stage_info['stage'], 2)
+        self.ready_writer(); self.assemble([self.review()]); self.deliver()
 
     def test_unregistered_gate_repair_recovery_rejects_generic_block(self):
         self.commit()
@@ -544,6 +604,63 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertEqual(dispatch['models']['implementer'], {'model': 'gpt-5.6-sol', 'reasoning_effort': 'medium'})
         extension = json.loads(Path(dispatch['stage_extension']['path']).read_text())
         self.assertEqual(extension['additional_stages'], 5)
+        self.ready_writer(); self.assemble([self.review(blocking=True)], 'code_failure')
+        self.deliver(ok=False)
+        self.stage('repair')
+        continued = evidence.read(self.sd)
+        self.assertEqual(continued['stage_limit'], dispatch['stage_limit'])
+        self.assertEqual(continued['stage_extension'], dispatch['stage_extension'])
+        stage_dispatch = self.sd
+        before = self.evidence_snapshot()
+        self.stage()
+        self.assertEqual(self.sd, stage_dispatch)
+        self.assertEqual(self.evidence_snapshot(), before)
+        self.ready_writer(); self.assemble([self.review()]); self.deliver()
+
+    def test_extension_rejects_invalid_inputs_before_writing_and_stops_after_one(self):
+        self.exhaust_default_stages()
+        before = self.evidence_snapshot()
+        cases = [
+            {'additional_stages': n, 'extension_reason': '明确授权'} for n in (0, 6, True)
+        ] + [
+            {'additional_stages': 1},
+            {'additional_stages': 1, 'extension_reason': ' '},
+            {'additional_stages': 1, 'extension_reason': '明确授权', 'model_overrides': {'unknown': {}}},
+            {'additional_stages': 1, 'extension_reason': '明确授权', 'recovery_reason': '错误字段'},
+        ]
+        for facts in cases:
+            with self.subTest(facts=facts):
+                self.stage('extend', ok=False, **facts)
+                self.assertEqual(self.evidence_snapshot(), before)
+        self.stage('extend', additional_stages=1, extension_reason='用户明确追加一个 stage')
+        self.ready_writer(); self.assemble([self.review(blocking=True)], 'code_failure')
+        self.deliver()
+        before = self.evidence_snapshot()
+        self.stage('repair', ok=False)
+        error = self.stage('extend', additional_stages=1, extension_reason='再次申请', ok=False)
+        self.assertIn('仅允许追加一次', error['error'])
+        self.assertEqual(self.evidence_snapshot(), before)
+
+    def test_extension_report_requires_matching_authorization(self):
+        self.exhaust_default_stages()
+        self.stage('extend', additional_stages=1, extension_reason='用户明确追加一个 stage')
+        self.ready_writer(); self.assemble([self.review()]); self.deliver()
+        dispatch, report = evidence.read(self.sd), evidence.read(self.stage_report)
+        extension = evidence.read(evidence.bound(dispatch['stage_extension']))
+        with patch.dict(os.environ, self.h.env):
+            for changes in ({'additional_stages': 2}, {'additional_stages': True},
+                            {'new_stage_limit': 10}, {'reason': ' '},
+                            {'selected_stage': dispatch['prior_stages'][0]}):
+                with self.subTest(changes=changes):
+                    path = self.file('invalid-extension', {**extension, **changes})
+                    invalid = {**dispatch, 'stage_extension': evidence.binding(str(path))}
+                    with self.assertRaisesRegex(ValueError, '用户授权证据'):
+                        ticket_reports.check_stage(invalid, report)
+            for binding in (None, {**dispatch['stage_extension'], 'sha256': '0' * 64}):
+                with self.subTest(binding=binding), self.assertRaises(ValueError):
+                    ticket_reports.check_stage({**dispatch, 'stage_extension': binding}, report)
+            with self.assertRaisesRegex(ValueError, 'stage 上限无效'):
+                ticket_reports.check_stage({**dispatch, 'stage_limit': dispatch['stage'] - 1}, report)
 
     def test_same_head_external_gate_retry_does_not_consume_repairs(self):
         self.commit(); self.gate(fail=True)

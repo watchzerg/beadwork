@@ -31,6 +31,6 @@ controller 不同步审批和写适配 comment；最终 completion/停止记录�
 
 无提交 review 通过 `review-prepare --evidence <acceptance.json>` 准备；文件为 criterion/evidence 非空数组，包含可读取的实现与验证来源。两轴收到 `review_kind: existing_behavior` 和 hash 绑定的证据文件：核实本票已有实现与全部验收要求，不对空 diff 自动 PASS，也不扩展为全仓库历史审查。普通 changed review 沿用 change 范围。
 
-review 推翻“已满足”并发现本票代码缺陷时，按 code_failure 进入下一阶段。下一阶段需要行为改动时，executor 按同一适配入口恢复 TDD（保留既有 seam），取得真实 red；六阶段上限不变。同 HEAD 的报告更正仍不算新 review。
+review 推翻“已满足”并发现本票代码缺陷时，按 code_failure 进入下一阶段。下一阶段需要行为改动时，executor 按同一适配入口恢复 TDD（保留既有 seam），取得真实 red；当前已授权阶段上限不变。同 HEAD 的报告更正仍不算新 review。
 
 DONE 后沿用 completion、close 和 frontier；comment 说明基线已满足、本票无新增提交。最终 main=HEAD 时仍做完整 gates 与 parent 范围的 existing_behavior review，再记录已在 main、关闭和清理；不创建空提交。

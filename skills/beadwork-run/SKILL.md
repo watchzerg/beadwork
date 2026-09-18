@@ -113,7 +113,7 @@ controller 核对整票交付来源、最终状态、必要 gates 和最后 revi
 
 - `DONE`：验收通过后进入 3.5，保留所有非阻塞 smells。
 - `NEEDS_CONTEXT`：按 `recovery-needs-context.md` 补齐具体事实，恢复原 root。
-- `BLOCKED`：按 `recovery-blocked.md` 保存停止与恢复入口。最终 code_failure 表示六阶段已用尽；controller 不再派下一修复阶段。中断保留原 stage、writer 现场和额度，非代码阻塞解除后恢复。
+- `BLOCKED`：按 `recovery-blocked.md` 保存停止与恢复入口。最终 code_failure 表示当前已授权阶段用尽；controller 记录停止。用户明确追加额度时按 recovery-blocked.md 恢复原 root。中断保留原 stage、writer 现场和额度，非代码阻塞解除后恢复。
 
 ### 3.5 完成 ticket
 
