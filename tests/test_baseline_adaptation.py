@@ -1,18 +1,19 @@
 """基线适配、零提交交付及原始证据保留的真实 Git 行为回归。"""
+
 import copy
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 import pytest
 
 import test_executor_operations as executor_fixture
 import test_finalization as final_fixture
-import test_verify_worker as worker_fixture
 import test_verify_phase as phase_fixture
+import test_verify_worker as worker_fixture
 
 
 @pytest.mark.workflow
@@ -31,8 +32,14 @@ class BaselineAdaptationTests(unittest.TestCase):
         self.e.directory = self.e.dispatch.parent
 
     def adapt(self, mode="direct_verification", **changes):
-        facts = {"mode": mode, "reason": "开工 BASE 已满足要求，复用既有行为验证", "acceptance": [{"criterion": "交付行为", "evidence": "BASE 的现有实现与测试"}],
-                 "verification": [{"command": "just test", "result": "目标断言通过"}], "boundary_gates": ["gate-browser"], **changes}
+        facts = {
+            "mode": mode,
+            "reason": "开工 BASE 已满足要求，复用既有行为验证",
+            "acceptance": [{"criterion": "交付行为", "evidence": "BASE 的现有实现与测试"}],
+            "verification": [{"command": "just test", "result": "目标断言通过"}],
+            "boundary_gates": ["gate-browser"],
+            **changes,
+        }
         source = self.h.root / "adapt.json"
         self.h.put(source, facts)
         return self.h.call("adapt-plan", "--dispatch", self.e.dispatch, "--input", source)
@@ -43,14 +50,28 @@ class BaselineAdaptationTests(unittest.TestCase):
         return p
 
     def deliver(self, review, status="DONE", outcome="passed"):
-        draft = {"status": status, "outcome": outcome,
-                 "test_plan": {"decision_source": "controller 适配记录", "red_evidence": None},
-                 "acceptance": [{"criterion": "交付行为", "evidence": "现有实现和验证"}],
-                 "verification": [{"command": "just gate-core", "result": "通过"}],
-                 "requested_context": [], "blockers": [] if status == "DONE" else ["缺陷"], "concerns": []}
+        draft = {
+            "status": status,
+            "outcome": outcome,
+            "test_plan": {"decision_source": "controller 适配记录", "red_evidence": None},
+            "acceptance": [{"criterion": "交付行为", "evidence": "现有实现和验证"}],
+            "verification": [{"command": "just gate-core", "result": "通过"}],
+            "requested_context": [],
+            "blockers": [] if status == "DONE" else ["缺陷"],
+            "concerns": [],
+        }
         self.h.put(self.e.directory / "draft.json", draft)
-        receipt = self.e.call("assemble", "--dispatch", self.e.dispatch, "--draft", self.e.directory / "draft.json",
-                              "--output", self.e.directory / "report.json", "--review", review)
+        receipt = self.e.call(
+            "assemble",
+            "--dispatch",
+            self.e.dispatch,
+            "--draft",
+            self.e.directory / "draft.json",
+            "--output",
+            self.e.directory / "report.json",
+            "--review",
+            review,
+        )
         self.h.report = self.e.directory / "report.json"
         self.h.receipt = self.e.directory / "receipt.json"
         self.h.put(self.h.receipt, receipt)
@@ -58,7 +79,8 @@ class BaselineAdaptationTests(unittest.TestCase):
         return json.loads(self.h.report.read_text())
 
     def test_no_commit_full_delivery_and_comment(self):
-        old = self.e.dispatch; raw = old.read_bytes()
+        old = self.e.dispatch
+        raw = old.read_bytes()
         old_state = json.loads(raw)
         self.select(self.adapt())
         self.assertEqual(raw, old.read_bytes())
@@ -71,7 +93,15 @@ class BaselineAdaptationTests(unittest.TestCase):
         self.assertEqual(report["implementation_commits"], [])
         self.assertEqual(report["base_commit"], report["head_commit"])
         comment = self.e.directory / "completion.md"
-        self.h.call("comment", "--acceptance", self.h.acceptance, "--summary", "已有行为验收完成", "--output", comment)
+        self.h.call(
+            "comment",
+            "--acceptance",
+            self.h.acceptance,
+            "--summary",
+            "已有行为验收完成",
+            "--output",
+            comment,
+        )
         self.assertIn("无新增提交", comment.read_text())
 
     def test_review_scope_draft_allows_adaptation(self):
@@ -85,8 +115,8 @@ class BaselineAdaptationTests(unittest.TestCase):
         for name in ("gate-review-started.json", "review-partial"):
             with self.subTest(name=name):
                 path = self.e.directory / name
-                if name.endswith('.json'):
-                    path.write_text('{}')
+                if name.endswith(".json"):
+                    path.write_text("{}")
                 else:
                     path.mkdir()
                 with self.assertRaisesRegex(AssertionError, "计划适配须"):
@@ -111,7 +141,9 @@ class BaselineAdaptationTests(unittest.TestCase):
         error = self.e.call("review-prepare", "--dispatch", self.e.dispatch, ok=False)
         self.assertIn("acceptance", error["error"])
         (self.h.wt / "dirty.txt").write_text("未完成")
-        self.e.call("review-prepare", "--dispatch", self.e.dispatch, "--evidence", self.evidence(), ok=False)
+        self.e.call(
+            "review-prepare", "--dispatch", self.e.dispatch, "--evidence", self.evidence(), ok=False
+        )
 
     def test_evidence_tamper_and_plan_tamper_rejected(self):
         self.select(self.adapt())
@@ -125,8 +157,14 @@ class BaselineAdaptationTests(unittest.TestCase):
     def test_resume_preserves_selected_plan(self):
         self.select(self.adapt())
         old = self.h.d.copy()
-        self.h.prepare(mode="resume", test_mode="direct_verification", approved_seams=["S1"],
-                       base_commit=old["base_commit"], previous_dispatch=old["dispatch_path"], continuation="resume")
+        self.h.prepare(
+            mode="resume",
+            test_mode="direct_verification",
+            approved_seams=["S1"],
+            base_commit=old["base_commit"],
+            previous_dispatch=old["dispatch_path"],
+            continuation="resume",
+        )
         self.assertEqual(self.h.d["plan_adjustment"], old["plan_adjustment"])
         self.assertEqual(self.h.d["stage"], old["stage"])
 
@@ -141,8 +179,9 @@ class BaselineAdaptationTests(unittest.TestCase):
 
     def test_missing_current_contract_cannot_accept_no_commit_report(self):
         self.select(self.adapt())
-        report = self.deliver(self.e.collect(self.e.round(evidence=self.evidence())))
-        d = self.h.d.copy(); d.pop("workflow_contract_version")
+        self.deliver(self.e.collect(self.e.round(evidence=self.evidence())))
+        d = self.h.d.copy()
+        d.pop("workflow_contract_version")
         self.h.put(self.e.dispatch, d)
         self.h.accept(ok=False)
 
@@ -150,40 +189,99 @@ class BaselineAdaptationTests(unittest.TestCase):
 @pytest.mark.integration
 class ReceiptOutputTests(unittest.TestCase):
     def test_worker_success_blocked_and_failure(self):
-        h = worker_fixture.WorkerDeliveryTests(); h.setUp(); self.addCleanup(h.doCleanups)
-        for role, report in [("reviewer", h.axis(True)), ("reviewer", {**h.expected("reviewer"), "status": "BLOCKED", "blockers": ["缺少 spec"]}), ("fixer", h.fixer())]:
-            p = h.root / "report.json"; d = h.root / "dispatch.json"
-            p.write_text(json.dumps(report)); d.write_text(json.dumps(h.expected(role)))
-            cmd = [sys.executable, "-B", str(worker_fixture.VERIFIER), "--check-report", role, str(p), "--expected", str(d), "--emit-receipt"]
+        h = worker_fixture.WorkerDeliveryTests()
+        h.setUp()
+        self.addCleanup(h.doCleanups)
+        for role, report in [
+            ("reviewer", h.axis(True)),
+            (
+                "reviewer",
+                {**h.expected("reviewer"), "status": "BLOCKED", "blockers": ["缺少 spec"]},
+            ),
+            ("fixer", h.fixer()),
+        ]:
+            p = h.root / "report.json"
+            d = h.root / "dispatch.json"
+            p.write_text(json.dumps(report))
+            d.write_text(json.dumps(h.expected(role)))
+            cmd = [
+                sys.executable,
+                "-B",
+                str(worker_fixture.VERIFIER),
+                "--check-report",
+                role,
+                str(p),
+                "--expected",
+                str(d),
+                "--emit-receipt",
+            ]
             r = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(json.loads(r.stdout), {"status": report.get("status", "COMPLETED"), "report_path": str(p), "report_sha256": hashlib.sha256(p.read_bytes()).hexdigest()})
-            p.write_text('{}')
+            self.assertEqual(
+                json.loads(r.stdout),
+                {
+                    "status": report.get("status", "COMPLETED"),
+                    "report_path": str(p),
+                    "report_sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+                },
+            )
+            p.write_text("{}")
             bad = subprocess.run(cmd, capture_output=True, text=True)
             self.assertNotEqual(bad.returncode, 0)
             self.assertEqual(bad.stdout, "")
 
     def test_phase_and_executor_receipt_outputs(self):
-        h = phase_fixture.PhaseValidatorTests(); h.setUp(); self.addCleanup(h.doCleanups)
+        h = phase_fixture.PhaseValidatorTests()
+        h.setUp()
+        self.addCleanup(h.doCleanups)
         import test_verify_ticket as ticket_fixture
-        t = ticket_fixture.TicketAcceptanceTests(); t.setUp(); self.addCleanup(t.doCleanups)
-        cases = [("preflight", h.preflight(), h.dispatch("preflight")),
-                 ("finalizer", h.finalizer(), h.dispatch("finalizer")),
-                 ("executor", t.report, None)]
+
+        t = ticket_fixture.TicketAcceptanceTests()
+        t.setUp()
+        self.addCleanup(t.doCleanups)
+        cases = [
+            ("preflight", h.preflight(), h.dispatch("preflight")),
+            ("finalizer", h.finalizer(), h.dispatch("finalizer")),
+            ("executor", t.report, None),
+        ]
         for role, report, dispatch in cases:
             with self.subTest(role=role):
-                path = h.root / "report.json"; path.write_text(json.dumps(report))
+                path = h.root / "report.json"
+                path.write_text(json.dumps(report))
                 if role == "executor":
-                    cmd = [sys.executable, "-B", str(ticket_fixture.VERIFIER), "--check-report", str(path)]
+                    cmd = [
+                        sys.executable,
+                        "-B",
+                        str(ticket_fixture.VERIFIER),
+                        "--check-report",
+                        str(path),
+                    ]
                 else:
-                    d = h.root / "dispatch.json"; d.write_text(json.dumps(dispatch))
-                    cmd = [sys.executable, "-B", str(phase_fixture.VERIFIER), "--check-report", role, str(path), "--expected", str(d)]
+                    d = h.root / "dispatch.json"
+                    d.write_text(json.dumps(dispatch))
+                    cmd = [
+                        sys.executable,
+                        "-B",
+                        str(phase_fixture.VERIFIER),
+                        "--check-report",
+                        role,
+                        str(path),
+                        "--expected",
+                        str(d),
+                    ]
                 result = subprocess.run(cmd + ["--emit-receipt"], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads(result.stdout), {"status": report["status"], "report_path": str(path), "report_sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+                self.assertEqual(
+                    json.loads(result.stdout),
+                    {
+                        "status": report["status"],
+                        "report_path": str(path),
+                        "report_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    },
+                )
                 diagnostic = subprocess.run(cmd, capture_output=True, text=True)
                 self.assertTrue(json.loads(diagnostic.stdout)["ok"])
-                path.write_text('{}')
+                path.write_text("{}")
                 failed = subprocess.run(cmd + ["--emit-receipt"], capture_output=True, text=True)
                 self.assertNotEqual(failed.returncode, 0)
                 self.assertEqual(failed.stdout, "")
@@ -192,24 +290,40 @@ class ReceiptOutputTests(unittest.TestCase):
 @pytest.mark.workflow
 class EmptyBatchTests(unittest.TestCase):
     def test_final_review_accept_merge_and_cleanup_without_new_commits(self):
-        f = final_fixture.FinalizationTests(); f.setUp(); self.addCleanup(f.doCleanups)
+        f = final_fixture.FinalizationTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
         # Fast-forward primary to existing code before beginning a fresh batch.
         f.h.h.git(f.h.primary, "merge", "--ff-only", f.h.h.head)
         f.h.h.base = f.h.h.head
-        f.h.prepare("finalizer"); f.root = f.h.dispatch
+        f.h.prepare("finalizer")
+        f.root = f.h.dispatch
         stage = f.stage()
         evidence = Path(stage).parent / "acceptance.json"
         f.put(evidence, [{"criterion": "parent 全部要求", "evidence": "当前实现与完整验证"}])
         f.gate(stage)
         review = f.review(stage, evidence=evidence)
-        report, receipt = f.assemble(stage, reviews=[review], status="READY_TO_MERGE", outcome="passed")
+        report, receipt = f.assemble(
+            stage, reviews=[review], status="READY_TO_MERGE", outcome="passed"
+        )
         root_report = Path(f.h.d["report_path"])
         root_report.write_bytes(report.read_bytes())
-        r = json.loads(receipt.read_text()); r["report_path"] = str(root_report)
-        f.h.report = root_report; f.h.receipt = root_report.with_name("receipt.json"); f.put(f.h.receipt, r)
+        r = json.loads(receipt.read_text())
+        r["report_path"] = str(root_report)
+        f.h.report = root_report
+        f.h.receipt = root_report.with_name("receipt.json")
+        f.put(f.h.receipt, r)
         f.h.accept()
         comment = root_report.with_name("integration.md")
-        f.h.call("comment", "--acceptance", f.h.acceptance, "--summary", "已有批次验收", "--output", comment)
+        f.h.call(
+            "comment",
+            "--acceptance",
+            f.h.acceptance,
+            "--summary",
+            "已有批次验收",
+            "--output",
+            comment,
+        )
         f.h.put(f.h.root / "comments.json", [{"id": 7, "text": comment.read_text()}])
         f.h.merge_record = root_report.with_name("merge.json")
         self.assertTrue(f.h.merge()["merged"])

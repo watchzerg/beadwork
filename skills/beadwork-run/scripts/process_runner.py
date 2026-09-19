@@ -1,11 +1,12 @@
 """在专属 POSIX 进程组运行命令并保存完整合并日志。"""
+
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import signal
 import subprocess
 import time
+from pathlib import Path
 
 
 def group_exists(pid):
@@ -51,9 +52,15 @@ def run(argv, cwd, log_path, *, executable=None):
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             handlers[sig] = signal.signal(sig, lambda value, frame: interrupted.append(value))
         with Path(log_path).open("xb") as output:
-            process = subprocess.Popen(argv, executable=executable, cwd=cwd, stdin=subprocess.DEVNULL,
-                                       stdout=output, stderr=subprocess.STDOUT,
-                                       start_new_session=True)
+            process = subprocess.Popen(
+                argv,
+                executable=executable,
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
             while process.poll() is None and not interrupted:
                 time.sleep(0.05)
             if interrupted:
@@ -75,6 +82,10 @@ def run(argv, cwd, log_path, *, executable=None):
             code = process.returncode
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
-    return {"outcome": outcome, "exit_code": code,
-            "cancel_signal": interrupted[0] if interrupted else None,
-            "process_group_gone": stopped, "error": error}
+    return {
+        "outcome": outcome,
+        "exit_code": code,
+        "cancel_signal": interrupted[0] if interrupted else None,
+        "process_group_gone": stopped,
+        "error": error,
+    }

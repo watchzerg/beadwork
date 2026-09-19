@@ -6,7 +6,6 @@ import sys
 
 import worker_validation
 
-
 if __name__ == "__main__":
     try:
         worker_validation.main(sys.argv[1:])

@@ -1,12 +1,12 @@
 """报告 schema 与校验服务；内部调用不启动 verifier 子进程。"""
 
-from pathlib import Path
 import importlib
 import json
 import os
+from pathlib import Path
 
-from repository import require
 import evidence
+from repository import require
 
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -35,12 +35,21 @@ def _executor(option, *args):
         if problems:
             failures.append({"check": "receipt_schema", "observed": problems})
         else:
-            wanted = {"status": report.get("status"), "report_path": os.path.abspath(report_path),
-                      "report_sha256": digest}
-            failures.extend({"check": "receipt_" + key + "_matches"}
-                            for key, value in wanted.items() if receipt[key] != value)
-    return {"ok": not failures, "report_sha256": digest,
-            **({"failures": failures} if failures else {})}
+            wanted = {
+                "status": report.get("status"),
+                "report_path": os.path.abspath(report_path),
+                "report_sha256": digest,
+            }
+            failures.extend(
+                {"check": "receipt_" + key + "_matches"}
+                for key, value in wanted.items()
+                if receipt[key] != value
+            )
+    return {
+        "ok": not failures,
+        "report_sha256": digest,
+        **({"failures": failures} if failures else {}),
+    }
 
 
 def verifier(role, option, *args):
@@ -63,11 +72,14 @@ def verifier(role, option, *args):
                 expected = values[index + 1]
                 values = values[:index]
             require(1 <= len(values) <= 2, "phase verifier 参数无效")
-            result = phase_validation.check(role, values[0], expected,
-                                            values[1] if len(values) == 2 else None)
+            result = phase_validation.check(
+                role, values[0], expected, values[1] if len(values) == 2 else None
+            )
     if option == "--check-report":
-        require(result.get("ok") is True,
-                role + " 报告校验失败：" + json.dumps(result, ensure_ascii=False))
+        require(
+            result.get("ok") is True,
+            role + " 报告校验失败：" + json.dumps(result, ensure_ascii=False),
+        )
     return result
 
 
@@ -82,10 +94,12 @@ def worker(role, option, *args):
     require("--expected" in values, "worker verifier 缺少 --expected")
     index = values.index("--expected")
     require(index + 2 == len(values) and 1 <= index <= 2, "worker verifier 参数无效")
-    result = worker_validation.check(role, values[0], values[index + 1],
-                                     values[1] if index == 2 else None)
-    require(result.get("ok") is True,
-            role + " 报告校验失败：" + json.dumps(result, ensure_ascii=False))
+    result = worker_validation.check(
+        role, values[0], values[index + 1], values[1] if index == 2 else None
+    )
+    require(
+        result.get("ok") is True, role + " 报告校验失败：" + json.dumps(result, ensure_ascii=False)
+    )
     return result
 
 
@@ -107,8 +121,9 @@ def inspect_preflight(dispatch_path, report_path, receipt_path):
     directory = Path(dispatch_path).resolve().parent
     for path in (report_path, receipt_path):
         require(Path(path).resolve().parent == directory, "报告和回执必须位于 dispatch 证据目录")
-    result = verifier("preflight", "--check-report", report_path, receipt_path,
-                      "--expected", dispatch_path)
+    result = verifier(
+        "preflight", "--check-report", report_path, receipt_path, "--expected", dispatch_path
+    )
     report = evidence.read(report_path)
     require(evidence.digest(report_path) == result["report_sha256"], "验收期间报告发生变化")
     return d, report, result

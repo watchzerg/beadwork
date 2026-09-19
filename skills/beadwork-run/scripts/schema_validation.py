@@ -1,17 +1,21 @@
 """受控 Draft 7 子集与严格 JSON 读取；不依赖任何工作流控制器。"""
+
 from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import evidence
 
 
-def object_schema(properties: Dict[str, Any], optional: Tuple[str, ...] = ()) -> Dict[str, Any]:
-    return {"type": "object", "properties": properties,
-            "required": [key for key in properties if key not in optional],
-            "additionalProperties": False}
+def object_schema(properties: dict[str, Any], optional: tuple[str, ...] = ()) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": [key for key in properties if key not in optional],
+        "additionalProperties": False,
+    }
 
 
 TEXT = {"type": "string", "pattern": r"\S"}
@@ -20,23 +24,36 @@ TEXTS = {"type": "array", "items": TEXT}
 SEAMS = {**TEXTS, "uniqueItems": True}
 
 
-def schema_errors(value: Any, schema: Dict[str, Any], path: str = "$") -> List[str]:
-    errors: List[str] = []
+def schema_errors(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+    errors: list[str] = []
     kind = schema.get("type")
-    matches = {"object": isinstance(value, dict), "array": isinstance(value, list),
-               "string": isinstance(value, str), "boolean": isinstance(value, bool),
-               "integer": isinstance(value, (int, float)) and not isinstance(value, bool)
-               and (isinstance(value, int) or value.is_integer()), "null": value is None}
+    matches = {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "boolean": isinstance(value, bool),
+        "integer": isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and (isinstance(value, int) or value.is_integer()),
+        "null": value is None,
+    }
     if kind is not None and not matches[kind]:
         return [path + ": expected " + kind]
-    if "enum" in schema and not any(isinstance(value, bool) == isinstance(item, bool) and value == item
-                                     for item in schema["enum"]):
+    if "enum" in schema and not any(
+        isinstance(value, bool) == isinstance(item, bool) and value == item
+        for item in schema["enum"]
+    ):
         errors.append(path + ": enum")
-    if "const" in schema and (isinstance(value, bool) != isinstance(schema["const"], bool)
-                              or value != schema["const"]):
+    if "const" in schema and (
+        isinstance(value, bool) != isinstance(schema["const"], bool) or value != schema["const"]
+    ):
         errors.append(path + ": const")
     if isinstance(value, dict):
-        errors.extend(path + "." + key + ": required" for key in schema.get("required", []) if key not in value)
+        errors.extend(
+            path + "." + key + ": required"
+            for key in schema.get("required", [])
+            if key not in value
+        )
         properties = schema.get("properties", {})
         for key, item in value.items():
             if key in properties:
@@ -46,7 +63,9 @@ def schema_errors(value: Any, schema: Dict[str, Any], path: str = "$") -> List[s
             elif isinstance(schema.get("additionalProperties"), dict):
                 errors.extend(schema_errors(item, schema["additionalProperties"], path + "." + key))
     if isinstance(value, list):
-        if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", float("inf")):
+        if len(value) < schema.get("minItems", 0) or len(value) > schema.get(
+            "maxItems", float("inf")
+        ):
             errors.append(path + ": item count")
         if schema.get("uniqueItems"):
             encoded = [json.dumps(item, sort_keys=True, ensure_ascii=False) for item in value]
@@ -77,13 +96,40 @@ def schema_errors(value: Any, schema: Dict[str, Any], path: str = "$") -> List[s
 
 
 def check_schema(schema: Any) -> None:
-    allowed = {"$schema", "title", "description", "type", "properties", "required",
-               "additionalProperties", "items", "minItems", "maxItems", "uniqueItems",
-               "minLength", "pattern", "enum", "const", "anyOf", "oneOf", "allOf", "not",
-               "if", "then", "else"}
+    allowed = {
+        "$schema",
+        "title",
+        "description",
+        "type",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "minLength",
+        "pattern",
+        "enum",
+        "const",
+        "anyOf",
+        "oneOf",
+        "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
+    }
     if not isinstance(schema, dict) or set(schema) - allowed:
         raise ValueError("schema 含不支持的规则")
-    if "type" in schema and schema["type"] not in ("object", "array", "string", "boolean", "integer", "null"):
+    if "type" in schema and schema["type"] not in (
+        "object",
+        "array",
+        "string",
+        "boolean",
+        "integer",
+        "null",
+    ):
         raise ValueError("schema 含不支持的 type")
     for child in schema.get("properties", {}).values():
         check_schema(child)

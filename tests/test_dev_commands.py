@@ -4,7 +4,6 @@ import pytest
 
 import run_tests
 
-
 pytestmark = pytest.mark.integration
 
 

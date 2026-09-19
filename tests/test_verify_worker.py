@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """子 agent 交付回归；仅写临时 JSON 文件，不操作 Git/Beads。"""
+
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import pytest
 
@@ -28,32 +28,91 @@ class WorkerDeliveryTests(unittest.TestCase):
     def expected(self, role):
         if role == "reviewer":
             return {"axis": "spec", "reviewed_base": A, "reviewed_head": B}
-        return {"parent_id": "demo-1", "branch": "implement/demo-1", "base_commit": A, "required_boundary_gates": ["gate-browser"]}
+        return {
+            "parent_id": "demo-1",
+            "branch": "implement/demo-1",
+            "base_commit": A,
+            "required_boundary_gates": ["gate-browser"],
+        }
 
     def axis(self, blocking=False):
-        return {"axis": "spec", "reviewed_base": A, "reviewed_head": B, "findings": [
-            {"axis": "spec", "kind": "defect", "blocking": True, "title": "遗漏需求", "evidence": "需求和代码证据"}
-        ] if blocking else [], "notes": []}
+        return {
+            "axis": "spec",
+            "reviewed_base": A,
+            "reviewed_head": B,
+            "findings": [
+                {
+                    "axis": "spec",
+                    "kind": "defect",
+                    "blocking": True,
+                    "title": "遗漏需求",
+                    "evidence": "需求和代码证据",
+                }
+            ]
+            if blocking
+            else [],
+            "notes": [],
+        }
 
     def fixer(self):
-        return {"status": "DONE", "parent_id": "demo-1", "branch": "implement/demo-1", "base_commit": A,
-                "head_commit": B, "fix_commit": B, "dispositions": [{"source": "finding.json", "action": "已修复"}],
-                "boundary_gates": ["gate-browser"], "gate_sources": [{"gate": "gate-browser", "source": "ticket"}],
-                "verification": [{"gate": "gate-full", "command": "just gate-full", "head_commit": B,
-                                  "passed": True, "result": "通过", "log_path": "gate-full.log"}],
-                "worktree_clean": True, "stopped_tasks": True, "uncommitted_files": [], "blockers": [], "remaining_work": []}
+        return {
+            "status": "DONE",
+            "parent_id": "demo-1",
+            "branch": "implement/demo-1",
+            "base_commit": A,
+            "head_commit": B,
+            "fix_commit": B,
+            "dispositions": [{"source": "finding.json", "action": "已修复"}],
+            "boundary_gates": ["gate-browser"],
+            "gate_sources": [{"gate": "gate-browser", "source": "ticket"}],
+            "verification": [
+                {
+                    "gate": "gate-full",
+                    "command": "just gate-full",
+                    "head_commit": B,
+                    "passed": True,
+                    "result": "通过",
+                    "log_path": "gate-full.log",
+                }
+            ],
+            "worktree_clean": True,
+            "stopped_tasks": True,
+            "uncommitted_files": [],
+            "blockers": [],
+            "remaining_work": [],
+        }
 
     def invoke(self, role, report, expected=None, receipt_change=None):
-        path, dispatch, receipt = (self.root/name for name in ("report.json", "dispatch.json", "receipt.json"))
+        path, dispatch, receipt = (
+            self.root / name for name in ("report.json", "dispatch.json", "receipt.json")
+        )
         raw = json.dumps(report, ensure_ascii=False).encode()
         path.write_bytes(raw)
         dispatch.write_text(json.dumps(self.expected(role) if expected is None else expected))
         status = report.get("status", "COMPLETED")
-        received = {"status": status, "report_path": str(path), "report_sha256": hashlib.sha256(raw).hexdigest()}
+        received = {
+            "status": status,
+            "report_path": str(path),
+            "report_sha256": hashlib.sha256(raw).hexdigest(),
+        }
         if receipt_change:
             received.update(receipt_change)
         receipt.write_text(json.dumps(received))
-        result = subprocess.run([sys.executable, "-B", str(VERIFIER), "--check-report", role, str(path), str(receipt), "--expected", str(dispatch)], capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(VERIFIER),
+                "--check-report",
+                role,
+                str(path),
+                str(receipt),
+                "--expected",
+                str(dispatch),
+            ],
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(raw, path.read_bytes())
         return json.loads(result.stdout)
@@ -85,7 +144,11 @@ class WorkerDeliveryTests(unittest.TestCase):
         self.reject("reviewer", report, "finding_axis_matches_dispatch")
 
     def test_receipt_path_status_and_file_hash_are_bound(self):
-        for changes in ({"status": "BLOCKED"}, {"report_path": "/different/report.json"}, {"report_sha256": "0" * 64}):
+        for changes in (
+            {"status": "BLOCKED"},
+            {"report_path": "/different/report.json"},
+            {"report_sha256": "0" * 64},
+        ):
             self.assertFalse(self.invoke("reviewer", self.axis(), receipt_change=changes)["ok"])
 
     def test_bad_review_structure_and_invalid_dispatch_fail(self):
@@ -113,18 +176,28 @@ class WorkerDeliveryTests(unittest.TestCase):
     def test_fixer_success_and_blocked_partial_state(self):
         self.assertTrue(self.invoke("fixer", self.fixer())["ok"])
         report = self.fixer()
-        report.update(status="BLOCKED", fix_commit=None, head_commit=None, stopped_tasks=False,
-                      worktree_clean=False, uncommitted_files=["src/example.ts"], blockers=["验证失败"], remaining_work=["保留现场"])
+        report.update(
+            status="BLOCKED",
+            fix_commit=None,
+            head_commit=None,
+            stopped_tasks=False,
+            worktree_clean=False,
+            uncommitted_files=["src/example.ts"],
+            blockers=["验证失败"],
+            remaining_work=["保留现场"],
+        )
         self.assertTrue(self.invoke("fixer", report)["ok"])
         report["blockers"] = []
         self.reject("fixer", report, "blocked_has_reason")
 
     def test_fixer_done_requires_clean_stopped_new_commit(self):
-        for key, value, check in (("fix_commit", None, "fix_commit_is_new_delivery_head"),
-                                  ("head_commit", A, "fix_commit_is_new_delivery_head"),
-                                  ("worktree_clean", False, "done_clean_and_stopped"),
-                                  ("stopped_tasks", False, "done_clean_and_stopped"),
-                                  ("uncommitted_files", ["x"], "done_has_no_unfinished_work")):
+        for key, value, check in (
+            ("fix_commit", None, "fix_commit_is_new_delivery_head"),
+            ("head_commit", A, "fix_commit_is_new_delivery_head"),
+            ("worktree_clean", False, "done_clean_and_stopped"),
+            ("stopped_tasks", False, "done_clean_and_stopped"),
+            ("uncommitted_files", ["x"], "done_has_no_unfinished_work"),
+        ):
             report = self.fixer()
             report[key] = value
             self.reject("fixer", report, check)
@@ -155,12 +228,27 @@ class WorkerDeliveryTests(unittest.TestCase):
     def test_schema_and_self_check_commands(self):
         for role in ("reviewer", "fixer"):
             for args in (["--schema", role], ["--receipt-schema", role]):
-                result = subprocess.run([sys.executable, "-B", str(VERIFIER), *args], capture_output=True, text=True)
+                result = subprocess.run(
+                    [sys.executable, "-B", str(VERIFIER), *args], capture_output=True, text=True
+                )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIsInstance(json.loads(result.stdout), dict)
         report = self.axis()
         self.invoke("reviewer", report)
-        result = subprocess.run([sys.executable, "-B", str(VERIFIER), "--check-report", "reviewer", str(self.root/"report.json"), "--expected", str(self.root/"dispatch.json")], capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(VERIFIER),
+                "--check-report",
+                "reviewer",
+                str(self.root / "report.json"),
+                "--expected",
+                str(self.root / "dispatch.json"),
+            ],
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["ok"])
 

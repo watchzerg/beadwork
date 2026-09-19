@@ -27,3 +27,23 @@ markers = [
   "workflow: products passed across multiple operations, phase progression, or recovery scenarios",
   "distribution: integration tests for the independently copied skill distribution",
 ]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["scripts", "skills/beadwork-run/scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# 这些公开脚本必须先禁用 bytecode，再加载 skill 内部模块。
+"skills/beadwork-run/scripts/{controller,executor_operations,run_verification,worker_validation}.py" = ["E402"]
+
+[tool.ty.src]
+include = ["scripts", "skills/beadwork-run/scripts", "tests"]
+
+[tool.ty.environment]
+python-version = "3.14"
+root = ["scripts", "skills/beadwork-run/scripts", "tests"]

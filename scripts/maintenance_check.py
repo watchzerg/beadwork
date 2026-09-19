@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import ast
 import json
-from pathlib import Path
 import re
 import sys
 import time
+from pathlib import Path
 
 import yaml
 

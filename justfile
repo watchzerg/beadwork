@@ -40,10 +40,19 @@ install:
     mise exec -- uv python install "$(cat .python-version)"
     mise exec -- uv sync --locked --managed-python --python "$(cat .python-version)"
 
-# 格式化指定路径；无参数时处理当前目录。阶段 1 的门禁不会调用此修改型命令。
+# 格式化指定路径；无参数时处理当前目录。
 fmt *paths=".":
-    mise exec -- uv run --locked ruff check --fix "$@"
     mise exec -- uv run --locked ruff format "$@"
+    mise exec -- uv run --locked ruff check --fix "$@"
+
+# 检查约定范围的 lint 与格式，不修改文件。
+lint:
+    mise exec -- uv run --locked ruff check scripts skills/beadwork-run/scripts tests
+    mise exec -- uv run --locked ruff format --check scripts skills/beadwork-run/scripts tests
+
+# 使用 Python 3.14 目标检查仓库脚本、skill 运行源码和 tests。
+typecheck:
+    mise exec -- uv run --locked ty check
 
 # 检查根维护文档、skill 文档、仓库结构、Python 语法和 whitespace。
 check-docs:
@@ -69,9 +78,11 @@ test suite *args:
     shift
     exec mise exec -- uv run --locked python scripts/run_tests.py "$suite" -- "$@"
 
-# 阶段 1 过渡完整门禁：尚未包含阶段 3 才启用的 Ruff/ty 静态检查。
+# 完整门禁：静态检查、全部 pytest 和真实 skill validator 顺序执行，首错停止。
 gate-full:
     just check-toolchain
     just check-docs
+    just lint
+    just typecheck
     mise exec -- uv run --locked python scripts/run_tests.py --gate all
     just validate-skill

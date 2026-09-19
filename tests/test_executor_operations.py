@@ -1,15 +1,17 @@
 """真实临时 worktree 中验证开工、提交前检查、review 搬运及报告组装。"""
+
 import copy
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 import pytest
 
 import test_controller as controller_fixture
+from fixture_support import closure_source
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/executor-operations.py"
 
@@ -27,30 +29,58 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.serial = 0
 
     def call(self, *args, ok=True):
-        result = subprocess.run([sys.executable, "-B", str(SCRIPT), *map(str, args)],
-            cwd=self.h.root, env=self.h.env, capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), *map(str, args)],
+            cwd=self.h.root,
+            env=self.h.env,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         return json.loads(result.stdout if ok else result.stderr)
 
     def round(self, blocking=False, evidence=None):
-        prepared = self.call("review-prepare", "--dispatch", self.dispatch, *(["--evidence", evidence] if evidence else []))
+        prepared = self.call(
+            "review-prepare",
+            "--dispatch",
+            self.dispatch,
+            *(["--evidence", evidence] if evidence else []),
+        )
         sources = {}
         for axis, path in prepared["axes"].items():
             d = json.loads(Path(path).read_text())
-            report = {"axis": axis, "reviewed_base": d["reviewed_base"],
-                      "reviewed_head": d["reviewed_head"], "notes": [], "findings": []}
+            report = {
+                "axis": axis,
+                "reviewed_base": d["reviewed_base"],
+                "reviewed_head": d["reviewed_head"],
+                "notes": [],
+                "findings": [],
+            }
             if axis == "standards":
-                report["findings"] = [{"axis": axis, "kind": "defect" if blocking else "smell",
-                    "blocking": blocking, "title": "需处理" if blocking else "命名建议", "evidence": "原始证据，不改写"}]
+                report["findings"] = [
+                    {
+                        "axis": axis,
+                        "kind": "defect" if blocking else "smell",
+                        "blocking": blocking,
+                        "title": "需处理" if blocking else "命名建议",
+                        "evidence": "原始证据，不改写",
+                    }
+                ]
             report_path = Path(d["report_path"])
             self.h.put(report_path, report)
             receipt = report_path.parent / "receipt.json"
-            self.h.put(receipt, {"status": "COMPLETED", "report_path": str(report_path),
-                "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()})
+            self.h.put(
+                receipt,
+                {
+                    "status": "COMPLETED",
+                    "report_path": str(report_path),
+                    "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+                },
+            )
             sources[axis] = {"report": str(report_path), "receipt": str(receipt)}
-            if d.get('handoff_required'):
-                cp = controller_fixture.closure_source(d['dispatch_path'], report_path)
-                sources[axis]['closure'] = json.loads(cp.read_text())['path']
+            if d.get("handoff_required"):
+                cp = closure_source(d["dispatch_path"], report_path)
+                sources[axis]["closure"] = json.loads(cp.read_text())["path"]
         path = Path(prepared["round_path"])
         selection = path.parent / "selection.json"
         self.h.put(selection, sources)
@@ -58,20 +88,35 @@ class ExecutorOperationsTests(unittest.TestCase):
 
     def collect(self, round_data, ok=True):
         path, selection, _ = round_data
-        result = self.call("review-collect", "--round", path, "--input", selection,
-                           "--output", path.parent / "collection.json", ok=ok)
+        result = self.call(
+            "review-collect",
+            "--round",
+            path,
+            "--input",
+            selection,
+            "--output",
+            path.parent / "collection.json",
+            ok=ok,
+        )
         return Path(result["collection_path"]) if ok else result
 
     def assemble(self, reviews=(), status="DONE", ok=True, outcome=None):
         draft = copy.deepcopy(self.h.h.report)
-        for key in ("base_commit", "head_commit", "implementation_commits", "review", "delivery_kind"):
+        for key in (
+            "base_commit",
+            "head_commit",
+            "implementation_commits",
+            "review",
+            "delivery_kind",
+        ):
             del draft[key]
         draft["test_plan"] = {"decision_source": "ticket/spec", "red_evidence": "实测行为断言失败"}
         draft["status"] = status
         draft["outcome"] = outcome or ("passed" if status == "DONE" else "interrupted")
         if status != "DONE":
             draft["test_plan"] = None
-            draft["acceptance"] = []; draft["verification"] = []
+            draft["acceptance"] = []
+            draft["verification"] = []
             draft["blockers" if status == "BLOCKED" else "requested_context"] = ["缺少必需事实"]
         self.serial += 1
         path = self.directory / f"draft-{self.serial}.json"
@@ -112,13 +157,17 @@ class ExecutorOperationsTests(unittest.TestCase):
                 data = self.round()
                 target = Path(data[2]["spec"]["receipt" if kind == "receipt" else "report"])
                 value = json.loads(target.read_text())
-                if kind == "receipt": value["report_sha256"] = "0" * 64
-                elif kind == "axis": value["axis"] = "standards"
-                else: value["reviewed_head"] = self.h.h.base
+                if kind == "receipt":
+                    value["report_sha256"] = "0" * 64
+                elif kind == "axis":
+                    value["axis"] = "standards"
+                else:
+                    value["reviewed_head"] = self.h.h.base
                 self.h.put(target, value)
                 if kind != "receipt":
                     receipt = Path(data[2]["spec"]["receipt"])
-                    r = json.loads(receipt.read_text()); r["report_sha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
+                    r = json.loads(receipt.read_text())
+                    r["report_sha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
                     self.h.put(receipt, r)
                 self.collect(data, ok=False)
 
@@ -169,13 +218,20 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.h.h.git(self.h.wt, "commit", "-m", "test-1 修复")
         # 跨阶段旧 review 来源由 controller 固定；模拟已核验的阶段派发。
         d = json.loads(self.dispatch.read_text())
-        d.update(stage=1, prior_reviews=[{"path": str(initial), "sha256": hashlib.sha256(initial.read_bytes()).hexdigest()}])
+        d.update(
+            stage=1,
+            prior_reviews=[
+                {"path": str(initial), "sha256": hashlib.sha256(initial.read_bytes()).hexdigest()}
+            ],
+        )
         # dispatch 已被 round hash 绑定，下一阶段必须使用新证据目录。
         self.h.prepare(previous_dispatch=str(self.dispatch))
         self.dispatch = self.h.dispatch
         self.directory = self.dispatch.parent
         next_d = json.loads(self.dispatch.read_text())
-        next_d.update(stage=1, prior_reviews=d["prior_reviews"], gate_repair_root=str(self.directory))
+        next_d.update(
+            stage=1, prior_reviews=d["prior_reviews"], gate_repair_root=str(self.directory)
+        )
         self.h.put(self.dispatch, next_d)
         final = self.collect(self.round())
         _, path = self.assemble([initial, final])
@@ -187,10 +243,16 @@ class ExecutorOperationsTests(unittest.TestCase):
 
     def test_finalizer_uses_reviewed_main(self):
         import test_finalization
-        f = test_finalization.FinalizationTests(); f.setUp(); self.addCleanup(f.doCleanups)
-        stage = f.stage(); f.gate(stage)
+
+        f = test_finalization.FinalizationTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        stage = f.stage()
+        f.gate(stage)
         collected = f.review(stage)
-        self.assertEqual(json.loads(collected.read_text())["pair"]["spec"]["reviewed_base"], f.h.h.base)
+        self.assertEqual(
+            json.loads(collected.read_text())["pair"]["spec"]["reviewed_base"], f.h.h.base
+        )
 
     def test_existing_output_is_not_overwritten(self):
         data = self.round()
@@ -217,8 +279,14 @@ class ExecutorOperationsTests(unittest.TestCase):
         report = {key: original[key] for key in ("axis", "reviewed_base", "reviewed_head")}
         report.update(status="BLOCKED", blockers=["来源缺失"])
         self.h.put(target, report)
-        self.h.put(data[2]["spec"]["receipt"], {"status": "BLOCKED", "report_path": str(target),
-            "report_sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+        self.h.put(
+            data[2]["spec"]["receipt"],
+            {
+                "status": "BLOCKED",
+                "report_path": str(target),
+                "report_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            },
+        )
         self.collect(data, ok=False)
         self.assertEqual(json.loads(target.read_text()), report)
         data = self.round()
@@ -237,27 +305,35 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.dispatch = self.h.dispatch
         self.directory = self.dispatch.parent
         collected = self.collect(self.round())
-        draft = {"status": "DONE", "outcome": "passed", "test_plan": {"decision_source": "ticket", "red_evidence": None},
+        draft = {
+            "status": "DONE",
+            "outcome": "passed",
+            "test_plan": {"decision_source": "ticket", "red_evidence": None},
             "acceptance": [{"criterion": "行为保持", "evidence": "现有测试"}],
             "verification": [{"command": "just gate-core", "result": "通过"}],
-            "requested_context": [], "blockers": [], "concerns": []}
+            "requested_context": [],
+            "blockers": [],
+            "concerns": [],
+        }
         draft_path = self.directory / "direct-draft.json"
         self.h.put(draft_path, draft)
         output = self.directory / "direct-report.json"
-        self.call("assemble", "--dispatch", self.dispatch, "--draft", draft_path,
-            "--output", output, "--review", collected)
+        self.call(
+            "assemble",
+            "--dispatch",
+            self.dispatch,
+            "--draft",
+            draft_path,
+            "--output",
+            output,
+            "--review",
+            collected,
+        )
         self.assertEqual(json.loads(output.read_text())["test_plan"]["approved_seams"], [])
-
-
-
-
-
 
     def test_blocked_review_cannot_be_disguised_as_interruption(self):
         review = self.collect(self.round(blocking=True))
         self.assemble([review], status="BLOCKED", outcome="interrupted", ok=False)
-
-
 
     def test_same_head_report_correction_does_not_consume_stage(self):
         data = self.round(blocking=True)
@@ -272,29 +348,39 @@ class ExecutorOperationsTests(unittest.TestCase):
             report_path = original_report.parent / "report-2.json"
             receipt_path = original_report.parent / "receipt-2.json"
             self.h.put(report_path, corrected)
-            self.h.put(receipt_path, {"status": "COMPLETED", "report_path": str(report_path),
-                                     "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()})
+            self.h.put(
+                receipt_path,
+                {
+                    "status": "COMPLETED",
+                    "report_path": str(report_path),
+                    "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+                },
+            )
             selected[axis] = {"report": str(report_path), "receipt": str(receipt_path)}
         selection = data[0].parent / "selection-2.json"
         self.h.put(selection, selected)
         collection = data[0].parent / "collection-2.json"
-        self.call("review-collect", "--round", data[0], "--input", selection, "--output", collection)
+        self.call(
+            "review-collect", "--round", data[0], "--input", selection, "--output", collection
+        )
         receipt, corrected = self.assemble([collection])
         value = json.loads(corrected.read_text())
         self.assertEqual((value["stage"], value["review"]["attempts"]), (0, 1))
         self.assertEqual(report.read_bytes(), original_bytes)
 
-
     def context_fixture(self):
-        self.h.put(self.h.root / "ticket.json", [{"id": "test-1", "status": "in_progress",
-                                                "description": "完整需求\n" * 10000}])
+        self.h.put(
+            self.h.root / "ticket.json",
+            [{"id": "test-1", "status": "in_progress", "description": "完整需求\n" * 10000}],
+        )
         self.h.put(self.h.root / "parent.json", [{"id": "test", "description": "父票约束"}])
         (self.h.root / "bin/bd").write_text(
             "#!" + sys.executable + "\nimport os,sys\nfrom pathlib import Path\n"
             "a=sys.argv[1:]\nassert a[0] in ('show','comments')\n"
             "root=Path(os.environ['BD_FIXTURE_SHOW']).parent\n"
             "name='comments' if a[0]=='comments' else ('ticket' if a[1]=='test-1' else 'parent')\n"
-            "print((root/(name+'.json')).read_text())\n")
+            "print((root/(name+'.json')).read_text())\n"
+        )
 
     def layer(self, files, message="test-1 本层完成，验证通过", ok=True):
         path = self.directory / "layer.json"
@@ -308,7 +394,9 @@ class ExecutorOperationsTests(unittest.TestCase):
         original = self.dispatch.read_bytes()
         result = self.call("inspect", "--dispatch", self.dispatch)
         self.assertIn(file.name, result["workspace"]["untracked"])
-        self.assertEqual(Path(result["sources"]["ticket_description"]).read_text(), "完整需求\n" * 10000)
+        self.assertEqual(
+            Path(result["sources"]["ticket_description"]).read_text(), "完整需求\n" * 10000
+        )
         self.assertTrue(result["commits"])
         self.assertEqual(file.read_text(), "保留")
         self.assertEqual(self.dispatch.read_bytes(), original)
@@ -327,8 +415,12 @@ class ExecutorOperationsTests(unittest.TestCase):
 
     def test_inspect_failed_queries_preserve_sources(self):
         self.context_fixture()
-        for value in ([], [{"id": "wrong"}], [{"id": "test-1", "status": "closed"}],
-                      [{"id": "test-1", "status": "in_progress"}]):
+        for value in (
+            [],
+            [{"id": "wrong"}],
+            [{"id": "test-1", "status": "closed"}],
+            [{"id": "test-1", "status": "in_progress"}],
+        ):
             self.h.put(self.h.root / "ticket.json", value)
             error = self.call("inspect", "--dispatch", self.dispatch, ok=False)
             record = json.loads(error["error"])

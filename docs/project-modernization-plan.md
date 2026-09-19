@@ -1,6 +1,6 @@
 # Beadwork 项目工程化改造计划
 
-状态：阶段 1–2 已完成；阶段 3–6 尚未开始。
+状态：阶段 1–3 已完成；阶段 4–6 尚未开始。
 
 制定日期：2026-09-19。本文供后续独立 session 顺序实施、勾选和交接使用；不是本轮实施授权记录。
 
@@ -148,12 +148,12 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 
 前置：阶段 2 完成。目标：在 CLI 重构前消除基础静态问题，后续每阶段使用同一质量门禁。
 
-- [ ] **3.1 配置检查范围。** Ruff 和 ty 覆盖 skill 运行源码、仓库开发脚本和 tests，运行源码检查目标明确为 3.14。Ruff 从 E/F/I/UP/B 等高收益规则开始，结合实际决定 W/SIM；不要为追求规则数量增加无关改写。
-- [ ] **3.2 处理格式与基础 lint。** 执行格式化和安全修复，人工检查语义变化；格式变更与行为修正清楚区分，不顺带改 CLI 和协议。
-- [ ] **3.3 建立有效类型边界。** 给公开内部 API、报告/状态的核心结构和外部输入解析补足有价值的标注；用标准库 TypedDict/dataclass 等按实际结构选择。外部 JSON 仍做运行时校验，不因类型声明信任数据；不引入第三方 schema 库，不用全局 Any/ignore 掩盖问题。
-- [ ] **3.4 修正真实问题。** 处理未定义变量、遮蔽、错误返回类型和不清晰的数据流。必要局部豁免说明原因；不整体排除 tests 或运行模块，不开发泛化类型框架。
-- [ ] **3.5 启用正式静态门禁。** 完成 `fmt`、`lint`、`typecheck`，gate-full 纳入 Ruff check、format check、ty；复用锁定版本，不在 gate 中安装最新工具。
-- [ ] **3.6 验证并交接。** 静态检查和全部回归通过，确认运行 dependencies 为空、源码没有新增第三方 import；记录实际诊断清理范围和剩余合理豁免。
+- [x] **3.1 配置检查范围。** Ruff 和 ty 覆盖 skill 运行源码、仓库开发脚本和 tests，运行源码检查目标明确为 3.14。Ruff 从 E/F/I/UP/B 等高收益规则开始，结合实际决定 W/SIM；不要为追求规则数量增加无关改写。
+- [x] **3.2 处理格式与基础 lint。** 执行格式化和安全修复，人工检查语义变化；格式变更与行为修正清楚区分，不顺带改 CLI 和协议。
+- [x] **3.3 建立有效类型边界。** 给公开内部 API、报告/状态的核心结构和外部输入解析补足有价值的标注；用标准库 TypedDict/dataclass 等按实际结构选择。外部 JSON 仍做运行时校验，不因类型声明信任数据；不引入第三方 schema 库，不用全局 Any/ignore 掩盖问题。
+- [x] **3.4 修正真实问题。** 处理未定义变量、遮蔽、错误返回类型和不清晰的数据流。必要局部豁免说明原因；不整体排除 tests 或运行模块，不开发泛化类型框架。
+- [x] **3.5 启用正式静态门禁。** 完成 `fmt`、`lint`、`typecheck`，gate-full 纳入 Ruff check、format check、ty；复用锁定版本，不在 gate 中安装最新工具。
+- [x] **3.6 验证并交接。** 静态检查和全部回归通过，确认运行 dependencies 为空、源码没有新增第三方 import；记录实际诊断清理范围和剩余合理豁免。
 
 完成条件：全仓约定范围静态检查通过，已有完整回归通过；从下一阶段开始门禁不能临时关闭这些检查。
 
@@ -219,7 +219,7 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 | --- | --- | --- | --- |
 | 1 开发环境与入口 | 已完成（2026-09-19） | 基线：宿主 Python 3.14.7、uv 0.12.10、mise 2026.9.10、just 1.58.0 和 validator 可用；旧 uv 环境为 Python 3.12.14，收集 315 项，旧 full 315/315 通过（pytest 137.60 秒、整体 137.85 秒），validator 通过。新增 `mise.toml`/`mise.lock`、`.python-version`、justfile 和仓库测试 runner；开发 Python 固定 3.14.7 并由 uv 管理，uv 锁定 0.12.10，运行 dependencies 保持为空；locked 开发版本为 pytest 9.1.1、xdist 3.8.0、PyYAML 6.0.3、Ruff 0.16.8、ty 0.0.82。`maintenance_check.py` 已移到根 `scripts/`，旧 skill 内入口删除；根 README/AGENTS、docs、skill 文档链接、结构、explicit-only policy 和 Python 语法由新入口检查。`just install`、`check-toolchain`、`fmt`、`check-docs`、`validate-skill`、`test`、过渡 `gate-full` 已建立。最终 `just gate-full` 在 uv-managed Python 3.14.7 下 319/319 通过（pytest 121.19 秒、整体 122.41 秒），真实 validator 通过；`just check-docs` 与 `git diff --check` 通过。定向验证确认带空格 `-k` 保持 argv 边界，未知 suite/额外 `-m` 返回 2，零匹配返回 5。 | 当前 marker 仍有阶段 2 要修正的历史误分类；尚无 distribution 测试，Ruff/ty 尚未进入 gate。未运行真实消费项目 ticket graph，未验证真实 Codex 嵌套派发。未提交或 push。下一入口：阶段 2.1 逐例分类。 |
 | 2 测试分层 | 已完成（2026-09-19） | 删除 `UNIT_MODULES`/`WORKFLOW_MODULES` 自动白名单，全部测试在源码中显式声明且唯一归入主 marker；继承的同名 marker 按集合去重，`distribution` 必须同时属于 `integration`。四个点名文件已从错误的 unit 改为 integration；纯内存规则只保留在 `graph`、`stage_policy`、`workflow_contract`，阶段推进、恢复和证据链关键路径归 workflow。新增 7 项隔离 collection 契约测试，覆盖漏标、多主层、未知 marker、错误 distribution 组合及合法继承/组合。环境变量现场由全局 autouse 快照恢复改为相关 unittest 的 scoped `patch.dict`；审计未发现可由等价或更强断言安全替代的业务用例，因此原 319 项业务回归全部保留。调整前分层为 unit 34、integration 173、workflow 112；调整后为 unit 18、integration 129、workflow 179，另增 7 项契约测试，总计 326，三个主层互斥且总和一致。定向验证为 unit 18/18、相关 integration 28/28、batch workflow 8/8；`just check-docs` 通过；`just test distribution --collect-only -q` 因零匹配按预期返回 5。最终仅运行一次 `just gate-full`：工具链和维护检查通过，4 个 xdist worker 下 326/326 通过（pytest 106.15 秒；阶段 1 的 319 项记录为 121.19 秒），真实 validator 通过。 | 尚无 distribution 测试；Ruff/ty 仍按计划在阶段 3 纳入门禁。耗时只是本机本次观测，不作为性能承诺。未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发；未提交或 push。下一入口：阶段 3.1 配置静态检查范围。 |
-| 3 静态质量 | 未开始 | — | 依赖阶段 2 |
+| 3 静态质量 | 已完成（2026-09-19） | `pyproject.toml` 已将 Ruff 和 ty 的检查范围固定为仓库 `scripts/`、skill 运行源码和 tests，并明确 Python 3.14 目标；Ruff 启用 E/F/I/UP/B 高收益规则，未启用 W/SIM。全仓 Python 已建立 Ruff format 基线并完成安全 lint 修复；`ExecutionPlan` 与 preflight `CommandResult` 使用标准库 `TypedDict` 固定核心边界，外部 JSON 仍由运行时逐字段校验，测试中的异构 JSON 仅在局部 fixture 标注 `dict[str, Any]`。修正了可能为空的 regex/查找结果、动态 stream 方法、异构命令结果、未使用值、错误 fixture import 和 `zip(strict=...)` 等真实静态问题。新增可独立运行的 `just lint`、`just typecheck`，`gate-full` 现按文档/结构 → Ruff lint/format → ty → 全量 pytest → validator 执行。定向回归先后通过 integration 60/60、workflow 128/128，以及最终边界补强后的 execution-plan 16/16、preflight 14/14；最终 `just gate-full` 在 Python 3.14.7 下 Ruff/ty 通过，326/326 测试通过（pytest 143.65 秒），真实 validator 通过。运行 `dependencies` 仍为空，新增 import 仅来自标准库或仓库自带模块。 | Ruff 全局忽略 `E501`，由 formatter 统一布局但不强制拆分所有长字符串；4 个公开脚本为在加载内部模块前设置 `sys.dont_write_bytecode`，保留有说明的局部 `E402` 豁免。尚无 distribution 测试；未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发。未 push。下一入口：阶段 4.1 完整列出调用者；本 session 不进入阶段 4。 |
 | 4 CLI 与内部调用 | 未开始 | — | 依赖阶段 3 |
 | 5 独立分发 | 未开始 | — | 依赖阶段 4 |
 | 6 最终验收 | 未开始 | — | 依赖阶段 5 |

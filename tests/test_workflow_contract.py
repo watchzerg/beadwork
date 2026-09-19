@@ -2,7 +2,6 @@ import pytest
 
 import workflow_contract
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -13,7 +12,9 @@ def test_stamp_and_require_current():
     assert workflow_contract.require_current(value) is value
 
 
-@pytest.mark.parametrize("value", [{}, {"workflow_contract_version": 0}, {"workflow_contract_version": 2}])
+@pytest.mark.parametrize(
+    "value", [{}, {"workflow_contract_version": 0}, {"workflow_contract_version": 2}]
+)
 def test_require_current_rejects_missing_or_unknown_version(value):
     before = dict(value)
     with pytest.raises(ValueError, match="契约版本"):

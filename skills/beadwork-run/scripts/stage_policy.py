@@ -10,8 +10,11 @@ def authorize_extension(previous, selected_stage, report, facts, stage_limit):
         raise ValueError("每张 ticket 仅允许追加一次 stage")
     if "recovery_reason" in facts or "recovery_failure" in facts:
         raise ValueError("extend 不接受 recovery 字段")
-    if (previous["stage"] != stage_limit or report["outcome"] != "code_failure"
-            or not report["execution"]["stopped_tasks"]):
+    if (
+        previous["stage"] != stage_limit
+        or report["outcome"] != "code_failure"
+        or not report["execution"]["stopped_tasks"]
+    ):
         raise ValueError("只有已耗尽且任务已停止的 code_failure 可追加 stage")
     additional = facts.get("additional_stages")
     if type(additional) is not int or not 1 <= additional <= workflow_policy.MAX_STAGE_EXTENSION:

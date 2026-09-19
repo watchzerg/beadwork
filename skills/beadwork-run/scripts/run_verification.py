@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import argparse
 import json
 import os
@@ -13,6 +12,7 @@ import shutil
 import sys
 import time
 import uuid
+from pathlib import Path
 
 sys.dont_write_bytecode = True
 
@@ -44,7 +44,10 @@ dispatch = dispatch_contract.verification_dispatch
 
 def state(d):
     repository.topology(d)
-    return {"head": repository.sha(d["worktree"], "HEAD"), "status": repository.status(d["worktree"])}
+    return {
+        "head": repository.sha(d["worktree"], "HEAD"),
+        "status": repository.status(d["worktree"]),
+    }
 
 
 group_exists = process_runner.group_exists
@@ -63,52 +66,85 @@ def run(args):
     source = absolute(args.dispatch)
     d = dispatch(source)
     import workflow_contract
+
     workflow_contract.require_current(d)
     before = state(d)
     if d.get("ticket_scope"):
         ticket_state.require_writer(d)
     if final_state.strict(d):
-        if d['role'] == 'fixer':
+        if d["role"] == "fixer":
             final_state.require_writer(d)
         else:
             _, selected = final_state.selected(d)
-            repository.require(not selected['round_path'], 'review 已开始，验证候选冻结')
-            if d['stage']:
-                repository.require(selected['fixes'] and evidence.read(evidence.bound(selected['fixes'][-1]['report']))['stopped_tasks'],
-                          '补充验证前需验收 fixer 收尾')
-    repository.git(d["worktree"], "merge-base", "--is-ancestor", d.get("base_commit", d.get("reviewed_main")), before["head"])
-    repository.require(args.recipe in ("typecheck", "test") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
-              "仅执行 typecheck、test、gate-*")
+            repository.require(not selected["round_path"], "review 已开始，验证候选冻结")
+            if d["stage"]:
+                repository.require(
+                    selected["fixes"]
+                    and evidence.read(evidence.bound(selected["fixes"][-1]["report"]))[
+                        "stopped_tasks"
+                    ],
+                    "补充验证前需验收 fixer 收尾",
+                )
+    repository.git(
+        d["worktree"],
+        "merge-base",
+        "--is-ancestor",
+        d.get("base_commit", d.get("reviewed_main")),
+        before["head"],
+    )
+    repository.require(
+        args.recipe in ("typecheck", "test") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
+        "仅执行 typecheck、test、gate-*",
+    )
     executable = shutil.which("just")
     repository.require(executable is not None, "未找到 just")
-    repository.require(args.recipe in repository.run([executable, "--summary"], d["worktree"]).split(), "验证 recipe 不存在")
+    repository.require(
+        args.recipe in repository.run([executable, "--summary"], d["worktree"]).split(),
+        "验证 recipe 不存在",
+    )
     parameters = args.parameters[1:] if args.parameters[:1] == ["--"] else args.parameters
-    repository.require(not parameters or args.recipe == 'test', '完整 gate 与 typecheck 不接受筛选参数')
-    if final_state.strict(d) and d['role'] == 'finalizer':
-        repository.require(args.delivery and args.recipe == 'gate-full',
-                           'finalizer 只采集带 --delivery 的无参数 gate-full')
+    repository.require(
+        not parameters or args.recipe == "test", "完整 gate 与 typecheck 不接受筛选参数"
+    )
+    if final_state.strict(d) and d["role"] == "finalizer":
+        repository.require(
+            args.delivery and args.recipe == "gate-full",
+            "finalizer 只采集带 --delivery 的无参数 gate-full",
+        )
     if args.delivery and final_state.strict(d):
-        repository.require(args.recipe == 'gate-full', '最终交付只接受无参数 gate-full')
+        repository.require(args.recipe == "gate-full", "最终交付只接受无参数 gate-full")
     current_plan = None
     if args.delivery:
-        recipes = repository.run([executable, '--summary'], d['worktree']).split()
-        current_plan = gate_plan.parse(repository.run([executable, '--one', '--', 'gate-plan'], d['worktree']), recipes)
-        repository.require(args.recipe == 'gate-full' or args.recipe in current_plan['full'],
-                           '交付 gate 不属于当前 gate-plan full')
+        recipes = repository.run([executable, "--summary"], d["worktree"]).split()
+        current_plan = gate_plan.parse(
+            repository.run([executable, "--one", "--", "gate-plan"], d["worktree"]), recipes
+        )
+        repository.require(
+            args.recipe == "gate-full" or args.recipe in current_plan["full"],
+            "交付 gate 不属于当前 gate-plan full",
+        )
     argv = ["just", "--one", "--", args.recipe, *parameters]
     attempt = None
     if args.delivery:
-        if d['role'] == 'finalizer':
-            repository.require(final_state.strict(d) and not before['status'], '最终验证需要当前阶段干净 HEAD')
+        if d["role"] == "finalizer":
+            repository.require(
+                final_state.strict(d) and not before["status"], "最终验证需要当前阶段干净 HEAD"
+            )
         else:
             attempt = gate_repair.delivery(d, before)
     directory = source.parent / ("verification-" + uuid.uuid4().hex)
     directory.mkdir(mode=0o700)
-    started = {"dispatch_path": str(source), "dispatch_sha256": digest(source),
-               "argv": argv, "executable": executable, "cwd": d["worktree"],
-               "started_ns": time.time_ns(), "before": before}
+    started = {
+        "dispatch_path": str(source),
+        "dispatch_sha256": digest(source),
+        "argv": argv,
+        "executable": executable,
+        "cwd": d["worktree"],
+        "started_ns": time.time_ns(),
+        "before": before,
+    }
     if current_plan is not None:
-        started['gate_plan'] = current_plan
+        started["gate_plan"] = current_plan
     if attempt is not None:
         started["delivery_attempt"] = attempt
     write(directory / "started.json", started)
@@ -123,20 +159,37 @@ def run(args):
         executed.update(outcome="recorder_error", error=str(exc))
     if before != after and executed["outcome"] == "exited":
         executed["outcome"] = "state_changed"
-    result = {"started_sha256": digest(directory / "started.json"), "ended_ns": time.time_ns(),
-              "duration_seconds": round(time.monotonic() - began, 3), **executed, "after": after,
-              "log_sha256": digest(log), "log_bytes": log.stat().st_size}
+    result = {
+        "started_sha256": digest(directory / "started.json"),
+        "ended_ns": time.time_ns(),
+        "duration_seconds": round(time.monotonic() - began, 3),
+        **executed,
+        "after": after,
+        "log_sha256": digest(log),
+        "log_bytes": log.stat().st_size,
+    }
     # 部分文件永远不能被当作完整终态；SIGKILL 时保留 started/log。
     pending = directory / "result.pending"
     write(pending, result)
     pending.rename(directory / "result.json")
-    summary = {"run_path": str(directory), "command": shlex.join(argv),
-               "outcome": executed["outcome"], "exit_code": executed["exit_code"], "duration_seconds": result["duration_seconds"],
-               "head": before["head"], "dirty": bool(before["status"]),
-               "log_path": str(log), "log_tail": tail(log), "error": executed["error"]}
+    summary = {
+        "run_path": str(directory),
+        "command": shlex.join(argv),
+        "outcome": executed["outcome"],
+        "exit_code": executed["exit_code"],
+        "duration_seconds": result["duration_seconds"],
+        "head": before["head"],
+        "dirty": bool(before["status"]),
+        "log_path": str(log),
+        "log_tail": tail(log),
+        "error": executed["error"],
+    }
     print(json.dumps(summary, ensure_ascii=False))
-    return ((0 if executed["exit_code"] == 0 else 1) if executed["outcome"] == "exited"
-            else (3 if executed["outcome"] == "interrupted" else 2))
+    return (
+        (0 if executed["exit_code"] == 0 else 1)
+        if executed["outcome"] == "exited"
+        else (3 if executed["outcome"] == "interrupted" else 2)
+    )
 
 
 collect = ticket_verification.collect
@@ -146,7 +199,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dispatch", required=True)
     parser.add_argument("--recipe", required=True)
-    parser.add_argument("--delivery", action="store_true", help="固定干净 HEAD 的交付验证；开发定向验证不传")
+    parser.add_argument(
+        "--delivery", action="store_true", help="固定干净 HEAD 的交付验证；开发定向验证不传"
+    )
     parser.add_argument("parameters", nargs=argparse.REMAINDER)
     return run(parser.parse_args())
 
@@ -155,5 +210,8 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as error:
-        print(json.dumps({"outcome": "recorder_error", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        print(
+            json.dumps({"outcome": "recorder_error", "error": str(error)}, ensure_ascii=False),
+            file=sys.stderr,
+        )
         sys.exit(2)

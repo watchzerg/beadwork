@@ -6,7 +6,6 @@ import sys
 
 import phase_validation
 
-
 if __name__ == "__main__":
     try:
         phase_validation.main(sys.argv[1:])

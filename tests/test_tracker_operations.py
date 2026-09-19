@@ -1,11 +1,11 @@
 """tracker intent 的读回协调与重入测试。"""
+
 import json
 import os
-from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -13,18 +13,26 @@ import pytest
 import evidence
 import tracker_operations as tracker
 
-
 pytestmark = pytest.mark.integration
 
 
 class TrackerOperationsTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         self.state = self.root / "state.json"
-        self.state.write_text(json.dumps({"issue": {"id": "demo-1", "status": "open", "assignee": None}, "comments": []}))
+        self.state.write_text(
+            json.dumps(
+                {"issue": {"id": "demo-1", "status": "open", "assignee": None}, "comments": []}
+            )
+        )
         binary = self.root / "bd"
-        binary.write_text("#!" + sys.executable + "\n" + '''import json, os, sys
+        binary.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """import json, os, sys
 from pathlib import Path
 p=Path(os.environ['TRACKER_STATE']); s=json.loads(p.read_text()); a=sys.argv[1:]
 if a[0]=='show': print(json.dumps([s['issue']]))
@@ -36,31 +44,46 @@ elif a[:2]==['comments','add']:
 elif a[:2]==['close','demo-1']:
  s['issue']['status']='closed'; p.write_text(json.dumps(s)); print('{}')
 else: print(json.dumps({'bad':a})); sys.exit(2)
-''')
+"""
+        )
         binary.chmod(0o755)
-        environment = patch.dict(os.environ, {
-            "PATH": str(self.root) + os.pathsep + os.environ.get("PATH", ""),
-            "TRACKER_STATE": str(self.state),
-        })
+        environment = patch.dict(
+            os.environ,
+            {
+                "PATH": str(self.root) + os.pathsep + os.environ.get("PATH", ""),
+                "TRACKER_STATE": str(self.state),
+            },
+        )
         environment.start()
         self.addCleanup(environment.stop)
 
     def intent(self, kind, **extra):
         source = self.root / (kind + "-input.json")
-        source.write_text(json.dumps({"repository_root": str(self.root), "parent_id": "demo-1",
-                                      "issue_id": "demo-1", "kind": kind, **extra}))
+        source.write_text(
+            json.dumps(
+                {
+                    "repository_root": str(self.root),
+                    "parent_id": "demo-1",
+                    "issue_id": "demo-1",
+                    "kind": kind,
+                    **extra,
+                }
+            )
+        )
         target = self.root / (kind + "-intent.json")
         tracker.prepare(source, target)
         return target
 
     def test_claim_and_result_reuse(self):
         path = self.intent("claim", expected_assignee="fixture")
-        first = tracker.execute(path); second = tracker.execute(path)
+        first = tracker.execute(path)
+        second = tracker.execute(path)
         self.assertEqual(first, second)
         self.assertEqual(first["after"]["status"], "in_progress")
 
     def test_existing_foreign_claim_is_not_adopted(self):
-        state = json.loads(self.state.read_text()); state["issue"].update(status="in_progress", assignee="other")
+        state = json.loads(self.state.read_text())
+        state["issue"].update(status="in_progress", assignee="other")
         self.state.write_text(json.dumps(state))
         with self.assertRaises(ValueError):
             tracker.execute(self.intent("claim", expected_assignee="fixture"))
@@ -68,28 +91,31 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
     def test_comment_marker_prevents_duplicate_after_lost_local_result(self):
         path = self.intent("comment", body="阶段完成")
         first = tracker.execute(path)
-        self.assertEqual(first['comment_id'], '1')
+        self.assertEqual(first["comment_id"], "1")
         self.assertEqual(first, tracker.execute(path))
         path.with_name(path.stem + "-result.json").unlink()
         result = tracker.execute(path)
         self.assertTrue(result["already_applied"])
-        self.assertEqual(result['comment_id'], first['comment_id'])
+        self.assertEqual(result["comment_id"], first["comment_id"])
         self.assertEqual(len(json.loads(self.state.read_text())["comments"]), 1)
 
     def test_duplicate_marker_and_missing_id_are_rejected(self):
-        path = self.intent('comment', body='发布')
+        path = self.intent("comment", body="发布")
         tracker.execute(path)
-        result_path = path.with_name(path.stem + '-result.json')
+        result_path = path.with_name(path.stem + "-result.json")
         result_path.unlink()
         state = json.loads(self.state.read_text())
-        original = state['comments'][0]
-        for rows in ([original, dict(original, id=2)], [{'text': original['text']}]):
-            state['comments'] = rows; self.state.write_text(json.dumps(state))
-            with self.assertRaises(ValueError): tracker.execute(path)
+        original = state["comments"][0]
+        for rows in ([original, dict(original, id=2)], [{"text": original["text"]}]):
+            state["comments"] = rows
+            self.state.write_text(json.dumps(state))
+            with self.assertRaises(ValueError):
+                tracker.execute(path)
             self.assertFalse(result_path.exists())
 
     def test_close_requires_bound_prerequisite_and_reads_back(self):
-        report = self.root / "accepted.json"; evidence.write(report, {"kind": "mechanical_acceptance"})
+        report = self.root / "accepted.json"
+        evidence.write(report, {"kind": "mechanical_acceptance"})
         path = self.intent("close", reason="完成", prerequisite=evidence.binding(report))
         self.assertEqual(tracker.execute(path)["after"]["status"], "closed")
         with self.assertRaises(ValueError):

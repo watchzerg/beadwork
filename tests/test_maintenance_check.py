@@ -4,16 +4,18 @@ import pytest
 
 import maintenance_check
 
-
 pytestmark = pytest.mark.integration
 
 
 def test_local_link_check(tmp_path):
-    root = Path(tmp_path); (root / "docs").mkdir(); (root / "skills").mkdir()
+    root = Path(tmp_path)
+    (root / "docs").mkdir()
+    (root / "skills").mkdir()
     (root / "README.md").write_text("[说明](docs/target.md)")
     (root / "AGENTS.md").write_text("维护约束")
     (root / "docs/target.md").write_text("目标")
-    source = root / "docs/source.md"; source.write_text("[有效](target.md) [外部](https://example.com)")
+    source = root / "docs/source.md"
+    source.write_text("[有效](target.md) [外部](https://example.com)")
     assert maintenance_check.local_links(root) == []
     (root / "AGENTS.md").write_text("[断裂](missing.md)")
     assert maintenance_check.local_links(root) == [{"source": "AGENTS.md", "target": "missing.md"}]

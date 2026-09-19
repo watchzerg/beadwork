@@ -42,12 +42,12 @@ just -- test integration tests/test_controller.py -k 'prepare or accept'
 
 `just test <suite>` 真实按 marker 选择；指定的 suite 没有匹配测试时沿用 pytest 非零退出。`unit` 串行运行，其余 suite 默认使用 4 个 xdist worker；`BEADWORK_TEST_JOBS=0` 仅用于串行诊断。不要仅因测试较慢或使用真实 Git 就将其归为 workflow。
 
-只修改文档时运行 `just check-docs`。目录迁移、跨脚本协议或交付前运行当前过渡完整门禁：
+只修改文档时运行 `just check-docs`。Python 修改可分别运行 `just lint` 和 `just typecheck`；`just fmt` 会修改文件，不属于 gate。目录迁移、跨脚本协议或交付前运行完整门禁：
 
 ```sh
 just gate-full
 ```
 
-阶段 1 的 `gate-full` 顺序执行工具链检查、文档/结构/Python 语法检查、全部 pytest 和真实 skill validator；Ruff/ty 静态门禁在阶段 3 启用。`fmt` 是修改型命令，不属于 gate。`distribution` suite 在阶段 5 建立测试前允许因零匹配非零失败，不添加占位用例。
+`gate-full` 顺序执行工具链检查、文档/结构/Python 语法检查、Ruff lint/format check、ty、全部 pytest 和真实 skill validator。`distribution` suite 在阶段 5 建立测试前允许因零匹配非零失败，不添加占位用例。
 
 测试位于 `tests/`。integration 和 workflow 会在临时目录创建 Git 仓库与 worktrees，需要对应执行权限。脚本测试通过不等于真实 Codex 嵌套派发已验证，交付时区分两者。

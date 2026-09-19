@@ -1,11 +1,12 @@
 """证据文件的严格 JSON 读取；只使用标准库。"""
+
 from __future__ import annotations
 
 import hashlib
 import json
 import os
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 
 def _unique(pairs):
@@ -68,8 +69,9 @@ def bound(item):
 def write(path, value):
     """同目录完整写入后独占发布；失败不留下半个正式文件。"""
     target = Path(path)
-    data = (value if isinstance(value, str)
-            else json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    data = (
+        value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
     pending = target.parent / ("." + target.name + ".pending-" + uuid.uuid4().hex)
     try:
         with pending.open("xb") as stream:

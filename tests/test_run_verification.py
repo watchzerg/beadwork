@@ -1,14 +1,14 @@
 """在真实临时 worktree 中验证采集、取消和报告汇总。"""
+
 import copy
 import json
-import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
 import time
 import unittest
+from pathlib import Path
 
 import pytest
 
@@ -31,7 +31,11 @@ class VerificationTests(unittest.TestCase):
         self.h.prepare()
         self.dispatch = self.h.dispatch
         self.fake = self.h.root / "bin" / "just"
-        self.fake.write_text("#!" + sys.executable + "\n" + '''import json, os, signal, sys, time
+        self.fake.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """import json, os, signal, sys, time
 from pathlib import Path
 if sys.argv[1:] == ['--summary']:
     if os.environ.get('TEST_MODE') == 'spawnfail': Path(sys.argv[0]).unlink()
@@ -48,36 +52,77 @@ if mode == 'hang':
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     print('READY', flush=True)
     while True: time.sleep(.1)
-''')
+"""
+        )
         self.fake.chmod(0o755)
         self.serial = 0
 
     def command(self, recipe="test", *parameters):
-        return [sys.executable, "-B", str(SCRIPT), "--dispatch", str(self.dispatch),
-                "--recipe", recipe, "--", *parameters]
+        return [
+            sys.executable,
+            "-B",
+            str(SCRIPT),
+            "--dispatch",
+            str(self.dispatch),
+            "--recipe",
+            recipe,
+            "--",
+            *parameters,
+        ]
 
     def run_record(self, mode="pass", recipe="test", parameters=(), expected=0):
-        result = subprocess.run(self.command(recipe, *parameters), cwd=self.h.root,
-            env={**self.h.env, "TEST_MODE": mode}, capture_output=True, text=True, timeout=15)
+        result = subprocess.run(
+            self.command(recipe, *parameters),
+            cwd=self.h.root,
+            env={**self.h.env, "TEST_MODE": mode},
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
     def assemble(self, status="BLOCKED", notes=None, priors=(), expected=0):
         self.serial += 1
         draft = copy.deepcopy(self.h.h.report)
-        for key in ("base_commit", "head_commit", "implementation_commits", "review", "delivery_kind"):
+        for key in (
+            "base_commit",
+            "head_commit",
+            "implementation_commits",
+            "review",
+            "delivery_kind",
+        ):
             del draft[key]
-        draft.update(status=status, outcome="interrupted", test_plan=None, verification=[], acceptance=[], blockers=["测试部分报告"])
+        draft.update(
+            status=status,
+            outcome="interrupted",
+            test_plan=None,
+            verification=[],
+            acceptance=[],
+            blockers=["测试部分报告"],
+        )
         if notes is not None:
             draft["verification_notes"] = notes
         path = self.dispatch.parent / f"draft-run-{self.serial}.json"
         output = self.dispatch.parent / f"report-run-{self.serial}.json"
         self.h.put(path, draft)
-        command = [sys.executable, "-B", str(ASSEMBLE), "assemble", "--dispatch", str(self.dispatch),
-                   "--draft", str(path), "--output", str(output)]
+        command = [
+            sys.executable,
+            "-B",
+            str(ASSEMBLE),
+            "assemble",
+            "--dispatch",
+            str(self.dispatch),
+            "--draft",
+            str(path),
+            "--output",
+            str(output),
+        ]
         for prior in priors:
             command.extend(("--verification-dispatch", str(prior)))
-        result = subprocess.run(command, cwd=self.h.root, env=self.h.env, capture_output=True, text=True)
+        result = subprocess.run(
+            command, cwd=self.h.root, env=self.h.env, capture_output=True, text=True
+        )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(output.read_text()) if expected == 0 else result
 
@@ -114,7 +159,9 @@ if mode == 'hang':
 
     def test_reject_mutating_and_missing_recipes(self):
         for recipe in ("fmt", "install", "gate-absent"):
-            result = subprocess.run(self.command(recipe), env=self.h.env, capture_output=True, text=True)
+            result = subprocess.run(
+                self.command(recipe), env=self.h.env, capture_output=True, text=True
+            )
             self.assertEqual(result.returncode, 2)
         self.assertEqual(list(self.dispatch.parent.glob("verification-*")), [])
 
@@ -136,8 +183,20 @@ if mode == 'hang':
         self.addCleanup(e.doCleanups)
         (e.h.root / "bin" / "just").write_bytes(self.fake.read_bytes())
         (e.h.root / "bin" / "just").chmod(0o755)
-        result = subprocess.run([sys.executable, "-B", str(SCRIPT), "--dispatch", str(e.dispatch),
-                                 "--recipe", "gate-core"], env=e.h.env, capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "--dispatch",
+                str(e.dispatch),
+                "--recipe",
+                "gate-core",
+            ],
+            env=e.h.env,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         run = json.loads(result.stdout)
         collection = e.collect(e.round())
@@ -153,9 +212,15 @@ if mode == 'hang':
     def test_real_just_rejects_extra_recipe_before_execution(self):
         self.fake.unlink()
         (self.h.wt / "justfile").write_text(
-            'gate-core:\n    @echo UNEXPECTED_GATE\nfmt:\n    @echo UNREQUESTED_FMT\n')
-        result = subprocess.run(self.command("gate-core", "fmt"), cwd=self.h.root,
-                                env=self.h.env, capture_output=True, text=True)
+            "gate-core:\n    @echo UNEXPECTED_GATE\nfmt:\n    @echo UNREQUESTED_FMT\n"
+        )
+        result = subprocess.run(
+            self.command("gate-core", "fmt"),
+            cwd=self.h.root,
+            env=self.h.env,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, 2)
         self.assertIn("不接受筛选参数", result.stderr)
 
@@ -163,7 +228,8 @@ if mode == 'hang':
     def test_real_just_retains_recipe_dependencies(self):
         self.fake.unlink()
         (self.h.wt / "justfile").write_text(
-            'gate-core: dependency\n    @echo GATE\ndependency:\n    @echo DEPENDENCY\n')
+            "gate-core: dependency\n    @echo GATE\ndependency:\n    @echo DEPENDENCY\n"
+        )
         run = self.run_record(recipe="gate-core")
         self.assertEqual(run["log_tail"].splitlines(), ["DEPENDENCY", "GATE"])
 
@@ -171,7 +237,8 @@ if mode == 'hang':
     def test_real_just_variadic_arguments_can_match_recipe_names(self):
         self.fake.unlink()
         (self.h.wt / "justfile").write_text(
-            'test *ARGS:\n    @echo {{ARGS}}\nfmt:\n    @echo UNREQUESTED_FMT\n')
+            "test *ARGS:\n    @echo {{ARGS}}\nfmt:\n    @echo UNREQUESTED_FMT\n"
+        )
         run = self.run_record(parameters=("sample", "fmt"))
         self.assertEqual(run["log_tail"], "sample fmt")
 
@@ -188,8 +255,13 @@ if mode == 'hang':
         self.assemble(priors=[old], expected=1)
 
     def start_hanging(self):
-        process = subprocess.Popen(self.command(), env={**self.h.env, "TEST_MODE": "hang"},
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(
+            self.command(),
+            env={**self.h.env, "TEST_MODE": "hang"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         self.addCleanup(lambda: process.poll() is None and process.kill())
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -197,7 +269,7 @@ if mode == 'hang':
                 log = directory / "output.log"
                 if log.exists() and "READY" in log.read_text():
                     return process, directory
-            time.sleep(.02)
+            time.sleep(0.02)
         self.fail("验证命令未启动")
 
     def test_cancel_kills_uncooperative_command_and_records_interruption(self):
@@ -230,13 +302,27 @@ if mode == 'hang':
     def test_gate_full_is_unfiltered_and_records_one_complete_run(self):
         self.fake.unlink()
         (self.h.wt / "justfile").write_text(
-            'gate-full:\n    @echo FULL\ngate-browser:\n    @echo BROWSER\n'
-            'gate-fail:\n    @echo FAILED\n    @exit 7\ngate-after:\n    @echo UNEXPECTED_AFTER\n')
+            "gate-full:\n    @echo FULL\ngate-browser:\n    @echo BROWSER\n"
+            "gate-fail:\n    @echo FAILED\n    @exit 7\ngate-after:\n    @echo UNEXPECTED_AFTER\n"
+        )
         green = self.run_record(recipe="gate-full")
         self.assertEqual(green["log_tail"].splitlines(), ["FULL"])
-        rejected = subprocess.run([sys.executable, "-B", str(SCRIPT), "--dispatch", str(self.dispatch),
-                                   "--recipe", "gate-full", "--", "gate-browser"],
-                                  env=self.h.env, capture_output=True, text=True)
+        rejected = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "--dispatch",
+                str(self.dispatch),
+                "--recipe",
+                "gate-full",
+                "--",
+                "gate-browser",
+            ],
+            env=self.h.env,
+            capture_output=True,
+            text=True,
+        )
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("不接受筛选参数", rejected.stderr)
         for run in (green,):
