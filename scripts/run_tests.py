@@ -26,7 +26,7 @@ def pytest_argv(root: Path, suite: str, extra: list[str], *, gate: bool = False)
         raise ValueError(f"未知测试 suite：{suite}")
     if gate and (suite != "all" or extra):
         raise ValueError("完整门禁只允许无筛选的 all suite")
-    if any(arg == "-m" or arg.startswith("-m=") for arg in extra):
+    if any(arg.startswith("-m") for arg in extra):
         raise ValueError("额外 pytest 参数不能覆盖 suite 的 -m 选择")
 
     result = [sys.executable, "-B", "-m", "pytest"]

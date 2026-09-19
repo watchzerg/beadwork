@@ -24,6 +24,22 @@ import worker_validation
 Handler = Callable[[argparse.Namespace], Any]
 
 
+class _FirstChoicePair(argparse.Action):
+    """校验二元参数的首项，同时保留现有 CLI 参数形状。"""
+
+    def __init__(self, *args, first_choices: tuple[str, ...], **kwargs):
+        self.first_choices = first_choices
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None) -> None:
+        if values[0] not in self.first_choices:
+            parser.error(
+                f"argument {option_string}: invalid choice: {values[0]!r} "
+                f"(choose from {', '.join(map(repr, self.first_choices))})"
+            )
+        setattr(namespace, self.dest, values)
+
+
 def _leaf(subparsers, name: str, handler: Handler, help_text: str = ""):
     parser = subparsers.add_parser(name, help=help_text)
     parser.set_defaults(_handler=handler)
@@ -195,14 +211,26 @@ def _verify(subparsers) -> None:
     p = _leaf(kinds, "phase", _verify_phase)
     p.add_argument("--schema", choices=phase_validation.PHASES)
     p.add_argument("--receipt-schema", choices=phase_validation.PHASES)
-    p.add_argument("--check-report", nargs=2, metavar=("PHASE", "REPORT"))
+    p.add_argument(
+        "--check-report",
+        nargs=2,
+        metavar=("PHASE", "REPORT"),
+        action=_FirstChoicePair,
+        first_choices=phase_validation.PHASES,
+    )
     p.add_argument("receipt", nargs="?")
     p.add_argument("--expected")
     p.add_argument("--emit-receipt", action="store_true")
     p = _leaf(kinds, "worker", _verify_worker)
     p.add_argument("--schema", choices=worker_validation.ROLES)
     p.add_argument("--receipt-schema", choices=worker_validation.ROLES)
-    p.add_argument("--check-report", nargs=2, metavar=("ROLE", "REPORT"))
+    p.add_argument(
+        "--check-report",
+        nargs=2,
+        metavar=("ROLE", "REPORT"),
+        action=_FirstChoicePair,
+        first_choices=worker_validation.ROLES,
+    )
     p.add_argument("receipt", nargs="?")
     p.add_argument("--expected")
     p.add_argument("--emit-receipt", action="store_true")

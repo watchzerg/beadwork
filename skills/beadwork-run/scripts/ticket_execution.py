@@ -355,8 +355,25 @@ implementer_errors = implementer_reports.implementer_errors
 verification_snapshot = ticket_verification.verification_snapshot
 collect_verification = ticket_verification.collect_verification
 check_implementation = implementer_reports.check_implementation
-implementer_check = implementer_reports.implementer_check
-implementer_assemble = implementer_reports.implementer_assemble
+
+
+def implementer_check(dispatch_path, report_path):
+    d = dispatch_contract.dispatch(dispatch_path)
+    repository.require(d["role"] == "implementer", "需要 implementer dispatch")
+    repository.require(Path(report_path).parent == Path(dispatch_path).parent, "实现报告目录不符")
+    checked = report_io.implementer("--check-report", report_path, "--expected", dispatch_path)
+    report = evidence.read(report_path)
+    implementer_reports.check_implementation(d, report, live=True)
+    return {
+        "status": report["status"],
+        "report_path": str(report_path),
+        "report_sha256": checked["report_sha256"],
+    }
+
+
+def implementer_assemble(args):
+    output = implementer_reports.implementer_assemble(args)
+    return implementer_check(args.dispatch, output)
 
 
 def accept_implementer(stage_path, report_path, receipt_path, closure=None):

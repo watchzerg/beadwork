@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from marker_contract import pytest_collection_modifyitems as pytest_collection_modifyitems
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills/beadwork-run/scripts"
 

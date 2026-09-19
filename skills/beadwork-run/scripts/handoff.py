@@ -1,12 +1,13 @@
 """持久化必要上下文及直接派发者观察，不替代宿主任务结束确认。"""
 
+import json
 import uuid
 from pathlib import Path
 
 import dispatch_contract
 import evidence
 import gate_plan
-import report_io
+import phase_validation
 import repository
 
 
@@ -25,8 +26,27 @@ def preflight_input(d):
             evidence.digest(accepted[key + "_path"]) == accepted[key + "_sha256"],
             "preflight 来源已变化",
         )
-    pd, report, _ = report_io.inspect_preflight(
-        accepted["dispatch_path"], accepted["report_path"], accepted["receipt_path"]
+    pd = evidence.read(accepted["dispatch_path"])
+    repository.require(pd["role"] == "preflight", "需要 preflight dispatch")
+    directory = Path(accepted["dispatch_path"]).resolve().parent
+    for path in (accepted["report_path"], accepted["receipt_path"]):
+        repository.require(
+            Path(path).resolve().parent == directory, "报告和回执必须位于 dispatch 证据目录"
+        )
+    result = phase_validation.check(
+        "preflight",
+        accepted["report_path"],
+        accepted["dispatch_path"],
+        accepted["receipt_path"],
+    )
+    repository.require(
+        result.get("ok") is True,
+        "preflight 报告校验失败：" + json.dumps(result, ensure_ascii=False),
+    )
+    report = evidence.read(accepted["report_path"])
+    repository.require(
+        evidence.digest(accepted["report_path"]) == result["report_sha256"],
+        "验收期间报告发生变化",
     )
     repository.require(
         evidence.read(evidence.bound(report["gate_plan_source"])) == report["gate_plan"],

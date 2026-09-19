@@ -7,7 +7,6 @@ import dispatch_contract
 import draft_contracts
 import evidence
 import gate_repair
-import report_io
 import repository
 import ticket_state
 import ticket_verification
@@ -178,20 +177,6 @@ def check_implementation(d, report, live=False, *, state=None):
         )
 
 
-def implementer_check(dispatch_path, report_path):
-    d = dispatch_contract.dispatch(dispatch_path)
-    repository.require(d["role"] == "implementer", "需要 implementer dispatch")
-    repository.require(Path(report_path).parent == Path(dispatch_path).parent, "实现报告目录不符")
-    checked = report_io.implementer("--check-report", report_path, "--expected", dispatch_path)
-    report = evidence.read(report_path)
-    check_implementation(d, report, live=True)
-    return {
-        "status": report["status"],
-        "report_path": str(report_path),
-        "report_sha256": checked["report_sha256"],
-    }
-
-
 def implementer_assemble(args):
     d = dispatch_contract.dispatch(args.dispatch)
     report = draft_contracts.read(d, args.draft, "implementer")
@@ -236,4 +221,4 @@ def implementer_assemble(args):
     )
     output = dispatch_contract.output_path(args.output, Path(args.dispatch).parent)
     evidence.write(output, report)
-    return implementer_check(args.dispatch, str(output))
+    return str(output)

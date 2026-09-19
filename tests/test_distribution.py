@@ -283,7 +283,7 @@ def test_runtime_imports_are_stdlib_or_bundled(
             ):
                 dynamic_importers.add(path.name)
     assert not unexpected
-    assert dynamic_importers == {"report_io.py"}
+    assert dynamic_importers == set()
 
     probe = """import json,sys
 from pathlib import Path

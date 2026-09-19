@@ -1,23 +1,17 @@
 """报告 schema 与校验服务；内部调用不启动 verifier 子进程。"""
 
-import importlib
 import json
 import os
 from pathlib import Path
 
 import evidence
+import phase_validation
+import verify_ticket
+import worker_validation
 from repository import require
-
-SCRIPTS = Path(__file__).resolve().parent
-
-
-def _module(name):
-    """延迟装载校验实现，避免基础报告模块反向依赖工作流事实层。"""
-    return importlib.import_module(name)
 
 
 def _executor(option, *args):
-    verify_ticket = _module("verify_ticket")
     if option == "--schema":
         result = verify_ticket.executor_schema(verify_ticket.axis_report_schema())
         verify_ticket.check_schema(result)
@@ -57,7 +51,6 @@ def verifier(role, option, *args):
     if role == "executor":
         result = _executor(option, *args)
     else:
-        phase_validation = _module("phase_validation")
         if option == "--schema":
             result = phase_validation.schema(role)
         elif option == "--receipt-schema":
@@ -84,7 +77,6 @@ def verifier(role, option, *args):
 
 
 def worker(role, option, *args):
-    worker_validation = _module("worker_validation")
     if option == "--schema":
         return worker_validation.schema(role)
     if option == "--receipt-schema":
@@ -113,20 +105,6 @@ def implementer(option, *args):
 
 def fixer(option, *args):
     return worker("fixer", option, *args)
-
-
-def inspect_preflight(dispatch_path, report_path, receipt_path):
-    d = evidence.read(dispatch_path)
-    require(d["role"] == "preflight", "需要 preflight dispatch")
-    directory = Path(dispatch_path).resolve().parent
-    for path in (report_path, receipt_path):
-        require(Path(path).resolve().parent == directory, "报告和回执必须位于 dispatch 证据目录")
-    result = verifier(
-        "preflight", "--check-report", report_path, receipt_path, "--expected", dispatch_path
-    )
-    report = evidence.read(report_path)
-    require(evidence.digest(report_path) == result["report_sha256"], "验收期间报告发生变化")
-    return d, report, result
 
 
 def inspect_report(dispatch_path, report_path, receipt_path):

@@ -248,3 +248,9 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 - 补上入口的 Python 下限检查；最低版本不能只写在开发 metadata 中。
 - 修正分发验收“Python 模块不能来自仓库外”的过宽表述，允许解释器标准库，并补查分发后的资源引用和 symlink，避免只验证 Python import。
 - 补上根 README/AGENTS 链接检查、完整门禁的环境筛选隔离，以及继承同名 marker 的正确判定。六阶段和 39 项任务数量保持不变，无新增用户决策。
+
+## 13. 最终 review 修复记录
+
+2026-09-19，六阶段完成后的独立 review 发现并修复四项门禁与边界遗漏：正式 pytest collection 重新注册 marker 完整性 hook；测试 runner 同时拒绝 `-m`、`-m=…` 和 `-m…` 覆盖 suite；`verify phase|worker --check-report` 在 argparse 层拒绝未知 phase/role；内部 verifier facade 改用普通 import，并将 implementer 与 preflight 的工作流协调移回对应操作层，消除动态 import 掩盖的真实依赖回路。公开 CLI 形状、报告 schema、证据格式和工作流业务语义未改变。
+
+定向验证通过相关 integration 31/31 和 ticket workflow 50/50；Ruff、format check 与 ty 通过。最终 `just gate-full` 在 Python 3.14.7 下通过全部 342 项 pytest（128.05 秒）和真实 validator。最终分层为 unit 18、integration 145、workflow 179，三层互斥且合计 342；distribution 仍属于 integration。未运行真实消费项目 ticket graph、真实 Beads workspace/tracker 写入或真实 Codex 嵌套派发，也未执行 commit/push。

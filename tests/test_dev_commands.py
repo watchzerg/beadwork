@@ -22,7 +22,7 @@ def test_all_is_unfiltered_and_gate_rejects_filters(tmp_path):
         run_tests.pytest_argv(Path(tmp_path), "all", ["-k", "one"], gate=True)
 
 
-@pytest.mark.parametrize("extra", [["-m", "unit"], ["-m=unit"]])
+@pytest.mark.parametrize("extra", [["-m", "unit"], ["-m=unit"], ["-munit"]])
 def test_extra_marker_expression_cannot_override_suite(tmp_path, extra):
     with pytest.raises(ValueError, match="不能覆盖"):
         run_tests.pytest_argv(Path(tmp_path), "integration", extra)

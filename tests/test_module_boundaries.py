@@ -38,6 +38,16 @@ def dependencies():
                 and isinstance(node.args[0], ast.Constant)
             ):
                 imports.add(node.args[0].value)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "importlib"
+                and node.func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+            ):
+                imports.add(node.args[0].value)
         edges[name] = imports & files.keys()
     return edges
 
@@ -69,7 +79,6 @@ class ModuleBoundaryTests(unittest.TestCase):
             "workflow_policy",
             "repository",
             "dispatch_contract",
-            "report_io",
             "workflow_contract",
         }
         for name in foundations:

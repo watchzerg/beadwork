@@ -8,6 +8,11 @@ pytestmark = pytest.mark.integration
 MARKER_CONTRACT = Path(__file__).with_name("marker_contract.py")
 
 
+def test_repository_collection_registers_marker_contract(pytestconfig) -> None:
+    implementations = pytestconfig.hook.pytest_collection_modifyitems.get_hookimpls()
+    assert any(item.function.__module__ == "marker_contract" for item in implementations)
+
+
 def isolated_collection(pytester: pytest.Pytester, source: str):
     pytester.makeini(
         """[pytest]
