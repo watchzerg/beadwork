@@ -1,6 +1,6 @@
 # Beadwork 项目工程化改造计划
 
-状态：阶段 1–3 已完成；阶段 4–6 尚未开始。
+状态：阶段 1–4 已完成；阶段 5–6 尚未开始。
 
 制定日期：2026-09-19。本文供后续独立 session 顺序实施、勾选和交接使用；不是本轮实施授权记录。
 
@@ -80,6 +80,9 @@ mise 管理项目使用的 uv；uv 管理开发 Python、虚拟环境和 Python 
 | `verify-ticket.py` | `beadwork.py verify ticket` |
 | `verify-phase.py` | `beadwork.py verify phase` |
 | `verify-worker.py` | `beadwork.py verify worker` |
+| `tracker_operations.py` | `beadwork.py tracker` |
+| `batch_initialize.py` | `beadwork.py batch-initialize` |
+| `batch_evidence.py` | `beadwork.py batch-evidence` |
 
 各组的业务动作和必要参数按现有能力映射；全组注册到 argparse，`--help` 能逐级发现。不要只将剩余 argv 转交给依赖全局 `sys.argv` 的旧 main。只在顶层转换退出码和 CLI 错误，内部 API 返回值或抛出明确异常，不修改全局 argv、不主动 `sys.exit()`。正常机器可读输出保持 JSON，不混入帮助性日志；诊断走 stderr，参数错误与操作失败均非零。
 
@@ -161,14 +164,14 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 
 前置：阶段 3 完成。目标：一次 session 完成入口切换，结束时只保留最终 CLI，不留下半迁移状态。
 
-- [ ] **4.1 完整列出调用者。** 搜索脚本入口、`__main__`、`sys.argv`、subprocess、`self_check_argv`、dispatch/draft、fixture、Markdown 和开发检查中的命令引用，补齐 3.1 表。区分实际执行、argv 生成、业务外部命令，避免把后两者都当作嵌套 Python。
-- [ ] **4.2 建立薄入口与解析层。** 新建 `beadwork.py` 和 `cli.py`，按表注册全部命令。内部 main 改为明确参数/API，集中处理 JSON、stderr 和退出码。脚本从任意 cwd 和 symlink 路径可加载自带模块。
-- [ ] **4.3 整理模块边界。** 将 preflight/plan 的连字符文件改为内部 snake_case 模块；删除旧 wrapper 和各内部模块的公开 CLI 启动段。入口只路由，Git/Beads 权限仍由对应操作层掌握；更新 import 边界测试，不允许基础层反向依赖 CLI。
-- [ ] **4.4 消除无价值的自启动。** 内部 verifier/schema/状态计算直接 API 调用；preflight 的多次 schema Python 启动改为内部生成并保留所需事实产物。只为冷启动验收保留独立进程测试，不在正常工作流反复自检同一加载事实。外部 Git、bd、just、gate 的执行、超时和进程组语义保留。
-- [ ] **4.5 统一生成命令。** 所有 self-check、dispatch、draft 和测试 fixture 输出新 argv；使用小型共享构造函数保证解释器与 skill 路径一致。不通过 shell 转义字符串传递用户参数。
-- [ ] **4.6 更新活跃指令与测试。** 更新 SKILL.md、agents、references、README、AGENTS.md、ARCHITECTURE 和真实测试调用。当前规范不留旧入口；历史实施记录保持历史事实，若文件被删除导致旧 Markdown 链接断裂，可将旧路径改为 inline code 并注明历史，不创造兼容文件。
-- [ ] **4.7 验证最终 CLI。** 检查顶层和各组帮助、未知命令/缺参数、版本不足提示、JSON stdout、错误 stderr、结构化校验失败的非零退出及关键业务参数；版本分支可在测试中模拟，不要求额外安装旧 Python。代表性内部 API 校验在禁止启动子进程的条件下通过；CLI 测试与必须的 Git/gate 进程不受该禁令影响。检查新进程中的正常工作流恢复能力，不测试旧版本 flow 兼容。
-- [ ] **4.8 全量验收并交接。** 跑 gate-full，检查新命令生成→执行→读取的 workflow，扫描活跃文档和代码无旧入口引用；更新阶段记录和最终命令映射。
+- [x] **4.1 完整列出调用者。** 搜索脚本入口、`__main__`、`sys.argv`、subprocess、`self_check_argv`、dispatch/draft、fixture、Markdown 和开发检查中的命令引用，补齐 3.1 表。区分实际执行、argv 生成、业务外部命令，避免把后两者都当作嵌套 Python。
+- [x] **4.2 建立薄入口与解析层。** 新建 `beadwork.py` 和 `cli.py`，按表注册全部命令。内部 main 改为明确参数/API，集中处理 JSON、stderr 和退出码。脚本从任意 cwd 和 symlink 路径可加载自带模块。
+- [x] **4.3 整理模块边界。** 将 preflight/plan 的连字符文件改为内部 snake_case 模块；删除旧 wrapper 和各内部模块的公开 CLI 启动段。入口只路由，Git/Beads 权限仍由对应操作层掌握；更新 import 边界测试，不允许基础层反向依赖 CLI。
+- [x] **4.4 消除无价值的自启动。** 内部 verifier/schema/状态计算直接 API 调用；preflight 的多次 schema Python 启动改为内部生成并保留所需事实产物。只为冷启动验收保留独立进程测试，不在正常工作流反复自检同一加载事实。外部 Git、bd、just、gate 的执行、超时和进程组语义保留。
+- [x] **4.5 统一生成命令。** 所有 self-check、dispatch、draft 和测试 fixture 输出新 argv；使用小型共享构造函数保证解释器与 skill 路径一致。不通过 shell 转义字符串传递用户参数。
+- [x] **4.6 更新活跃指令与测试。** 更新 SKILL.md、agents、references、README、AGENTS.md、ARCHITECTURE 和真实测试调用。当前规范不留旧入口；历史实施记录保持历史事实，若文件被删除导致旧 Markdown 链接断裂，可将旧路径改为 inline code 并注明历史，不创造兼容文件。
+- [x] **4.7 验证最终 CLI。** 检查顶层和各组帮助、未知命令/缺参数、版本不足提示、JSON stdout、错误 stderr、结构化校验失败的非零退出及关键业务参数；版本分支可在测试中模拟，不要求额外安装旧 Python。代表性内部 API 校验在禁止启动子进程的条件下通过；CLI 测试与必须的 Git/gate 进程不受该禁令影响。检查新进程中的正常工作流恢复能力，不测试旧版本 flow 兼容。
+- [x] **4.8 全量验收并交接。** 跑 gate-full，检查新命令生成→执行→读取的 workflow，扫描活跃文档和代码无旧入口引用；更新阶段记录和最终命令映射。
 
 完成条件：唯一公开 Python CLI 为 beadwork.py；所有现有能力可经新入口使用；没有旧入口兼容层；内部纯计算不重新启动 Python；完整门禁通过。
 
@@ -220,7 +223,7 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 | 1 开发环境与入口 | 已完成（2026-09-19） | 基线：宿主 Python 3.14.7、uv 0.12.10、mise 2026.9.10、just 1.58.0 和 validator 可用；旧 uv 环境为 Python 3.12.14，收集 315 项，旧 full 315/315 通过（pytest 137.60 秒、整体 137.85 秒），validator 通过。新增 `mise.toml`/`mise.lock`、`.python-version`、justfile 和仓库测试 runner；开发 Python 固定 3.14.7 并由 uv 管理，uv 锁定 0.12.10，运行 dependencies 保持为空；locked 开发版本为 pytest 9.1.1、xdist 3.8.0、PyYAML 6.0.3、Ruff 0.16.8、ty 0.0.82。`maintenance_check.py` 已移到根 `scripts/`，旧 skill 内入口删除；根 README/AGENTS、docs、skill 文档链接、结构、explicit-only policy 和 Python 语法由新入口检查。`just install`、`check-toolchain`、`fmt`、`check-docs`、`validate-skill`、`test`、过渡 `gate-full` 已建立。最终 `just gate-full` 在 uv-managed Python 3.14.7 下 319/319 通过（pytest 121.19 秒、整体 122.41 秒），真实 validator 通过；`just check-docs` 与 `git diff --check` 通过。定向验证确认带空格 `-k` 保持 argv 边界，未知 suite/额外 `-m` 返回 2，零匹配返回 5。 | 当前 marker 仍有阶段 2 要修正的历史误分类；尚无 distribution 测试，Ruff/ty 尚未进入 gate。未运行真实消费项目 ticket graph，未验证真实 Codex 嵌套派发。未提交或 push。下一入口：阶段 2.1 逐例分类。 |
 | 2 测试分层 | 已完成（2026-09-19） | 删除 `UNIT_MODULES`/`WORKFLOW_MODULES` 自动白名单，全部测试在源码中显式声明且唯一归入主 marker；继承的同名 marker 按集合去重，`distribution` 必须同时属于 `integration`。四个点名文件已从错误的 unit 改为 integration；纯内存规则只保留在 `graph`、`stage_policy`、`workflow_contract`，阶段推进、恢复和证据链关键路径归 workflow。新增 7 项隔离 collection 契约测试，覆盖漏标、多主层、未知 marker、错误 distribution 组合及合法继承/组合。环境变量现场由全局 autouse 快照恢复改为相关 unittest 的 scoped `patch.dict`；审计未发现可由等价或更强断言安全替代的业务用例，因此原 319 项业务回归全部保留。调整前分层为 unit 34、integration 173、workflow 112；调整后为 unit 18、integration 129、workflow 179，另增 7 项契约测试，总计 326，三个主层互斥且总和一致。定向验证为 unit 18/18、相关 integration 28/28、batch workflow 8/8；`just check-docs` 通过；`just test distribution --collect-only -q` 因零匹配按预期返回 5。最终仅运行一次 `just gate-full`：工具链和维护检查通过，4 个 xdist worker 下 326/326 通过（pytest 106.15 秒；阶段 1 的 319 项记录为 121.19 秒），真实 validator 通过。 | 尚无 distribution 测试；Ruff/ty 仍按计划在阶段 3 纳入门禁。耗时只是本机本次观测，不作为性能承诺。未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发；未提交或 push。下一入口：阶段 3.1 配置静态检查范围。 |
 | 3 静态质量 | 已完成（2026-09-19） | `pyproject.toml` 已将 Ruff 和 ty 的检查范围固定为仓库 `scripts/`、skill 运行源码和 tests，并明确 Python 3.14 目标；Ruff 启用 E/F/I/UP/B 高收益规则，未启用 W/SIM。全仓 Python 已建立 Ruff format 基线并完成安全 lint 修复；`ExecutionPlan` 与 preflight `CommandResult` 使用标准库 `TypedDict` 固定核心边界，外部 JSON 仍由运行时逐字段校验，测试中的异构 JSON 仅在局部 fixture 标注 `dict[str, Any]`。修正了可能为空的 regex/查找结果、动态 stream 方法、异构命令结果、未使用值、错误 fixture import 和 `zip(strict=...)` 等真实静态问题。新增可独立运行的 `just lint`、`just typecheck`，`gate-full` 现按文档/结构 → Ruff lint/format → ty → 全量 pytest → validator 执行。定向回归先后通过 integration 60/60、workflow 128/128，以及最终边界补强后的 execution-plan 16/16、preflight 14/14；最终 `just gate-full` 在 Python 3.14.7 下 Ruff/ty 通过，326/326 测试通过（pytest 143.65 秒），真实 validator 通过。运行 `dependencies` 仍为空，新增 import 仅来自标准库或仓库自带模块。 | Ruff 全局忽略 `E501`，由 formatter 统一布局但不强制拆分所有长字符串；4 个公开脚本为在加载内部模块前设置 `sys.dont_write_bytecode`，保留有说明的局部 `E402` 豁免。尚无 distribution 测试；未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发。未 push。下一入口：阶段 4.1 完整列出调用者；本 session 不进入阶段 4。 |
-| 4 CLI 与内部调用 | 未开始 | — | 依赖阶段 3 |
+| 4 CLI 与内部调用 | 已完成（2026-09-19） | 完整调用者盘点在原 9 个迁移项之外确认 `tracker_operations.py`、`batch_initialize.py`、`batch_evidence.py` 也是活跃公开入口，已补入 3.1 映射；最终由 `beadwork.py` 与 `cli.py` 提供 10 个顶层命令组，覆盖全部 12 个旧入口能力。统一入口在加载运行模块前检查 Python >=3.14，从任意 cwd 及 skill 目录 symlink 可加载自带模块；argparse 逐级帮助、参数错误、JSON stdout、stderr 诊断和退出码集中处理，结构化 `ok:false` 现在返回非零。`plan_operations.py`、`preflight_operations.py` 已改为 snake_case，5 个 wrapper 和其他内部 `__main__` 已删除；`command_argv.py` 统一生成 `self_check_argv`，不拼 shell。preflight schema 由内部 API 生成并继续写入事实产物，代表性 executor/phase/worker schema 在禁止 `subprocess.run`/`Popen` 时通过；外部 Git、bd、just、gate 与进程组行为保留。活跃 skill 指令、长期维护文档、测试 fixture 和历史文档失效链接已迁移；历史入口名仍作为历史事实 inline 保留。定向验证包括 CLI 发现/版本/错误边界 8/8、统一入口相关 integration 79/79、关键 workflow 146/146，以及补正调用者后的相关回归。最终 `just gate-full` 在 Python 3.14.7 下文档/结构、Ruff、ty 全部通过，330/330 pytest 通过（153.79 秒），真实 validator 通过；活跃源码和文档扫描未发现旧公开入口调用，`git diff --check` 通过。代码提交：`8c1d1e0`。 | 尚无阶段 5 的独立分发测试；本阶段覆盖仓库内临时 Git/Beads fixtures、真实本地进程和 symlink 冷启动，但未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发。未测试或保留旧版本 flow/旧 CLI 兼容；未 push。下一入口：阶段 5.1 明确分发内容，本 session 不进入阶段 5。 |
 | 5 独立分发 | 未开始 | — | 依赖阶段 4 |
 | 6 最终验收 | 未开始 | — | 依赖阶段 5 |
 
