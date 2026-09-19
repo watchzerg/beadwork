@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 
-VERIFIER = Path(__file__).with_name("verify-worker.py")
+VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-worker.py"
 A, B = "a" * 40, "b" * 40
 
 

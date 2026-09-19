@@ -16,12 +16,26 @@
 
 ## 验证
 
-从仓库根目录运行脚本回归测试：
+开发依赖由 `uv.lock` 固定。首次准备环境运行：
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s skills/beadwork-run/scripts -p 'test_*.py'
+uv sync --locked --group dev
 ```
 
-测试会在临时目录创建 Git 仓库与 worktrees，需要对应执行权限。按改动风险选取相关测试；目录迁移或跨脚本协议修改运行完整套件。只修改文档时检查链接、命名与 `git diff --check`，不因文档改动运行真实 ticket graph。
+按改动边界选择最小 suite：
 
-修改 skill 时使用可用的 skill validator，并核对相对资源引用、`agents/openai.yaml` 策略和实际运行路径。脚本测试通过不等于真实 Codex 嵌套派发已验证，交付时区分两者。
+```sh
+uv run pytest -m unit -q
+uv run pytest -m integration -n 4 --dist=worksteal
+uv run pytest -m workflow -n 4 --dist=worksteal
+```
+
+纯规则和数据转换运行 `unit`；文件系统、Git 或 CLI 边界运行 `integration`；跨阶段状态机和真实临时 worktree 运行 `workflow`。目录迁移、跨脚本协议或交付前运行完整门禁：
+
+```sh
+uv run python skills/beadwork-run/scripts/maintenance_check.py full --jobs 4
+```
+
+测试位于 `tests/`。integration 和 workflow 会在临时目录创建 Git 仓库与 worktrees，需要对应执行权限。只修改文档时检查链接、命名与 `git diff --check`，不运行 workflow。
+
+`full` 会运行 skill validator，并核对相对资源引用、`agents/openai.yaml` 策略和实际运行路径。脚本测试通过不等于真实 Codex 嵌套派发已验证，交付时区分两者。

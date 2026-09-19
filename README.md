@@ -100,15 +100,29 @@ ln -s ~/projects/beadwork/skills/beadwork-run ~/projects/grok-image-saver/.agent
 
 维护者注意：正在运行的 agent 可能已经读取旧指令，后续读取又可能取得修改后的内容。是否避开正在进行的运行，由维护者自行判断；这不是 AI 修改源码前需要核实或请求确认的条件。
 
-从仓库根目录运行现有脚本回归测试：
+开发依赖由 `uv.lock` 固定，首次运行：
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s skills/beadwork-run/scripts -p 'test_*.py'
+uv sync --locked --group dev
 ```
 
-测试使用临时 Git 仓库和 Beads fixtures，需要可用的 Git，并需要允许创建临时 worktree。它们不会运行真实项目的 ticket graph，也不能证明当前 Codex 宿主的完整 agent 派发链可用。
+日常修改先运行秒级纯规则测试；涉及文件系统、Git、CLI 或跨阶段状态时再扩大范围：
 
-共享参考文件继续与 skill 同目录分发；测试继续放在现有 `scripts/` 中。
+```sh
+uv run pytest -m unit -q
+uv run pytest -m integration -n 4 --dist=worksteal
+uv run pytest -m workflow -n 4 --dist=worksteal
+```
+
+交付前运行统一门禁，它会执行链接检查、`git diff --check`、无 bytecode 的 Python 语法检查、全部 pytest suite 和 skill validator：
+
+```sh
+uv run python skills/beadwork-run/scripts/maintenance_check.py full --jobs 4
+```
+
+测试位于 `tests/`。integration 和 workflow 使用临时 Git 仓库与 Beads fixtures，需要可用的 Git，并需要允许创建临时 worktree。它们不会运行真实项目的 ticket graph，也不能证明当前 Codex 宿主的完整 agent 派发链可用。
+
+共享参考文件继续与 skill 同目录分发。
 
 ## 来源与致谢
 

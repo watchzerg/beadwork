@@ -10,7 +10,7 @@ import hashlib
 import execution_plan
 import evidence
 
-SCRIPT = Path(__file__).with_name('controller.py')
+SCRIPT = Path(__file__).resolve().parents[1] / 'skills/beadwork-run/scripts/controller.py'
 
 
 class MainSyncTests(unittest.TestCase):

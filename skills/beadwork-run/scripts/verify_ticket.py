@@ -25,6 +25,7 @@ import sys
 from review_schema import axis_report_schema
 from schema_validation import object_schema, TEXT, SHA, TEXTS, SEAMS, schema_errors, check_schema, read_json
 import evidence
+import workflow_contract
 import workflow_policy
 
 
@@ -37,7 +38,7 @@ def _use_utf8() -> None:
             stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
 
 
-def git(args: List[str], allowed_codes: Tuple[int, ...] = (0,)) -> Dict[str, Any]:
+def git(args: List[str], allowed_codes: Tuple[int, ...] = (0,), cwd: str | None = None) -> Dict[str, Any]:
     env = dict(os.environ)
     env["GIT_OPTIONAL_LOCKS"] = "0"
     code: Optional[int] = None
@@ -45,7 +46,7 @@ def git(args: List[str], allowed_codes: Tuple[int, ...] = (0,)) -> Dict[str, Any
     stdout_text = ""
     try:
         proc = subprocess.run(
-            ["git", *args], cwd=os.getcwd(), env=env, capture_output=True
+            ["git", *args], cwd=cwd or os.getcwd(), env=env, capture_output=True
         )
         code = proc.returncode
         stderr_text = proc.stderr.decode("utf-8", "replace").strip()
@@ -186,7 +187,7 @@ def existing_behavior_round(report: Dict[str, Any], index: int) -> bool:
             and all(axis["reviewed_base"] == axis["reviewed_head"] == base for axis in pair.values())
             and collection["pair"] == pair
             and dispatch["role"] == "executor"
-            and dispatch.get("execution_contract") == 2
+            and dispatch.get("workflow_contract_version") == workflow_contract.VERSION
             and dispatch["base_commit"] == base
             and dispatch["test_mode"] == "direct_verification"
             and isinstance(acceptance, list) and bool(acceptance)
@@ -275,7 +276,8 @@ def report_errors(report: Any, schema: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def validate_report(
-    report: Dict[str, Any], status: str, reported_head: str, base: str, expected_plan: Dict[str, Any]
+    report: Dict[str, Any], status: str, reported_head: str, base: str,
+    expected_plan: Dict[str, Any], cwd: str | None = None,
 ) -> List[Dict[str, Any]]:
     failures: List[Dict[str, Any]] = []
     if report["status"] != status:
@@ -290,7 +292,7 @@ def validate_report(
         or set(plan["approved_seams"]) != set(expected_plan["approved_seams"])
     ):
         failures.append({"check": "test_plan_matches_preflight"})
-    commit_range = set(git(["rev-list", "{}..{}".format(base, reported_head)])["text"].splitlines())
+    commit_range = set(git(["rev-list", "{}..{}".format(base, reported_head)], cwd=cwd)["text"].splitlines())
     reported_commits = {item["sha"] for item in report["implementation_commits"]}
     if reported_commits != commit_range:
         failures.append({
@@ -308,11 +310,59 @@ def validate_report(
                 existing_behavior_round(report, index)
                 or (index == 0 and "delivery_kind" in report)
             )
-            if (reviewed not in commit_range and not base_review) or git(["merge-base", "--is-ancestor", previous, reviewed], (0, 1))["code"]:
+            if (reviewed not in commit_range and not base_review) or git(["merge-base", "--is-ancestor", previous, reviewed], (0, 1), cwd=cwd)["code"]:
                 failures.append({"check": "review_commit_range", "observed": name})
                 continue
             previous = reviewed
     return failures
+
+
+def check_delivery(cwd: str, branch: str, base: str, reported_head: str, status: str,
+                   report_file: str, plan_file: str) -> Dict[str, Any]:
+    """执行完整 executor Git 验收并返回结果，不启动 verifier 子进程。"""
+    if not branch or not FULL_SHA.fullmatch(base) or not FULL_SHA.fullmatch(reported_head) or status not in (
+        "DONE", "NEEDS_CONTEXT", "BLOCKED"
+    ):
+        raise ValueError("branch、完整 SHA 或 status 无效")
+    schema = executor_schema(axis_report_schema())
+    check_schema(schema)
+    expected_plan, _ = read_json(plan_file)
+    if schema_errors(expected_plan, EXPECTED_PLAN) or (
+        expected_plan["mode"] == "TDD" and not expected_plan["approved_seams"]
+    ):
+        raise ValueError("preflight test plan 无效")
+    report, report_hash = read_json(report_file)
+    failures: List[Dict[str, Any]] = []
+    actual_branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], (0, 1), cwd=cwd)
+    if actual_branch["code"] == 1 or actual_branch["text"] != branch:
+        failures.append({"check": "branch", "expected": branch,
+                         "observed": None if actual_branch["code"] == 1 else actual_branch["text"]})
+    head = git(["rev-parse", "HEAD"], cwd=cwd)["text"]
+    if head != reported_head:
+        failures.append({"check": "head_matches_reported", "expected": reported_head, "observed": head})
+    if git(["cat-file", "-t", base], cwd=cwd)["text"] != "commit":
+        raise RuntimeError("BASE 必须指向 commit")
+    if git(["merge-base", "--is-ancestor", base, head], (0, 1), cwd=cwd)["code"] == 1:
+        failures.append({"check": "base_is_ancestor"})
+    beads_commit = git(["log", "--full-history", "-m", "-1", "--format=%H",
+                        f"{base}..{head}", "--", ".beads"], cwd=cwd)["text"]
+    if beads_commit:
+        failures.append({"check": "no_beads_commits", "observed": beads_commit})
+    beads_changes = git(["status", "--porcelain=v1", "--untracked-files=no", "--", ".beads"], cwd=cwd)["text"]
+    if beads_changes:
+        failures.append({"check": "no_beads_working_tree_changes", "observed": beads_changes})
+    if status == "DONE":
+        if base == head and report.get("delivery_kind") != "already_satisfied":
+            failures.append({"check": "done_has_commits"})
+        changes = git(["status", "--porcelain=v1", "--untracked-files=all"], cwd=cwd)["text"]
+        if changes:
+            failures.append({"check": "done_clean_tree", "observed": changes})
+    report_failures = report_errors(report, schema)
+    failures.extend(report_failures)
+    if not report_failures:
+        failures.extend(validate_report(report, status, reported_head, base, expected_plan, cwd=cwd))
+    return {"ok": not failures, "report_sha256": report_hash,
+            **({"failures": failures} if failures else {})}
 
 
 def emit_result(failures: List[Dict[str, Any]], report_hash: str) -> None:
@@ -369,78 +419,8 @@ def main(argv: List[str]) -> None:
         raise ValueError("用法：verify-ticket.py <branch> <BASE> <HEAD> <status> "
                          "<executor-report.json> <expected-plan.json>")
     branch, base, reported_head, status, report_file, plan_file = argv
-    if not branch or not FULL_SHA.fullmatch(base) or not FULL_SHA.fullmatch(reported_head) or status not in (
-        "DONE", "NEEDS_CONTEXT", "BLOCKED"
-    ):
-        raise ValueError("branch、完整 SHA 或 status 无效")
-    axis_schema = axis_report_schema()
-    schema = executor_schema(axis_schema)
-    check_schema(schema)
-    expected_plan, _ = read_json(plan_file)
-    if schema_errors(expected_plan, EXPECTED_PLAN) or (
-        expected_plan["mode"] == "TDD" and not expected_plan["approved_seams"]
-    ):
-        raise ValueError("preflight test plan 无效")
-    report, report_hash = read_json(report_file)
-    failures: List[Dict[str, Any]] = []
-    actual_branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], (0, 1))
-    if actual_branch["code"] == 1 or actual_branch["text"] != branch:
-        failures.append(
-            {
-                "check": "branch",
-                "expected": branch,
-                "observed": None
-                if actual_branch["code"] == 1
-                else actual_branch["text"],
-            }
-        )
-    head = git(["rev-parse", "HEAD"])["text"]
-    if head != reported_head:
-        failures.append(
-            {
-                "check": "head_matches_reported",
-                "expected": reported_head,
-                "observed": head,
-            }
-        )
-    if git(["cat-file", "-t", base])["text"] != "commit":
-        raise RuntimeError("BASE 必须指向 commit")
-    ancestor = git(["merge-base", "--is-ancestor", base, head], (0, 1))
-    if ancestor["code"] == 1:
-        failures.append({"check": "base_is_ancestor"})
-    # full-history + merge diffs 避免仅在 merge commit 引入的 .beads 改动被路径简化隐藏。
-    beads_commit = git(
-        [
-            "log",
-            "--full-history",
-            "-m",
-            "-1",
-            "--format=%H",
-            "{}..{}".format(base, head),
-            "--",
-            ".beads",
-        ]
-    )["text"]
-    if beads_commit:
-        failures.append({"check": "no_beads_commits", "observed": beads_commit})
-    beads_changes = git(
-        ["status", "--porcelain=v1", "--untracked-files=no", "--", ".beads"]
-    )["text"]
-    if beads_changes:
-        failures.append(
-            {"check": "no_beads_working_tree_changes", "observed": beads_changes}
-        )
-    if status == "DONE":
-        if base == head and report.get("delivery_kind") != "already_satisfied":
-            failures.append({"check": "done_has_commits"})
-        changes = git(["status", "--porcelain=v1", "--untracked-files=all"])["text"]
-        if changes:
-            failures.append({"check": "done_clean_tree", "observed": changes})
-    report_failures = report_errors(report, schema)
-    failures.extend(report_failures)
-    if not report_failures:
-        failures.extend(validate_report(report, status, reported_head, base, expected_plan))
-    emit_result(failures, report_hash)
+    result = check_delivery(os.getcwd(), branch, base, reported_head, status, report_file, plan_file)
+    print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
 
 
 if __name__ == "__main__":

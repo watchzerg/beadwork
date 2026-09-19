@@ -5,13 +5,14 @@ from pathlib import Path
 from repository import require
 import evidence
 import repository
+import workflow_contract
 
 def validate_plan(d):
     if d.get('plan_source'):
         evidence.bound(d['plan_source']['report'])
     for source in d.get('environment_evidence', []):
         evidence.bound(source)
-    if d.get("ticket_execution_version") and d.get("expected_plan_path"):
+    if d.get("ticket_scope") and d.get("expected_plan_path"):
         require(evidence.read(d["expected_plan_path"]) == {"mode": d["test_mode"], "approved_seams": d["approved_seams"]}, "执行计划文件与 dispatch 不符")
     if not d.get("plan_adjustment"):
         return
@@ -29,6 +30,7 @@ def validate_plan(d):
 def dispatch(path):
     p = evidence.absolute(path)
     d = evidence.read(p)
+    workflow_contract.require_current(d)
     require(d["role"] in ("executor", "finalizer", "implementer", "fixer"), "需要 executor、implementer 或 finalizer dispatch")
     require(Path(d["dispatch_path"]) == p, "dispatch 路径不符")
     require(Path(d["report_path"]).parent == p.parent, "报告目录与 dispatch 不符")
@@ -57,7 +59,8 @@ def same_attempt(a, b):
 def verification_dispatch(path):
     p = evidence.absolute(path)
     d = evidence.read(p)
+    workflow_contract.require_current(d)
     repository.require(d["role"] in ("executor", "implementer", "fixer", "finalizer") and d["dispatch_path"] == str(p), "需要 executor 或 fixer dispatch")
-    repository.require(not d.get("ticket_execution_version") or d["role"] == "implementer", "单票验证采集仅由 implementer 执行")
+    repository.require(not d.get("ticket_scope") or d["role"] == "implementer", "单票验证采集仅由 implementer 执行")
     repository.require(Path(d["report_path"]).parent == p.parent, "dispatch 证据目录不符")
     return d

@@ -12,7 +12,7 @@ import execution_plan as plans
 import tracker_operations as tracker
 from unittest.mock import patch
 
-SCRIPTS = Path(__file__).resolve().parent
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
 
 
 class ExecutionPlanTests(unittest.TestCase):

@@ -61,8 +61,8 @@ def freeze(d):
 
 def delivery(d, before):
     repository.require(d['role'] in ('executor', 'implementer', 'fixer'), '交付验证需要 writer dispatch')
-    repository.require(not d.get('ticket_execution_version') or d['role'] == 'implementer', '单票交付验证仅由 implementer 执行')
-    if d.get('ticket_execution_version'):
+    repository.require(not d.get('ticket_scope') or d['role'] == 'implementer', '单票交付验证仅由 implementer 执行')
+    if d.get('ticket_scope'):
         ticket_state.require_writer(d)
     repository.require(not before['status'], '交付验证需要干净 HEAD')
     p = root(d)
@@ -111,10 +111,10 @@ def begin(args):
     d = evidence.read(source)
     repository.require(d.get('dispatch_path') == str(source) and d['role'] in ('executor', 'implementer', 'fixer'), '需要 writer dispatch')
     repository.require(d['role'] != 'fixer' or d.get('stage', 0) > 0, '最终 stage 0 没有 fixer')
-    repository.require(not d.get('ticket_execution_version') or d['role'] == 'implementer', '单票 gate-fix 仅由 implementer 执行')
-    if d.get('ticket_execution_version'):
+    repository.require(not d.get('ticket_scope') or d['role'] == 'implementer', '单票 gate-fix 仅由 implementer 执行')
+    if d.get('ticket_scope'):
         ticket_state.require_writer(d)
-    if d.get('finalization_version') == 2 and d['role'] == 'fixer':
+    if final_state.strict(d) and d['role'] == 'fixer':
         final_state.require_writer(d)
     repository.topology(d)
     p = root(d)

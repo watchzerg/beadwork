@@ -30,7 +30,9 @@ def prepare_attempt(d, head):
     previous = None
     if prior and "stage_path" in prior:
         previous = evidence.read(prior["stage_path"])
-        repository.require(previous.get("finalization_version") == 2, "需要有效的旧最终阶段")
+        import workflow_contract
+        workflow_contract.require_current(previous)
+        repository.require(previous.get("role") == "finalizer" and "stage" in previous, "需要有效的最终阶段")
         for key in ("repository_root", "worktree", "branch", "parent_id", "expected_children"):
             repository.require(previous[key] == d[key], "恢复批次身份变化")
         _, selection = fs.selected(previous)
@@ -57,7 +59,6 @@ def prepare_attempt(d, head):
                 old = evidence.read(path)
                 repository.require(old.get("reviewed_main") != d["reviewed_main"],
                           "已有同基线最终阶段，重新调用须提供 prior_stage_path")
-    d["finalization_version"] = 2
 
 
 def read_stage_report(stage, report_path, receipt_path):
@@ -87,7 +88,7 @@ def models(stage, previous, facts):
 
 def prepare_stage(dispatch_path, facts):
     root = dispatch_contract.dispatch(dispatch_path)
-    repository.require(root["role"] == "finalizer" and root.get("finalization_version") == 2, "需要新版 finalizer dispatch")
+    repository.require(root["role"] == "finalizer" and "stage" not in root, "需要 finalizer root dispatch")
     repository.topology(root)
     head = repository.sha(root["worktree"], "HEAD")
     repository.git(root["worktree"], "merge-base", "--is-ancestor", root["reviewed_main"], head)
@@ -107,8 +108,7 @@ def prepare_stage(dispatch_path, facts):
                      previous_report=str(evidence.bound(chosen['report']['report'])),
                      previous_receipt=str(evidence.bound(chosen['report']['receipt'])))
     elif root.get('prior_finalization'):
-        repository.require(root.get('resume_stage') and evidence.read(root['resume_stage']).get('finalization_version') == 2,
-                  '历史 attempt 缺少严格检查点；保留原件，需补齐可证明的选择与验证来源后恢复')
+        repository.require(root.get('resume_stage'), '最终 attempt 缺少恢复阶段')
     previous_path = facts.get("previous_stage", root.get("resume_stage"))
     continuation = facts.get("continuation", "resume")
     repository.require(continuation in ("resume", "repair"), "continuation 必须为 resume 或 repair")
@@ -163,8 +163,8 @@ read_fixer = fixer_reports.read_fixer
 
 def check_report(expected, report, *, review_checks=None):
     review_checks = set() if review_checks is None else review_checks
-    if expected.get("finalization_version") not in (1, 2):
-        return
+    import workflow_contract
+    workflow_contract.require_current(expected)
     repository.require(report.get("attempt_id") == expected["attempt_id"] and report.get("stage_sources"), "缺少最终阶段身份或来源")
     stages = [dispatch_contract.dispatch(str(evidence.bound(source))) for source in report["stage_sources"]]
     d = stages[-1]
@@ -446,7 +446,7 @@ def publish_fixer(d, previous, fixer_done):
               "dispatch_path": str(folder / "dispatch.json"), "report_path": str(folder / "report.json"),
               "report_schema_path": str(folder / "report-schema.json"), "receipt_schema_path": str(folder / "receipt-schema.json")}
         for name, flag in (("report_schema_path", "--schema"), ("receipt_schema_path", "--receipt-schema")):
-            evidence.write(fd[name], report_io.load_command([sys.executable, "-B", report_io.SCRIPTS / "verify-worker.py", flag, "fixer"]))
+            evidence.write(fd[name], report_io.fixer(flag))
         fd['self_check_argv'] = [sys.executable, '-B', str(report_io.SCRIPTS / 'executor-operations.py'),
                                 'fixer-check', '--dispatch', fd['dispatch_path'], '--report', fd['report_path']]
         draft_contracts.publish(fd, 'fixer')
@@ -492,7 +492,7 @@ def check_review_history(d, report, reviews, *, review_checks=None):
         repository.require(actual == pair, "review 与原始来源不符")
         head = pair["spec"]["reviewed_head"]
         repository.git(d["worktree"], "merge-base", "--is-ancestor", previous_head, head)
-        repository.require(head != previous_head or (index == 0 and d.get("execution_contract") == 2), "review HEAD 重复")
+        repository.require(head != previous_head or index == 0, "review HEAD 重复")
         previous_head = head
         collection = evidence.read(evidence.bound(source))
         origin = evidence.read(evidence.bound(evidence.read(evidence.bound(collection["round"]))["dispatch"]))

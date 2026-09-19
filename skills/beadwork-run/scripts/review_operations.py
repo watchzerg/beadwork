@@ -36,10 +36,10 @@ require_axis_sources = review_evidence.require_axis_sources
 def review_inputs(d, axis):
     writer = None
     prior = d.get('prior_reviews', [])
-    if d.get('ticket_execution_version'):
+    if d.get('ticket_scope'):
         value, _, _ = ticket_state.checkpoints(d)
         writer = value['implementer_sources'][-1] if value['implementer_sources'] else None
-    elif d.get('finalization_version') == 2:
+    elif final_state.strict(d):
         _, final_selection = final_state.selected(d)
         writer = final_selection['fixes'][-1] if final_selection['fixes'] else None
     previous_axis = None
@@ -58,7 +58,7 @@ def review_inputs(d, axis):
     gate_sources = []
     if writer:
         gates = list(dict.fromkeys(gates + report.get('required_boundary_gates', report.get('boundary_gates', []))))
-    if d.get('finalization_version') == 2:
+    if final_state.strict(d):
         verification += [s for s in final_verification.snapshot(d) if s not in verification]
         gates, gate_sources = final_selection['gates'], final_selection['gate_sources']
     return {'writer_source': writer, 'prior_axis_source': previous_axis,
@@ -77,14 +77,14 @@ def reviewed_state(d, base, head):
     repository.git(wt, "merge-base", "--is-ancestor", base, head)
     repository.require(not repository.status(wt), "review 要求 worktree 干净")
     if not repository.git(wt, "diff", base + "..." + head):
-        repository.require(d.get("execution_contract") == 2 and base == head, "review diff 为空")
+        repository.require(base == head, "review diff 为空")
         if d["role"] == "executor":
             repository.require(evidence.read(d["expected_plan_path"])["mode"] == "direct_verification", "无提交完成需要 direct_verification")
 
 
 def prepare_review(args):
     d = dispatch_contract.dispatch(args.dispatch)
-    ticket_review = bool(d.get("ticket_execution_version"))
+    ticket_review = bool(d.get("ticket_scope"))
     if ticket_review:
         repository.require(d.get("ticket_scope") == "stage", "review 由 stage executor 派发")
         ticket_execution.review_ready(d)
@@ -153,7 +153,7 @@ def collect_review(args):
         "pair": pair, "gate": gate}
     output = dispatch_contract.output_path(args.output, path.parent)
     evidence.write(output, result)
-    if d.get("ticket_execution_version"):
+    if d.get("ticket_scope"):
         ticket_state.select_review(d, output)
     if final_state.strict(d):
         final_state.select_review(d, output)

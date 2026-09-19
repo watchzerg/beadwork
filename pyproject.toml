@@ -1,0 +1,23 @@
+[project]
+name = "beadwork-dev"
+version = "0.0.0"
+requires-python = ">=3.9"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-xdist>=3.8,<4",
+  "pyyaml>=6,<7",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.4"
+testpaths = ["tests"]
+pythonpath = ["skills/beadwork-run/scripts", "tests"]
+addopts = ["--import-mode=importlib", "-ra", "--strict-config", "--strict-markers"]
+markers = [
+  "unit: pure rules without Git or subprocesses",
+  "integration: isolated filesystem, Git, or CLI boundaries",
+  "workflow: end-to-end workflow scenarios",
+]

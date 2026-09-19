@@ -42,7 +42,6 @@ bound = evidence.bound
 dispatch = dispatch_contract.dispatch
 reviewed_state = review_operations.reviewed_state
 worker = report_io.reviewer
-load_command = report_io.load_command
 prepare_review = review_operations.prepare_review
 pair_from_sources = review_evidence.pair_from_sources
 collect_review = review_operations.collect_review
@@ -99,7 +98,7 @@ def inspect_context(args):
 
 def check_layer(args):
     d = dispatch(args.dispatch)
-    if d.get("ticket_execution_version"):
+    if d.get("ticket_scope"):
         ticket_state.require_writer(d)
     layer = load(absolute(args.input))
     repository.require(set(layer) == {"files", "message"}, "本层输入仅包含 files 和 message")

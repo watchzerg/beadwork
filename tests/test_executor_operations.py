@@ -9,7 +9,7 @@ import unittest
 
 import test_controller as controller_fixture
 
-SCRIPT = Path(__file__).with_name("executor-operations.py")
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/executor-operations.py"
 
 
 class ExecutorOperationsTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class ExecutorOperationsTests(unittest.TestCase):
 
     def assemble(self, reviews=(), status="DONE", ok=True, outcome=None):
         draft = copy.deepcopy(self.h.h.report)
-        for key in ("base_commit", "head_commit", "implementation_commits", "review"):
+        for key in ("base_commit", "head_commit", "implementation_commits", "review", "delivery_kind"):
             del draft[key]
         draft["test_plan"] = {"decision_source": "ticket/spec", "red_evidence": "实测行为断言失败"}
         draft["status"] = status

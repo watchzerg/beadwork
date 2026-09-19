@@ -23,7 +23,7 @@ def pair_from_sources(round_path, sources, *, verified=None):
     base = d["base_commit"] if d["role"] == "executor" else d["reviewed_main"]
     repository.require(record["reviewed_base"] == base, "round BASE 与派发不符")
     if base == record["reviewed_head"]:
-        repository.require(d.get("execution_contract") == 2 and record.get("review_kind") == "existing_behavior", "空 diff 缺少已有行为审查身份")
+        repository.require(record.get("review_kind") == "existing_behavior", "空 diff 缺少已有行为审查身份")
         evidence.bound(record["acceptance_evidence"])
     require_axis_sources(sources)
     pair = {}
@@ -63,7 +63,7 @@ def collection(path, dispatch_path, *, verified=None):
     current = dispatch_contract.dispatch(dispatch_path)
     # 接替显式选择旧证据时，保留同票、同 BASE 的已完成轮次。
     keys = ("role", "repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
-    if current.get("ticket_execution_version"):
+    if current.get("ticket_scope"):
         keys += ("ticket_root",)
     if current["role"] == "finalizer":
         keys += ("reviewed_main",)

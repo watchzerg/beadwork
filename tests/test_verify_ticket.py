@@ -17,7 +17,7 @@ import tempfile
 import unittest
 
 
-VERIFIER = Path(__file__).with_name("verify-ticket.py")
+VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-ticket.py"
 import verify_ticket as VALIDATOR
 import evidence
 
@@ -57,6 +57,7 @@ class TicketAcceptanceTests(unittest.TestCase):
         self.plan = {"mode": "TDD", "approved_seams": ["S1"]}
         self.report = {
             "status": "DONE", "base_commit": self.base, "head_commit": self.head,
+            "delivery_kind": "changed",
             "implementation_commits": self.commits,
             "test_plan": {**self.plan, "decision_source": "ticket/spec", "red_evidence": "BASE 行为断言失败，随后实现通过"},
             "acceptance": [{"criterion": "交付行为", "evidence": "观察到目标状态转换"}],
@@ -290,7 +291,7 @@ class TicketAcceptanceTests(unittest.TestCase):
             folder = self.root.resolve() / f"existing-review-{index}"
             folder.mkdir()
             evidence.write(folder / "dispatch.json", {
-                "role": "executor", "execution_contract": 2,
+                "role": "executor", "workflow_contract_version": 1,
                 "base_commit": self.head, "test_mode": "direct_verification",
             })
             evidence.write(folder / "acceptance.json", [{"criterion": "本机配置", "evidence": "不含秘密的当前状态核对"}])

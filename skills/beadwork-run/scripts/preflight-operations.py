@@ -314,8 +314,11 @@ def assemble(args):
     repository.require(output.parent == directory, '报告必须位于 dispatch 目录')
     repository.require(not output.exists() and not output.with_suffix('.timing.json').exists(), '保留已有交付文件，请使用新文件名')
     evidence.write(output, report)
-    receipt = json.loads(repository.run([sys.executable, '-B', report_io.SCRIPTS / 'verify-phase.py', '--check-report', 'preflight',
-                               str(output), '--expected', d['dispatch_path'], '--emit-receipt']))
+    import phase_validation
+    checked = phase_validation.check('preflight', str(output), d['dispatch_path'])
+    repository.require(checked['ok'], 'preflight 报告校验失败：' + json.dumps(checked, ensure_ascii=False))
+    receipt = {'status': report['status'], 'report_path': str(output),
+               'report_sha256': checked['report_sha256']}
     evidence.write(output.with_suffix('.timing.json'), dict(
         facts_sha256=args.facts_sha256, report_sha256=receipt['report_sha256'],
         collection_seconds=f['collection_finished_at'] - f['collection_started_at'],

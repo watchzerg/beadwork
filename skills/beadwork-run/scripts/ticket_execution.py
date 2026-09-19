@@ -17,8 +17,8 @@ import ticket_reports
 import ticket_state
 import ticket_verification
 import workflow_policy
+import stage_policy
 
-VERSION = 1
 ROLES = ('implementer', 'standards', 'spec')
 
 
@@ -34,14 +34,15 @@ checkpoint = ticket_state.checkpoint
 def root_fields(d):
     repository.require(not any(d.get(k) for k in ('previous_report', 'previous_receipt', 'continuation', 'stage', 'models')),
               'controller 只准备整票；阶段输入由 ticket-stage 管理')
-    d.update(ticket_execution_version=VERSION, ticket_scope='root', start_head=d['base_commit'],
+    d.update(ticket_scope='root', start_head=d['base_commit'],
              coordinator_model=workflow_policy.MODEL_LEVELS[2 if d.get('complex_ticket') else 0])
 
 
 def resume_root(d):
     previous = evidence.read(evidence.absolute(d['previous_dispatch']))
-    repository.require(previous.get('ticket_scope') == 'root' and previous.get('ticket_execution_version') == VERSION,
-              '恢复需要当前单票 root dispatch')
+    repository.require(previous.get('ticket_scope') == 'root', '恢复需要当前单票 root dispatch')
+    import workflow_contract
+    workflow_contract.require_current(previous)
     same_ticket(previous, d)
     repository.topology(previous)
     repository.git(d['worktree'], 'merge-base', '--is-ancestor', d['base_commit'], 'HEAD')
@@ -165,21 +166,11 @@ def prepare_stage(root_path, facts):
             recovery = recover_unregistered_gate_repair(previous, report, state, facts.get('recovery_reason'),
                                                         facts.get('recovery_failure'))
         else:
-            additional = facts.get('additional_stages')
-            reason = facts.get('extension_reason')
-            repository.require(stage_limit == len(workflow_policy.STAGE_MODELS) - 1
-                      and not previous.get('stage_extension'), '每张 ticket 仅允许追加一次 stage')
-            repository.require('recovery_reason' not in facts, 'extend 不接受 recovery_reason')
-            repository.require('recovery_failure' not in facts, 'extend 不接受 recovery_failure')
-            repository.require(previous['stage'] == stage_limit and report['outcome'] == 'code_failure'
-                      and report['execution']['stopped_tasks'], '只有已耗尽的 code_failure 可追加 stage')
-            repository.require(type(additional) is int and 1 <= additional <= workflow_policy.MAX_STAGE_EXTENSION,
-                      '单次最多追加五个 stage')
-            repository.require(isinstance(reason, str) and reason.strip(), '追加 stage 需要用户授权原因')
-            stage_limit += additional
-            extension_record = {'version': 1, 'kind': 'authorized-stage-extension', 'stage': previous['stage'],
-                      'selected_stage': state['selected_stage'], 'additional_stages': additional,
-                      'new_stage_limit': stage_limit, 'reason': reason.strip()}
+            try:
+                stage_limit, extension_record = stage_policy.authorize_extension(
+                    previous, state['selected_stage'], report, facts, stage_limit)
+            except ValueError as error:
+                repository.require(False, str(error))
         number = previous['stage'] + 1
     else:
         repository.require(continuation == 'resume', '初次 stage 只接受 resume')
@@ -349,8 +340,8 @@ def assemble_stage(args):
 def adapt_plan_dispatch(args):
     """记录已核准的执行计划；新单票由 ticket-adapt-plan 调用并更新检查点。"""
     d = dispatch_contract.dispatch(args.dispatch)
-    repository.require(d["role"] == "executor" and d.get("execution_contract") == 2, "需要新契约 executor")
-    if d.get("ticket_execution_version"):
+    repository.require(d["role"] == "executor", "需要 executor")
+    if d.get("ticket_scope"):
         repository.require(d.get("ticket_scope") == "stage", "整票 root 不适配计划；由 executor 使用 ticket-adapt-plan 更新当前 stage")
     repository.workspace(d)
     directory = Path(args.dispatch).parent

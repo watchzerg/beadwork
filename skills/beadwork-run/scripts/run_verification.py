@@ -62,13 +62,12 @@ def run(args):
     os.umask(0o077)
     source = absolute(args.dispatch)
     d = dispatch(source)
-    if d.get('ticket_execution_version') or d.get('finalization_version') == 2:
-        repository.require(d.get('gate_contract_version') == 1,
-                           '旧 gate 活动现场与当前契约不匹配；保留历史证据并停止')
+    import workflow_contract
+    workflow_contract.require_current(d)
     before = state(d)
-    if d.get("ticket_execution_version"):
+    if d.get("ticket_scope"):
         ticket_state.require_writer(d)
-    if d.get('finalization_version') == 2:
+    if final_state.strict(d):
         if d['role'] == 'fixer':
             final_state.require_writer(d)
         else:
@@ -85,10 +84,10 @@ def run(args):
     repository.require(args.recipe in repository.run([executable, "--summary"], d["worktree"]).split(), "验证 recipe 不存在")
     parameters = args.parameters[1:] if args.parameters[:1] == ["--"] else args.parameters
     repository.require(not parameters or args.recipe == 'test', '完整 gate 与 typecheck 不接受筛选参数')
-    if d.get('finalization_version') == 2 and d['role'] == 'finalizer':
+    if final_state.strict(d) and d['role'] == 'finalizer':
         repository.require(args.delivery and args.recipe == 'gate-full',
                            'finalizer 只采集带 --delivery 的无参数 gate-full')
-    if args.delivery and d.get('finalization_version') == 2:
+    if args.delivery and final_state.strict(d):
         repository.require(args.recipe == 'gate-full', '最终交付只接受无参数 gate-full')
     current_plan = None
     if args.delivery:
@@ -100,7 +99,7 @@ def run(args):
     attempt = None
     if args.delivery:
         if d['role'] == 'finalizer':
-            repository.require(d.get('finalization_version') == 2 and not before['status'], '最终验证需要当前阶段干净 HEAD')
+            repository.require(final_state.strict(d) and not before['status'], '最终验证需要当前阶段干净 HEAD')
         else:
             attempt = gate_repair.delivery(d, before)
     directory = source.parent / ("verification-" + uuid.uuid4().hex)

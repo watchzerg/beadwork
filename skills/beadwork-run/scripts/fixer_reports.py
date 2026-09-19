@@ -24,8 +24,8 @@ def read_fixer(source, current, tolerate_verification=False):
         repository.require(stage_dispatch["stage_base"] == d["base_commit"], "fixer BASE 与阶段不符")
     for key in ("report", "receipt"):
         repository.require(Path(paths[key]).parent == Path(paths["dispatch"]).parent, "fixer 报告不在派发目录")
-    checked = report_io.load_command([sys.executable, "-B", report_io.SCRIPTS / "verify-worker.py", "--check-report", "fixer",
-                             paths["report"], paths["receipt"], "--expected", paths["dispatch"]])
+    import worker_validation
+    checked = worker_validation.check("fixer", paths["report"], paths["dispatch"], paths["receipt"])
     repository.require(checked['ok'] or (tolerate_verification and checked.get('failures')
         and all(f.startswith('fixer_verification: ') for f in checked['failures'])), 'fixer 验收失败')
     repository.require(checked['report_sha256'] == source['report']['sha256'] == evidence.digest(paths['report']),
@@ -49,11 +49,10 @@ def fixer_check(dispatch_path, report_path, receipt_path=None, live=True):
     d = dispatch_contract.dispatch(dispatch_path)
     repository.require(d['role'] == 'fixer' and fs.strict(d), '需要新版 fixer dispatch')
     repository.require(Path(report_path).parent == Path(dispatch_path).parent, 'fixer 报告目录不符')
-    argv = [sys.executable, '-B', str(report_io.SCRIPTS / 'verify-worker.py'), '--check-report', 'fixer', report_path]
     if receipt_path:
         repository.require(Path(receipt_path).parent == Path(dispatch_path).parent, 'fixer 回执目录不符')
-        argv.append(receipt_path)
-    checked = report_io.load_command(argv + ['--expected', dispatch_path])
+    import worker_validation
+    checked = worker_validation.check('fixer', report_path, dispatch_path, receipt_path)
     repository.require(checked['ok'], 'fixer 报告校验失败：' + str(checked.get('failures')))
     r, digest = evidence.read_with_digest(report_path)
     repository.require(digest == checked['report_sha256'], '验收期间 fixer 报告发生变化')

@@ -67,7 +67,7 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 | 基础契约 | [evidence.py](../skills/beadwork-run/scripts/evidence.py)、[repository.py](../skills/beadwork-run/scripts/repository.py)、[dispatch_contract.py](../skills/beadwork-run/scripts/dispatch_contract.py)、[report_io.py](../skills/beadwork-run/scripts/report_io.py) | 文件绑定、仓库事实、dispatch 身份与计划、固定 verifier 调用；不依赖阶段编排 |
 | 其他独立入口 | [preflight-operations.py](../skills/beadwork-run/scripts/preflight-operations.py)、[graph.py](../skills/beadwork-run/scripts/graph.py)、[tracker_operations.py](../skills/beadwork-run/scripts/tracker_operations.py)、[batch_evidence.py](../skills/beadwork-run/scripts/batch_evidence.py) | 准入、依赖图、controller 专用 tracker 写入、批次证据 |
 
-报告校验入口保留为 [verify-ticket.py](../skills/beadwork-run/scripts/verify-ticket.py)、[verify-phase.py](../skills/beadwork-run/scripts/verify-phase.py) 和 [verify-worker.py](../skills/beadwork-run/scripts/verify-worker.py)。[maintenance_check.py](../skills/beadwork-run/scripts/maintenance_check.py) 提供本仓库检查入口。
+外部报告校验入口是 [verify-ticket.py](../skills/beadwork-run/scripts/verify-ticket.py)、[verify-phase.py](../skills/beadwork-run/scripts/verify-phase.py) 和 [verify-worker.py](../skills/beadwork-run/scripts/verify-worker.py)。工作流内部通过 Python API 直接调用校验实现，CLI wrapper 只服务外部自检和人工诊断，避免为每次内部校验重复启动解释器。[maintenance_check.py](../skills/beadwork-run/scripts/maintenance_check.py) 提供分层 pytest 与完整门禁入口。
 
 `handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排。`test_module_boundaries.py` 检查 import 回路、依赖方向、schema 冷启动和安装 symlink 入口。
 

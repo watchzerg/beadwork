@@ -16,7 +16,7 @@ class VerificationRecordTests(TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.dispatch = self.root / 'dispatch.json'
-        self.d = dict(role='implementer', ticket_execution_version=1,
+        self.d = dict(role='implementer', workflow_contract_version=1, ticket_scope='implementer',
                       dispatch_path=str(self.dispatch), report_path=str(self.root / 'report.json'),
                       worktree=str(self.root), verification_dispatches=[])
         evidence.write(self.dispatch, self.d)

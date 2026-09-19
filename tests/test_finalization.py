@@ -11,7 +11,7 @@ import unittest
 import test_controller as controller_fixture
 
 
-OPS = Path(__file__).with_name("executor-operations.py")
+OPS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/executor-operations.py"
 
 
 class FinalizationTests(unittest.TestCase):
@@ -159,9 +159,19 @@ class FinalizationTests(unittest.TestCase):
         delivered = self.call('final-deliver', '--dispatch', self.root, '--output', self.root.parent / 'delivered.json')
         self.h.deliver(json.loads(Path(delivered['report_path']).read_text())); self.h.accept()
 
+        comment = self.h.dispatch.parent / 'integration.md'
+        self.h.call('comment', '--acceptance', self.h.acceptance, '--summary', '批次已完成', '--output', comment)
+        self.h.put(self.h.root / 'comments.json', [{'id': 7, 'text': comment.read_text()}])
+        merge_record = self.h.dispatch.parent / 'merge.json'
+        self.h.call('merge', '--acceptance', self.h.acceptance, '--comment-id', '7', '--output', merge_record)
+        self.assertEqual(self.h.h.git(self.h.primary, 'rev-parse', 'HEAD'), self.h.h.head)
+
     def test_primary_edit_allows_stage_review_assembly_and_acceptance(self):
         (self.h.primary / 'manual.txt').write_text('手工修改')
-        self.test_current_passing_stage_reaches_root_acceptance()
+        stage = self.stage(); self.gate(stage); self.review(stage)
+        self.assemble(stage, status='READY_TO_MERGE', outcome='passed')
+        delivered = self.call('final-deliver', '--dispatch', self.root, '--output', self.root.parent / 'delivered.json')
+        self.h.deliver(json.loads(Path(delivered['report_path']).read_text())); self.h.accept()
         self.assertEqual((self.h.primary / 'manual.txt').read_text(), '手工修改')
 
     def six_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance(self):

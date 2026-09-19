@@ -10,7 +10,7 @@ import unittest
 import test_controller as fixture
 import test_verify_phase as phase_fixture
 
-SCRIPT = Path(__file__).with_name('preflight-operations.py')
+SCRIPT = Path(__file__).resolve().parents[1] / 'skills/beadwork-run/scripts/preflight-operations.py'
 
 
 class PreflightOperationsTests(unittest.TestCase):

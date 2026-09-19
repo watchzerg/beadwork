@@ -12,7 +12,7 @@ import report_io
 import repository
 import workflow_policy
 
-SCRIPT = Path(__file__).with_name("controller.py")
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/controller.py"
 
 
 def prepare_utility_stage(data):
@@ -21,9 +21,9 @@ def prepare_utility_stage(data):
     d.pop("primary_snapshot_path", None)
     repository.require(all(k in d for k in ("repository_root", "parent_id", "ticket_id", "mode", "test_mode", "approved_seams", "testing_seams_doc", "rules_paths")), "缺少必填字段")
     root = repository.primary(d["repository_root"])
-    d.update(repository_root=root, branch="implement/" + d["parent_id"],
+    d.update(repository_root=root, branch="implement/" + d["parent_id"], workflow_contract_version=1,
              worktree=str(Path(root) / ".worktrees" / d["parent_id"]),
-             skill_dir=str(SCRIPT.parent.parent), role="executor", execution_contract=2)
+             skill_dir=str(SCRIPT.parent.parent), role="executor")
     repository.topology(d)
     head = repository.sha(d["worktree"], "HEAD")
     if d["mode"] == "new":

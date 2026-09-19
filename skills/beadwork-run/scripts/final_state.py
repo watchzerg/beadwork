@@ -8,10 +8,11 @@ import uuid
 import evidence
 import handoff
 import repository
+import workflow_contract
 
 
 def strict(d):
-    return d.get('finalization_version') == 2
+    return workflow_contract.current(d) and d.get('role') in ('finalizer', 'fixer') and 'attempt_id' in d
 
 
 def digest(value):

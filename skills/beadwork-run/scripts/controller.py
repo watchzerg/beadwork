@@ -24,6 +24,7 @@ import repository
 import ticket_execution
 import ticket_reports
 import workflow_policy
+import workflow_contract
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -81,8 +82,7 @@ def prepare(args):
         require(isinstance(d['required_boundary_gates'], list) and all(isinstance(g, str) and g.startswith('gate-') for g in d['required_boundary_gates']), '需要显式 boundary gate 列表，允许空列表')
         d['required_boundary_gates'] = list(dict.fromkeys(
             gate for gate in d['required_boundary_gates'] if gate not in ('gate-core', 'gate-full')))
-    d["execution_contract"] = 2
-    d['gate_contract_version'] = 1
+    workflow_contract.stamp(d)
     d.update(repository_root=root, parent_id=parent, branch=branch,
              worktree=str(Path(root) / ".worktrees" / parent), skill_dir=str(SCRIPTS.parent), role=args.role)
     if args.role != "preflight":
@@ -104,8 +104,7 @@ def prepare(args):
                 git(d["worktree"], "merge-base", "--is-ancestor", d["base_commit"], head)
             if d["mode"] == "resume" and d.get("previous_dispatch"):
                 previous = read(d["previous_dispatch"])
-                if previous.get('ticket_execution_version'):
-                    require(previous.get('gate_contract_version') == 1, '旧 gate 活动现场与当前契约不匹配；保留原 BASE、stage 和证据并停止')
+                workflow_contract.require_current(previous)
                 validate_plan(previous)
                 if previous.get("plan_adjustment"):
                     require(d["test_mode"] == previous["test_mode"] and d["approved_seams"] == previous["approved_seams"], "恢复须沿用已调整计划；改模式使用 adapt-plan")
@@ -128,8 +127,7 @@ def prepare(args):
             require("prior_finalization" in d, "必须明确 prior_finalization，首次为 null")
             if d['prior_finalization'] and d['prior_finalization'].get('stage_path'):
                 previous = read(d['prior_finalization']['stage_path'])
-                require(previous.get('gate_contract_version') == 1,
-                        '旧 gate 活动现场与当前契约不匹配；保留原 attempt、stage 和证据并停止')
+                workflow_contract.require_current(previous)
             finalization.prepare_attempt(d, head)
             if d.get('final_sync_result') and not d.get('resume_stage'):
                 import main_sync
@@ -184,12 +182,14 @@ def inspect(dispatch_path, report_path, receipt_path):
     result = verifier(role, "--check-report", report_path, receipt_path, *extra)
     r = read(report_path)
     if role == "executor":
-        if d.get("ticket_execution_version"):
+        if d.get("ticket_scope"):
             require(d.get("ticket_scope") == "root", "controller 只验收整票 root")
         d_plan = check_stage_report(d, r) or d
         topology(d)
         head = r["head_commit"] or sha(d["worktree"], "HEAD")
-        checked = json.loads(run([sys.executable, "-B", SCRIPTS / "verify-ticket.py", d["branch"], d["base_commit"], head, r["status"], report_path, d_plan["expected_plan_path"]], d["worktree"]))
+        import verify_ticket
+        checked = verify_ticket.check_delivery(d["worktree"], d["branch"], d["base_commit"], head,
+                                               r["status"], report_path, d_plan["expected_plan_path"])
         require(checked.get("ok") and checked["report_sha256"] == result["report_sha256"], "Git 验收失败：" + json.dumps(checked, ensure_ascii=False))
     require(digest(report_path) == result["report_sha256"], "验收期间报告发生变化")
     return d, r, result
@@ -200,7 +200,7 @@ def accept(args):
     d, r, result = inspect(args.dispatch, args.report, args.receipt)
     closure = handoff.closure_binding(read(args.closure)) if getattr(args, 'closure', None) else None
     handoff.check_close(str(args.dispatch), str(args.report), closure,
-                        required=d.get('finalization_version') == 2 or bool(d.get('preflight_acceptance')))
+                        required=finalization.fs.strict(d) or bool(d.get('preflight_acceptance')))
     record = {"kind": "mechanical_acceptance", "role": d["role"], "status": r["status"],
               "dispatch_path": str(Path(args.dispatch).resolve()), "dispatch_sha256": digest(args.dispatch),
               "report_path": str(Path(args.report).resolve()), "report_sha256": result["report_sha256"],
@@ -229,7 +229,7 @@ def accepted(path):
         require(digest(a[kind + "_path"]) == a[kind + "_sha256"], "已验收证据发生变化：" + kind)
     d, r, _ = inspect(a["dispatch_path"], a["report_path"], a["receipt_path"])
     handoff.check_close(a['dispatch_path'], a['report_path'], a.get('closure_source'),
-                        required=d.get('finalization_version') == 2 or bool(d.get('preflight_acceptance')))
+                        required=finalization.fs.strict(d) or bool(d.get('preflight_acceptance')))
     require(r["status"] in ("DONE", "READY_TO_MERGE"), "只有成功报告可生成完成记录或合入")
     return a, d, r
 
@@ -249,7 +249,7 @@ def comment(args):
     if metadata["reviewed_main"] == metadata["reviewed_head"]:
         lines += ["受审行为已在基线满足；本次无新增提交。"]
     if not final:
-        if d.get("ticket_execution_version"):
+        if d.get("ticket_scope"):
             d = read(evidence.bound(r["execution"]["stage_dispatch"]))
             gates = list(d.get("required_boundary_gates", []))
             for item in r["execution"]["implementers"]:

@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPTS = Path(__file__).resolve().parent
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
 
 
 def dependencies():
@@ -46,7 +46,7 @@ class ModuleBoundaryTests(unittest.TestCase):
                     pending.extend(edges[current] - seen)
         foundations = {'evidence', 'process_runner', 'verification_records',
                        'schema_validation', 'review_schema', 'workflow_policy',
-                       'repository', 'dispatch_contract', 'report_io'}
+                       'repository', 'dispatch_contract', 'report_io', 'workflow_contract'}
         for name in foundations:
             self.assertLessEqual(edges[name], foundations, name)
         operations = {'controller', 'executor_operations', 'ticket_execution',
@@ -74,7 +74,7 @@ with patch('subprocess.Popen', side_effect=AssertionError('schema 不得执行�
         schema = worker['report_schema'](role, worker['review_schema'].axis_report_schema())
         worker['schema_validation'].check_schema(schema)
 '''
-        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS / 'verify-worker.py')],
+        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS / 'worker_validation.py')],
                                 cwd=SCRIPTS, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 

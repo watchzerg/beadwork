@@ -136,10 +136,10 @@ class BaselineAdaptationTests(unittest.TestCase):
         self.h.put(self.e.dispatch, raw)
         self.e.call("review-prepare", "--dispatch", self.e.dispatch, ok=False)
 
-    def test_legacy_dispatch_cannot_accept_no_commit_report(self):
+    def test_missing_current_contract_cannot_accept_no_commit_report(self):
         self.select(self.adapt())
         report = self.deliver(self.e.collect(self.e.round(evidence=self.evidence())))
-        d = self.h.d.copy(); d.pop("execution_contract")
+        d = self.h.d.copy(); d.pop("workflow_contract_version")
         self.h.put(self.e.dispatch, d)
         self.h.accept(ok=False)
 

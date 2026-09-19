@@ -19,13 +19,11 @@ import ticket_state
 import workflow_policy
 
 def check_stage_report_core(d, report, *, review_checks=None):
-    if d.get("execution_contract") != 2:
-        repository.require("delivery_kind" not in report, "旧 dispatch 不接受新交付分支")
-    elif report["status"] == "DONE":
+    if report["status"] == "DONE":
         repository.require(report.get("delivery_kind") in ("changed", "already_satisfied"), "新契约完成报告需要 delivery_kind")
     dispatch_contract.validate_plan(d)
     if "stage" not in d:
-        return  # 历史报告继续使用原校验，原文件不迁移。
+        return
     repository.require(report.get("stage") == d["stage"] and report.get("outcome") in
             ("passed", "code_failure", "interrupted", "blocked"), "报告阶段或 outcome 不符")
     review = report.get("review")
@@ -57,13 +55,12 @@ def check_stage_report_core(d, report, *, review_checks=None):
 
 
 def check_stage_report(d, report):
-    if d.get("ticket_execution_version"):
-        if d.get("ticket_scope") == "root":
-            return check_ticket(d, report)
-        else:
-            return check_stage(d, report)
-    else:
-        check_stage_report_core(d, report)
+    scope = d.get("ticket_scope")
+    if scope == "root":
+        return check_ticket(d, report)
+    if scope == "stage":
+        return check_stage(d, report)
+    return check_stage_report_core(d, report)
 
 
 def assemble(args):
@@ -75,7 +72,7 @@ def assemble(args):
     outcome = report.pop("outcome", None)
     repository.require(set(report) == fields, "draft 仅提供原语义字段及可选 verification_notes")
     import ticket_verification as verification
-    if not d.get("ticket_execution_version"):
+    if not d.get("ticket_scope"):
         report["verification"] = verification.collect(args.dispatch, list(dict.fromkeys(d.get("verification_dispatches", []) + args.verification_dispatch)), notes, report["status"]) + report["verification"]
     else:
         repository.require(getattr(args, "report_extra", None), "阶段报告使用 ticket-assemble")
@@ -88,8 +85,7 @@ def assemble(args):
     report.update(base_commit=base, head_commit=head,
                   implementation_commits=[dict(zip(("sha", "subject"), line.split(" ", 1))) for line in commits.splitlines()],
                   review=None)
-    if d.get("execution_contract") == 2:
-        report["delivery_kind"] = ("already_satisfied" if base == head else "changed") if report["status"] == "DONE" else None
+    report["delivery_kind"] = ("already_satisfied" if base == head else "changed") if report["status"] == "DONE" else None
     if "stage" in d:
         repository.require(outcome in ("passed", "code_failure", "interrupted", "blocked"), "draft 必须明确 outcome")
         report.update(stage=d["stage"], outcome=outcome)
@@ -119,8 +115,9 @@ def check_report(dispatch_path, report_path):
     plan_d = check_stage_report(d, report) or d
     repository.topology(d)
     head = report["head_commit"] or repository.sha(d["worktree"], "HEAD")
-    checked = report_io.load_command([sys.executable, "-B", report_io.SCRIPTS / "verify-ticket.py",
-        d["branch"], d["base_commit"], head, report["status"], p, plan_d["expected_plan_path"]], d["worktree"])
+    import verify_ticket
+    checked = verify_ticket.check_delivery(d["worktree"], d["branch"], d["base_commit"], head,
+                                           report["status"], str(p), plan_d["expected_plan_path"])
     repository.require(checked.get("ok") is True, "executor 完整自检失败：" + json.dumps(checked, ensure_ascii=False))
     return {"status": report["status"], "report_path": str(p), "report_sha256": checked["report_sha256"]}
 

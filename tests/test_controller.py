@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import shutil
 import sys
 import unittest
 import uuid
@@ -16,7 +15,7 @@ from fixture_support import prepare_utility_stage, closure_source
 import test_verify_ticket as ticket_fixture
 import test_verify_phase as phase_fixture
 
-SCRIPT = Path(__file__).with_name("controller.py")
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/controller.py"
 
 
 class ControllerTests(unittest.TestCase):
@@ -58,8 +57,8 @@ class ControllerTests(unittest.TestCase):
     def call(self, *args, ok=True):
         argv = [sys.executable, "-B", str(SCRIPT), *map(str, args)]
         if getattr(self, "utility_fixture", True) and args[:2] == ("prepare", "executor"):
-            code = "import sys,json;sys.path.insert(0,sys.argv[1]);from test_controller import prepare_utility_stage;\ntry: print(json.dumps(prepare_utility_stage(json.load(open(sys.argv[2])))))\nexcept Exception as e: print(json.dumps({'error':str(e)}),file=sys.stderr);sys.exit(1)"
-            argv = [sys.executable, "-B", "-c", code, str(SCRIPT.parent), str(args[-1])]
+            code = "import sys,json;sys.path[:0]=sys.argv[1:3];from fixture_support import prepare_utility_stage;\ntry: print(json.dumps(prepare_utility_stage(json.load(open(sys.argv[3])))))\nexcept Exception as e: print(json.dumps({'error':str(e)}),file=sys.stderr);sys.exit(1)"
+            argv = [sys.executable, "-B", "-c", code, str(Path(__file__).parent), str(SCRIPT.parent), str(args[-1])]
         result = subprocess.run(argv, cwd=self.root, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         return json.loads(result.stdout if ok else result.stderr)
@@ -144,13 +143,8 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
 
     def deliver(self, report):
         if self.d["role"] == "executor" and "stage" not in report:
-            # 原有验收用例同时覆盖历史 dispatch/report 的可读性。
-            for key in ("stage", "models", "prior_reviews", "execution_contract"):
-                self.d.pop(key, None)
-            self.put(self.dispatch, self.d)
-        if self.d["role"] == "finalizer" and "stage" not in report:
-            # 旧 finalizer fixture 没有阶段来源；保留它来验证历史报告仍可读取。
-            for key in ("finalization_version", "attempt_id", "attempt_path"):
+            # 普通批处理 executor 报告没有单票 stage 身份。
+            for key in ("stage", "models", "prior_reviews"):
                 self.d.pop(key, None)
             self.put(self.dispatch, self.d)
         self.report = Path(self.d["report_path"])
@@ -162,7 +156,8 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.counter += 1
         self.acceptance = self.dispatch.parent / f"acceptance-{self.counter}.json"
         extra = []
-        if self.d.get('finalization_version') == 2 or self.d.get('preflight_acceptance'):
+        if (self.d.get('workflow_contract_version') == 1 and self.d.get('role') == 'finalizer'
+                and self.d.get('attempt_id')) or self.d.get('preflight_acceptance'):
             import handoff
             closure = handoff.close(str(self.dispatch), str(self.report),
                 {'task_id': 'fixture-task', 'stopped': json.loads(self.report.read_text()).get('stopped_tasks', True),
@@ -212,28 +207,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             self.h.git(self.wt, "add", ".beads")
         self.h.git(self.wt, "commit", "-m", "merge main")
         self.h.head = self.h.git(self.wt, "rev-parse", "HEAD")
-
-    def test_finalizer_accepts_beads_inherited_from_main(self):
-        self.upstream_beads_merge()
-        self.assertEqual(self.h.git(self.wt, "diff", self.h.base, "HEAD", "--", ".beads"), "")
-        self.prepare("finalizer"); self.deliver(self.final_report()); self.accept()
-
-    def test_finalizer_rejects_merge_only_beads_change(self):
-        self.upstream_beads_merge(tamper=True)
-        self.prepare("finalizer"); self.deliver(self.final_report())
-        self.assertIn("merge 引入非 main 来源", self.accept(ok=False)["error"])
-
-    def test_finalizer_rejects_beads_edit_even_after_revert(self):
-        self.upstream_beads_merge()
-        path = self.wt / ".beads/config.yaml"
-        for value in ("true", "false"):
-            path.write_text("export: " + value + "\n")
-            self.h.git(self.wt, "add", ".beads")
-            self.h.git(self.wt, "commit", "-m", "change config")
-        self.h.head = self.h.git(self.wt, "rev-parse", "HEAD")
-        self.assertEqual(self.h.git(self.wt, "diff", self.h.base, "HEAD", "--", ".beads"), "")
-        self.prepare("finalizer"); self.deliver(self.final_report())
-        self.assertIn("批次包含 .beads commit", self.accept(ok=False)["error"])
 
     def test_prepare_new_records_current_head(self):
         self.prepare(mode="new")
@@ -293,71 +266,12 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.deliver(r); self.accept()
         self.call("comment", "--acceptance", self.acceptance, "--summary", "不能完成", "--output", self.root / "bad.md", ok=False)
 
-    def test_finalizer_real_dirty_state_rejected(self):
-        self.prepare("finalizer"); self.deliver(self.final_report())
-        (self.wt / "behavior.txt").write_text("unreviewed")
-        self.accept(ok=False)
-
-    def test_primary_dirty_allows_finalizer_acceptance(self):
-        self.prepare("finalizer"); self.deliver(self.final_report())
-        (self.primary / "unexpected").write_text("unexpected")
-        self.accept()
-
-    def test_full_merge_cleanup_and_repeat_cleanup(self):
-        self.ready(); self.merge()
-        self.assertEqual(self.h.git(self.primary, "remote"), "")
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.head)
-        self.call("cleanup", "--merge-record", self.merge_record)
-        self.assertFalse(self.wt.exists())
-        self.call("cleanup", "--merge-record", self.merge_record)
-        self.assertTrue(self.report.exists())
-
     def test_removed_push_entrypoint_cannot_publish(self):
         result = subprocess.run([sys.executable, "-B", str(SCRIPT), "push", "--input", "unused.json"],
                                 cwd=self.root, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
         self.assertTrue(self.wt.exists())
-
-    def test_missing_integration_comment_blocks_merge(self):
-        self.ready(); self.put(self.root / "comments.json", [])
-        self.merge(ok=False)
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
-
-    def test_main_moved_blocks_merge(self):
-        self.ready()
-        (self.primary / "other.txt").write_text("other")
-        self.h.git(self.primary, "add", "."); self.h.git(self.primary, "commit", "-m", "other")
-        self.merge(ok=False)
-
-    def test_cleanup_parent_open_preserves_worktree(self):
-        self.ready(); self.merge()
-        self.put(self.root / "parent.json", [{"id": "test", "status": "in_progress"}])
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
-        self.assertTrue(self.wt.exists())
-
-    def test_cleanup_dirty_preserves_changes(self):
-        self.ready(); self.merge()
-        (self.wt / "behavior.txt").write_text("new work")
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
-        self.assertEqual((self.wt / "behavior.txt").read_text(), "new work")
-
-    def test_cleanup_branch_moved_preserves_commit(self):
-        self.ready(); self.merge()
-        (self.wt / "behavior.txt").write_text("new commit")
-        self.h.git(self.wt, "add", "."); self.h.git(self.wt, "commit", "-m", "new")
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
-        self.assertTrue(self.wt.exists())
-
-    def test_merge_retry_uses_existing_checkpoint(self):
-        self.ready(); self.merge(); self.merge()
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.head)
-
-    def test_checkpoint_write_failure_does_not_move_main(self):
-        self.ready()
-        self.merge_record.mkdir()
-        self.merge(ok=False)
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
 
     def test_acceptance_output_outside_evidence_rejected(self):
         self.prepare(); self.deliver(self.h.report)
@@ -374,62 +288,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         r = phase_fixture.PhaseValidatorTests().preflight("BLOCKED")
         self.deliver(r); self.accept()
 
-    def test_finalizer_blocked_retains_dirty_work(self):
-        self.prepare("finalizer")
-        r = phase_fixture.PhaseValidatorTests().finalizer("BLOCKED")
-        (self.wt / "behavior.txt").write_text("unfinished")
-        self.deliver(r); self.accept()
-        self.assertEqual((self.wt / "behavior.txt").read_text(), "unfinished")
-
-    def test_finalizer_missing_gate_rejected(self):
-        self.prepare("finalizer"); r = self.final_report()
-        r["verification"] = []
-        self.deliver(r); self.accept(ok=False)
-
-    def test_cleanup_after_worktree_already_removed(self):
-        self.ready(); self.merge()
-        self.h.git(self.primary, "worktree", "remove", str(self.wt))
-        self.call("cleanup", "--merge-record", self.merge_record)
-        self.assertFalse(self.h.git(self.primary, "branch", "--list", "implement/test"))
-
-    def test_wrong_integration_identity_blocks_merge(self):
-        self.ready()
-        items = json.loads((self.root / "comments.json").read_text())
-        items[0]["text"] = items[0]["text"].replace(self.h.base, "0" * 40)
-        self.put(self.root / "comments.json", items)
-        self.merge(ok=False)
-
-    def test_failed_merge_retains_checkpoint_and_can_resume(self):
-        self.ready()
-        actual_git = shutil.which("git")
-        fail_flag = self.root / "fail-merge"
-        fail_flag.touch()
-        wrapper = self.root / "bin/git"
-        wrapper.write_text("#!" + sys.executable + "\nimport os,sys\nfrom pathlib import Path\n"
-                           + "if '--ff-only' in sys.argv and Path(" + repr(str(fail_flag)) + ").exists(): sys.exit(1)\n"
-                           + "os.execv(" + repr(actual_git) + ", [" + repr(actual_git) + "]+sys.argv[1:])\n")
-        wrapper.chmod(0o755)
-        self.merge(ok=False)
-        self.assertTrue(self.merge_record.is_file())
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
-        self.call("cleanup", "--merge-record", self.merge_record, ok=False)
-        self.assertTrue(self.wt.exists())
-        fail_flag.unlink()
-        self.merge()
-
-
-    def test_dirty_primary_blocks_merge_then_reuses_acceptance(self):
-        self.ready()
-        before = self.report.read_bytes()
-        dirty = self.primary / "manual.txt"
-        dirty.write_text("手工编辑")
-        self.merge(ok=False)
-        self.assertFalse(self.merge_record.exists())
-        dirty.unlink()
-        self.merge()
-        self.assertEqual(self.report.read_bytes(), before)
-
-    def test_dirty_primary_prepare_and_legacy_snapshot_are_independent(self):
+    def test_dirty_primary_prepare_ignores_removed_snapshot_input(self):
         (self.primary / "manual.txt").write_text("手工编辑")
         self.prepare(primary_snapshot_path="/missing/old-snapshot")
         self.assertNotIn("primary_snapshot_path", self.d)
@@ -452,24 +311,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.call("prepare", "finalizer", "--input", self.put(self.root / "invalid.json", data), ok=False)
         del data["reviewed_main"]
         self.call("prepare", "finalizer", "--input", self.put(self.root / "missing.json", data), ok=False)
-
-    def test_legacy_finalizer_report_retains_schema_and_bytes(self):
-        self.prepare("finalizer")
-        schema_path = Path(self.d["report_schema_path"])
-        schema = json.loads(schema_path.read_text())
-        workspace = schema["properties"]["workspace"]
-        workspace["properties"]["primary_clean"] = {"type": "boolean"}
-        workspace["required"].append("primary_clean")
-        self.put(schema_path, schema)
-        self.d["primary_snapshot_path"] = "/missing/historical-snapshot"
-        self.put(self.dispatch, self.d)
-        report = self.final_report()
-        report["workspace"]["primary_clean"] = True
-        self.deliver(report)
-        before = self.report.read_bytes()
-        (self.primary / "manual.txt").write_text("当前编辑")
-        self.accept()
-        self.assertEqual(self.report.read_bytes(), before)
 
     def test_update_main_boundary_and_fetch_fallback(self):
         self.h.git(self.primary, "update-ref", "refs/remotes/origin/main", self.h.head)

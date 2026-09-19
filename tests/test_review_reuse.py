@@ -17,7 +17,7 @@ class ReviewReuseTests(TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         dispatch = self.root / 'dispatch.json'
-        evidence.write(dispatch, dict(role='executor', dispatch_path=str(dispatch),
+        evidence.write(dispatch, dict(role='executor', workflow_contract_version=1, dispatch_path=str(dispatch),
                        report_path=str(self.root / 'report.json'), base_commit='a' * 40))
         folder = self.root / 'review'; folder.mkdir()
         self.round = folder / 'round.json'

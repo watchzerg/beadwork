@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 
-VERIFIER = Path(__file__).with_name("verify-phase.py")
+VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-phase.py"
 SHA_A = "a" * 40
 SHA_B = "b" * 40
 

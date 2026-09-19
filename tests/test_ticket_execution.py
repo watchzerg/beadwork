@@ -14,7 +14,7 @@ import workflow_policy
 import test_controller as fixture
 import test_executor_operations as review_fixture
 
-SCRIPTS = Path(__file__).resolve().parent
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
 
 
 class TicketExecutionTests(unittest.TestCase):

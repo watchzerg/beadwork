@@ -13,8 +13,9 @@ import unittest
 import test_controller as fixture
 import test_executor_operations as executor_fixture
 
-SCRIPT = Path(__file__).with_name("run-verification.py")
-ASSEMBLE = Path(__file__).with_name("executor-operations.py")
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
+SCRIPT = SCRIPTS / "run-verification.py"
+ASSEMBLE = SCRIPTS / "executor-operations.py"
 REAL_JUST = shutil.which("just")
 
 
@@ -60,7 +61,7 @@ if mode == 'hang':
     def assemble(self, status="BLOCKED", notes=None, priors=(), expected=0):
         self.serial += 1
         draft = copy.deepcopy(self.h.h.report)
-        for key in ("base_commit", "head_commit", "implementation_commits", "review"):
+        for key in ("base_commit", "head_commit", "implementation_commits", "review", "delivery_kind"):
             del draft[key]
         draft.update(status=status, outcome="interrupted", test_plan=None, verification=[], acceptance=[], blockers=["测试部分报告"])
         if notes is not None:
