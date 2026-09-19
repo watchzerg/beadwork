@@ -1,5 +1,7 @@
 # 正常流程精简与脚本化改造计划
 
+本文保留 2026-09-17 的历史方案。2026-09-19 已移除最终 Git/Beads push 及交付结果前置条件；现行本地清理入口见 [controller-operations.md](../skills/beadwork-run/references/controller-operations.md)。下文推送部分不再是执行契约。
+
 ## 目标与边界
 
 实施已确认的七项优化：checkpoint 自动选择来源、draft 输入契约、tracker comment ID、完整批次初始化、推送与清理闭环、兼容说明退出正常路径、测试构造与生产逻辑分离。

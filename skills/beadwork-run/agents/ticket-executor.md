@@ -25,7 +25,7 @@
 - implementer 三次 gate-fix 耗尽后的代码失败，或完整两轴 review 中的代码类 blocking findings：`BLOCKED / code_failure`。未达到当前授权上限时确认旧任务停止，调用 `ticket-stage` 的 `continuation: repair` 并派新 implementer；达到当前授权上限仍失败才交还 controller。
 - 默认阶段已耗尽且尚未追加过额度时，只有 controller 交接用户明确追加的 1–5 个修复 stage，才使用 `continuation: extend`、`additional_stages` 和具体 `extension_reason`；之后仍用 `repair` 推进到新的上限。
 - 环境、工具、spec、seam 授权、事实缺失或证据问题：`blocked`，保留来源并交还 controller；原因解除后恢复原 stage，不自动升级。
-- writer 在 `begin-gate-repair` 前已提交修正形成的证据阻塞：先按 `blocked` 交还 controller。阻塞解除后，只有脚本确认旧 repair 候选、无 review、报告绑定的干净后继和任务停止时，才以 `continuation: recover` 及具体 `recovery_reason` 进入下一 stage；保留旧证据并消耗一个 stage。
+- writer 在 `begin-gate-repair` 前已提交修正形成的证据阻塞：先按 `blocked` 交还 controller。阻塞解除后按 `ticket-execution.md` 的 `continuation: recover` 条件和输入恢复；首次无 repair 候选时提供原始失败的 `recovery_failure`。保留旧证据并消耗一个 stage。
 - 会话或预算中断：`interrupted`，保存检查点和现场，接续原 stage；不得用中断重置 gate-fix 或规避代码失败。
 - reviewers 未完成或校验失败不构成代码失败；已有报告保留在 concerns，恢复原 round。只有非阻塞 smells 时记录原始 findings，不为它们进入修复。
 

@@ -64,6 +64,6 @@ beadwork-run 的安装与验证通过本项目 justfile 提供的契约 recipes 
 
 ## Git 与运行现场
 
-目标项目需要本地 `main`，支持 Git worktree，并正确忽略 `.worktrees/`。默认最终交付会推送到 Git `origin/main` 与已配置的 Beads Dolt remote，需要对应写入权限；用户明确限制 push 时遵循该限制。当前固定布局为 `implement/<parent-id>` branch、`.worktrees/<parent-id>/` worktree，证据保存在 `.worktrees/.evidence/<parent-id>/`。
+目标项目需要本地 `main`，支持 Git worktree，并正确忽略 `.worktrees/`。基线同步继续读取 Git `origin/main`；最终交付只完成本地 commits、main 集成、Beads 关闭和清理，不执行 Git 或 Beads push，也不要求远端写入权限。当前固定布局为 `implement/<parent-id>` branch、`.worktrees/<parent-id>/` worktree，证据保存在 `.worktrees/.evidence/<parent-id>/`。
 
 Beads worktree 需共享正确的 primary workspace。恢复已有批次时保留 BASE、commits、未提交现场和历史证据，按 skill 的恢复规则处理。

@@ -330,14 +330,7 @@ def merge(args):
     return {**record, "merged": True}
 
 
-def push(args):
-    import batch_delivery
-    return batch_delivery.push(args.input)
-
-
 def cleanup(args):
-    import batch_delivery
-    batch_delivery.check(args.delivery_result, args.merge_record)
     d = read(args.merge_record)
     require(d.get("kind") == "merge_checkpoint", "需要合入 checkpoint")
     topology(d, allow_missing=True)
@@ -374,8 +367,7 @@ def main():
     p.add_argument("--evidence", action="append", default=[])
     p = commands.add_parser("merge")
     for name in ("acceptance", "comment-id", "output"): p.add_argument("--" + name, required=True)
-    p = commands.add_parser("push"); p.add_argument("--input", required=True)
-    p = commands.add_parser("cleanup"); p.add_argument("--merge-record", required=True); p.add_argument("--delivery-result", required=True)
+    p = commands.add_parser("cleanup"); p.add_argument("--merge-record", required=True)
     args = parser.parse_args()
     try:
         print(json.dumps(globals()[args.command.replace("-", "_")](args), ensure_ascii=False))

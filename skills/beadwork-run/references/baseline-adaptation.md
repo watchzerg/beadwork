@@ -27,10 +27,10 @@ controller 不同步审批和写适配 comment；最终 completion/停止记录�
 
 ## 完成与 review
 
-组装器为新契约 DONE 派生 `delivery_kind`：有真实提交为 `changed`，无提交为 `already_satisfied`。补测试/文档的真实提交也属于 changed；空提交不能作为交付。already_satisfied 要求 direct_verification、BASE=HEAD、commit 列表为空、现场干净、全部 acceptance 的当前验证及双轴 PASS。
+组装器为新契约 DONE 派生 `delivery_kind`：有真实提交为 `changed`，无提交为 `already_satisfied`。补测试/文档的真实提交也属于 changed；空提交不能作为交付。already_satisfied 表示仓库交付无变化，也适用于 ticket 只准备 ignored 或仓库外本机状态的情形；它要求 direct_verification、BASE=HEAD、commit 列表为空、现场干净、全部 acceptance 的当前验证及双轴 PASS。
 
 无提交 review 通过 `review-prepare --evidence <acceptance.json>` 准备；文件为 criterion/evidence 非空数组，包含可读取的实现与验证来源。两轴收到 `review_kind: existing_behavior` 和 hash 绑定的证据文件：核实本票已有实现与全部验收要求，不对空 diff 自动 PASS，也不扩展为全仓库历史审查。普通 changed review 沿用 change 范围。
 
-review 推翻“已满足”并发现本票代码缺陷时，按 code_failure 进入下一阶段。下一阶段需要行为改动时，executor 按同一适配入口恢复 TDD（保留既有 seam），取得真实 red；当前已授权阶段上限不变。同 HEAD 的报告更正仍不算新 review。
+review 推翻“已满足”并发现本票代码缺陷时，按 code_failure 进入下一阶段。下一阶段需要仓库行为改动时，executor 按同一适配入口恢复 TDD（保留既有 seam），取得真实 red，并以新 HEAD 复审。若修复仅纠正 ignored 或仓库外本机状态，仍可保持 BASE=HEAD、无提交，按 review.md 的 existing_behavior 规则开始新轮次；保留前轮 blocking finding、处置结果及当前状态的 secret-safe 验证。再次失败仍可封存 BLOCKED，后续转回 TDD 不使合法的同 HEAD 历史失效。同 HEAD 的报告更正仍不算新 review。
 
 DONE 后沿用 completion、close 和 frontier；comment 说明基线已满足、本票无新增提交。最终 main=HEAD 时仍做完整 gates 与 parent 范围的 existing_behavior review，再记录已在 main、关闭和清理；不创建空提交。

@@ -24,6 +24,7 @@ import sys
 
 from review_schema import axis_report_schema
 from schema_validation import object_schema, TEXT, SHA, TEXTS, SEAMS, schema_errors, check_schema, read_json
+import evidence
 import workflow_policy
 
 
@@ -169,6 +170,31 @@ def review_pairs(review):
     return review.get("rounds", ([review["initial"]] if "initial" in review else []) + [review["final"]])
 
 
+def existing_behavior_round(report: Dict[str, Any], index: int) -> bool:
+    """资格属于原始轮次，不随最终状态或后续 TDD 交付改变。"""
+    try:
+        pair = review_pairs(report["review"])[index]
+        collection = evidence.read(evidence.bound(report["review"]["sources"][index]))
+        record = evidence.read(evidence.bound(collection["round"]))
+        dispatch = evidence.read(evidence.bound(record["dispatch"]))
+        acceptance = evidence.read(evidence.bound(record["acceptance_evidence"]))
+        base = report["base_commit"]
+        # 完整 collection/轴身份仍由 ticket_reports 重验；这里不重复派生审查结果。
+        return (
+            record["review_kind"] == "existing_behavior"
+            and record["reviewed_base"] == record["reviewed_head"] == base
+            and all(axis["reviewed_base"] == axis["reviewed_head"] == base for axis in pair.values())
+            and collection["pair"] == pair
+            and dispatch["role"] == "executor"
+            and dispatch.get("execution_contract") == 2
+            and dispatch["base_commit"] == base
+            and dispatch["test_mode"] == "direct_verification"
+            and isinstance(acceptance, list) and bool(acceptance)
+        )
+    except (KeyError, IndexError, TypeError, AttributeError, ValueError, OSError):
+        return False
+
+
 def report_errors(report: Any, schema: Dict[str, Any]) -> List[Dict[str, Any]]:
     problems = schema_errors(report, schema)
     if problems:
@@ -219,8 +245,14 @@ def report_errors(report: Any, schema: Dict[str, Any]) -> List[Dict[str, Any]]:
         if any(not any(f["blocking"] for axis in pair.values() for f in axis["findings"])
                for pair in pairs[:-1]):
             failures.append({"check": "review_after_pass"})
-        if len({pair["standards"]["reviewed_head"] for pair in pairs}) != len(pairs):
-            failures.append({"check": "review_requires_new_head"})
+        seen = {}
+        for index, pair in enumerate(pairs):
+            head = pair["standards"]["reviewed_head"]
+            if head in seen and not (existing_behavior_round(report, seen[head])
+                                     and existing_behavior_round(report, index)):
+                failures.append({"check": "review_requires_new_head"})
+                break
+            seen[head] = index
         for index, pair in enumerate(pairs):
             name = str(index + 1)
             for axis, result in pair.items():
@@ -272,7 +304,11 @@ def validate_report(
         for index, pair in enumerate(review_pairs(review)):
             name = str(index + 1)
             reviewed = pair["standards"]["reviewed_head"]
-            if (reviewed not in commit_range and not (index == 0 and reviewed == base and "delivery_kind" in report)) or git(["merge-base", "--is-ancestor", previous, reviewed], (0, 1))["code"]:
+            base_review = reviewed == base and (
+                existing_behavior_round(report, index)
+                or (index == 0 and "delivery_kind" in report)
+            )
+            if (reviewed not in commit_range and not base_review) or git(["merge-base", "--is-ancestor", previous, reviewed], (0, 1))["code"]:
                 failures.append({"check": "review_commit_range", "observed": name})
                 continue
             previous = reviewed

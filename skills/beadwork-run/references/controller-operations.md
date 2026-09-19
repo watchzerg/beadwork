@@ -1,6 +1,6 @@
 # controller 脚本入口
 
-controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent。tracker、初始化和 push 入口只由 controller 调用；初始化复用 tracker 写入，push 负责远端交付。controller 负责交付契约验收、异常证据追查和 writer 收尾确认；单票实现与测试的日常语义验收由 executor 负责。
+controller 执行本文件命令；子 agent 不调用。脚本只负责确定性操作，不判断 acceptance 是否满足、不确认宿主 agent 已结束、不派发 agent。tracker 和初始化入口只由 controller 调用；初始化复用 tracker 写入。controller 负责交付契约验收、异常证据追查和 writer 收尾确认；单票实现与测试的日常语义验收由 executor 负责。
 
 ## Beads 写入
 
@@ -148,27 +148,15 @@ python3 <skill-dir>/scripts/controller.py merge --acceptance <acceptance-N.json>
 
 命令中断或失败后恢复前，读取 `recovery-merge.md`；checkpoint 本身不证明合入成功。
 
-## 远端推送
-
-parent completion 已写入并关闭后执行：
-
-```bash
-python3 <skill-dir>/scripts/controller.py push --input <push-input.json>
-```
-
-输入为 merge_record（merge checkpoint 的 path/sha256 binding）和 policy。policy 显式包含 git、beads 两项，每项为 `{"action":"push"}`，或按用户限制填写 `{"action":"skip","reason":"用户限制说明"}`。脚本固定受审 SHA，按 Git push → 远端 main SHA 读回 → Beads push 顺序执行；Git 被明确跳过时可单独推送 Beads。正常 stdout 返回 delivery_result binding 和每项结果，日志保存在本批 delivery 目录。
-
-失败保留现场和部分成功结果，错误给出 result.json 路径；写停止记录后使用相同输入重试。每次调用重新执行所需推送，包含新增的 Beads 停止记录；不自动 pull、force push 或改配远端。成功结果不能代替失败后的新交付。成功推送到 cleanup 之间不再写本流程的 Beads 记录。
-
 ## 安全清理
 
-controller 完成 parent completion、关闭和远端推送（或按用户明确限制跳过）后调用：
+controller 完成 parent completion 并关闭后调用：
 
 ```bash
-python3 <skill-dir>/scripts/controller.py cleanup --merge-record <merge-checkpoint.json> --delivery-result <本次result.json>
+python3 <skill-dir>/scripts/controller.py cleanup --merge-record <merge-checkpoint.json>
 ```
 
-脚本先校验交付结果与 merge checkpoint 绑定、必要推送及远端读回成功或明确跳过，再只读查询 parent 已关闭，确认受审 HEAD 已在 main 历史中、尚存 branch 仍指向该 SHA、worktree 属于该仓库和 branch 且干净，再非强制删除。已删除的部分跳过，可重跑；证据目录保留。失败保留未清理部分。
+脚本读取 merge checkpoint，只读查询 parent 已关闭，确认受审 HEAD 已在 main 历史中、尚存 branch 仍指向该 SHA、worktree 属于该仓库和 branch 且干净，再非强制删除。已删除的部分跳过，可重跑；证据目录保留。失败保留未清理部分。此入口只完成本地收尾，不要求远端同步或推送结果。
 
 ## 基线适配
 

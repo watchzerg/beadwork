@@ -214,6 +214,21 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assemble([self.review()]); self.deliver()
         self.assertEqual(json.loads(self.stage_report.read_text())['delivery_kind'], 'already_satisfied')
 
+    def test_same_head_review_failure_can_continue_and_deliver(self):
+        base = json.loads(self.sd.read_text())['base_commit']
+        for _ in range(2):
+            self.gate(); self.gate('gate-demo'); self.implement()
+            self.assemble([self.review(blocking=True)], 'code_failure')
+            report = json.loads(self.stage_report.read_text())
+            self.assertEqual(report['head_commit'], base)
+            self.assertIsNone(report['delivery_kind'])
+            self.stage('repair')
+        self.gate(); self.gate('gate-demo'); self.implement()
+        self.assemble([self.review()]); self.deliver()
+        report = json.loads(self.root_report.read_text())
+        self.assertEqual(report['delivery_kind'], 'already_satisfied')
+        self.assertEqual(report['review']['attempts'], 3)
+
     def test_implementer_done_cannot_close_ticket_or_skip_review(self):
         self.ready_writer()
         self.deliver(ok=False)
@@ -701,12 +716,15 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
                     'verification':[{'command':'just test','result':'实际结果与判断依据'}], 'boundary_gates':['gate-demo']}))
             self.sd, self.wd = Path(result['stage_dispatch']), Path(result['implementer_dispatch'])
         adapt('direct_verification')
-        self.gate(); self.gate('gate-demo'); self.implement()
-        first = self.review(blocking=True); self.assemble([first], 'code_failure')
-        self.stage('repair'); adapt('TDD')
+        for _ in range(2):
+            self.gate(); self.gate('gate-demo'); self.implement()
+            self.assemble([self.review(blocking=True)], 'code_failure')
+            self.stage('repair')
+        adapt('TDD')
         self.assertEqual(json.loads(self.wd.read_text())['approved_seams'], ['S1'])
-        self.ready_writer(); self.assemble([first, self.review()]); self.deliver()
+        self.ready_writer(); self.assemble([self.review()]); self.deliver()
         self.assertEqual(json.loads(self.root_report.read_text())['test_plan']['mode'], 'TDD')
+        self.assertEqual(json.loads(self.root_report.read_text())['review']['attempts'], 3)
 
     def test_root_cannot_use_plan_adapter_to_create_another_stage_budget(self):
         self.h.prepare(mode='new', test_mode='TDD', approved_seams=['S1'], required_boundary_gates=['gate-demo'])

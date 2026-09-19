@@ -208,7 +208,7 @@ class EmptyBatchTests(unittest.TestCase):
         f.h.put(f.h.root / "comments.json", [{"id": 7, "text": comment.read_text()}])
         f.h.merge_record = root_report.with_name("merge.json")
         self.assertTrue(f.h.merge()["merged"])
-        self.assertTrue(f.h.call("cleanup", "--merge-record", f.h.merge_record, "--delivery-result", f.h.delivery_result)["cleaned"])
+        self.assertTrue(f.h.call("cleanup", "--merge-record", f.h.merge_record)["cleaned"])
 
 
 if __name__ == "__main__":

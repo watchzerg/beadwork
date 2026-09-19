@@ -19,6 +19,7 @@ import unittest
 
 VERIFIER = Path(__file__).with_name("verify-ticket.py")
 import verify_ticket as VALIDATOR
+import evidence
 
 
 class TicketAcceptanceTests(unittest.TestCase):
@@ -77,14 +78,18 @@ class TicketAcceptanceTests(unittest.TestCase):
             "axis": axis, "findings": [], "notes": [],
         } for axis in ("standards", "spec")}
 
-    def invoke(self, report: object, *, plan: dict | None = None, status: str = "DONE", local: bool = False) -> dict:
+    def invoke(
+        self, report: object, *, plan: dict | None = None, status: str = "DONE",
+        local: bool = False, base: str | None = None, head: str | None = None,
+    ) -> dict:
         self.report_file = self.root / "report.json"
         raw = json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8")
         self.report_file.write_bytes(raw)
         plan_file = self.root / "expected-plan.json"
         plan_file.write_text(json.dumps(plan if plan is not None else self.plan))
         args = ["--check-report", str(self.report_file)] if local else [
-            "implement/test", self.base, self.head, status, str(self.report_file), str(plan_file),
+            "implement/test", base or self.base, head or self.head, status,
+            str(self.report_file), str(plan_file),
         ]
         result = subprocess.run(
             [sys.executable, str(VERIFIER), *args], cwd=self.worktree, env=self.env,
@@ -255,6 +260,77 @@ class TicketAcceptanceTests(unittest.TestCase):
         changed["review"]["initial"] = self.pair("d" * 40)
         changed["review"]["initial"]["spec"]["findings"] = [{"axis": "spec", "kind": "defect", "blocking": True, "title": "待修复", "evidence": "初审缺陷"}]
         self.reject(changed, "review_commit_range")
+
+    def test_no_change_direct_verification_can_rereview_same_head(self) -> None:
+        changed = copy.deepcopy(self.report)
+        changed.update(
+            base_commit=self.head,
+            implementation_commits=[],
+            delivery_kind="already_satisfied",
+        )
+        changed["test_plan"].update(
+            mode="direct_verification", approved_seams=[], red_evidence=None,
+        )
+        initial = self.pair(self.head)
+        for pair in (initial, changed["review"]["final"]):
+            for axis in pair.values():
+                axis["reviewed_base"] = self.head
+        initial["spec"]["findings"] = [{
+            "axis": "spec",
+            "kind": "defect",
+            "blocking": True,
+            "title": "本机状态位置错误",
+            "evidence": "ignored machine state 尚未写入实际运行 checkout",
+        }]
+        changed["review"].update(attempts=2, initial=initial)
+
+        pairs = [initial, changed["review"]["final"]]
+        sources = []
+        for index, pair in enumerate(pairs):
+            folder = self.root.resolve() / f"existing-review-{index}"
+            folder.mkdir()
+            evidence.write(folder / "dispatch.json", {
+                "role": "executor", "execution_contract": 2,
+                "base_commit": self.head, "test_mode": "direct_verification",
+            })
+            evidence.write(folder / "acceptance.json", [{"criterion": "本机配置", "evidence": "不含秘密的当前状态核对"}])
+            evidence.write(folder / "round.json", {
+                "review_kind": "existing_behavior", "reviewed_base": self.head, "reviewed_head": self.head,
+                "dispatch": evidence.binding(folder / "dispatch.json"),
+                "acceptance_evidence": evidence.binding(folder / "acceptance.json"),
+            })
+            evidence.write(folder / "collection.json", {"round": evidence.binding(folder / "round.json"), "pair": pair})
+            sources.append(evidence.binding(folder / "collection.json"))
+        changed["review"].update(rounds=pairs, sources=sources)
+
+        direct_plan = {"mode": "direct_verification", "approved_seams": []}
+        self.assertTrue(self.invoke(
+            changed, plan=direct_plan, base=self.head, head=self.head,
+        )["ok"])
+
+        missing = copy.deepcopy(changed)
+        del missing["review"]["sources"], missing["review"]["rounds"]
+        self.reject(missing, "review_requires_new_head", local=True)
+        for filename in ("collection.json", "round.json", "dispatch.json", "acceptance.json"):
+            path = folder / filename
+            original = path.read_bytes()
+            try:
+                path.write_bytes(original + b"\n")
+                self.reject(changed, "review_requires_new_head", local=True)
+            finally:
+                path.write_bytes(original)
+
+        changed = copy.deepcopy(self.report)
+        initial = self.pair(self.head)
+        initial["spec"]["findings"] = [{
+            "axis": "spec",
+            "kind": "defect",
+            "blocking": True,
+            "title": "代码缺陷",
+            "evidence": "源码行为仍未实现",
+        }]
+        changed["review"].update(attempts=2, initial=initial)
+        self.reject(changed, "review_requires_new_head", local=True)
 
     def test_finding_kind_blocking_and_axis_cannot_disagree(self) -> None:
         finding = {"axis": "spec", "kind": "defect", "blocking": True, "title": "未实现", "evidence": "需求引用及行为缺失"}
