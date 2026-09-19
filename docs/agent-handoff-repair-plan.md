@@ -121,7 +121,7 @@ fixer `BLOCKED / code_failure` 只在本逻辑 stage 的三次 gate-fix 已用�
 拟新增入口：
 
 ```sh
-python3 <skill-dir>/scripts/executor-operations.py final-deliver \
+python3 <skill-dir>/scripts/beadwork.py executor final-deliver \
   --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
