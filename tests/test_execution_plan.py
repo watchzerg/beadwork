@@ -6,13 +6,17 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import pytest
 
 import evidence
 import execution_plan as plans
 import tracker_operations as tracker
-from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
+
+pytestmark = pytest.mark.integration
 
 
 class ExecutionPlanTests(unittest.TestCase):

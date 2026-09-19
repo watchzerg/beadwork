@@ -4,6 +4,9 @@ import stage_policy
 import workflow_policy
 
 
+pytestmark = pytest.mark.unit
+
+
 def inputs():
     limit = len(workflow_policy.STAGE_MODELS) - 1
     previous = {"stage": limit}

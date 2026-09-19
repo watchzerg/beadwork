@@ -7,7 +7,11 @@ import sys
 import tempfile
 import unittest
 
+import pytest
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
+
+pytestmark = pytest.mark.integration
 
 
 def dependencies():

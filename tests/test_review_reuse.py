@@ -5,10 +5,15 @@ from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import patch
 
+import pytest
+
 import evidence
 import handoff
 import report_io
 import review_evidence
+
+
+pytestmark = pytest.mark.integration
 
 
 class ReviewReuseTests(TestCase):

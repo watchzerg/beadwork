@@ -1,6 +1,6 @@
 # Beadwork 项目工程化改造计划
 
-状态：阶段 1 已完成；阶段 2–6 尚未开始。
+状态：阶段 1–2 已完成；阶段 3–6 尚未开始。
 
 制定日期：2026-09-19。本文供后续独立 session 顺序实施、勾选和交接使用；不是本轮实施授权记录。
 
@@ -135,12 +135,12 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 
 前置：阶段 1 完成。目标：在运行入口重构前，建立可信的回归边界。
 
-- [ ] **2.1 逐例分类。** 盘点所有测试及 fixture 的文件、Git、CLI、跨步骤依赖，登记到源码 marker；重点修正 `test_evidence.py`、`test_review_reuse.py`、`test_verification_records.py`、`test_maintenance_check.py` 的现有 unit 误分类。不因文件名包含 workflow 就整体归为 workflow。
-- [ ] **2.2 替换自动白名单。** 删除 `UNIT_MODULES`/`WORKFLOW_MODULES` 分类推断；注册 markers、添加最小完整性检查。在隔离的小型 pytest collection 测试中验证漏标、多主层、未知 marker、distribution 非 integration 的失败。
-- [ ] **2.3 整理 fixture。** 共享必要的临时仓库、worktree、命令替身和证据构造；避免可变全局现场和测试间复用同一个 Git 目录。确认环境变量恢复的必要边界，优先 scoped monkeypatch，不为统一风格强制重写全部 unittest。
-- [ ] **2.4 优化重复覆盖。** 把纯规则矩阵放到 unit，将入口行为留在 integration；workflow 保留阶段衔接、失败恢复和证据链关键路径。删减测试须记录被哪项等价或更强的断言覆盖，不以减少数量为目标。
-- [ ] **2.5 对齐命令与文档。** `just test` 真实使用 markers；在 AGENTS.md 明确各层定义、选择场景和零匹配行为。此阶段尚无 distribution 测试时，该筛选可以非零，不添加占位用例。
-- [ ] **2.6 验证并交接。** 分别收集三个主层，开发时定向运行受影响用例，最终用一次过渡完整门禁验证全部回归；比较调整前后覆盖及耗时。确认全部 collection 数等于三个互斥主层数量之和，并行执行无共享现场故障；更新阶段记录。不为统计分层结果先完整跑三层再原样重跑全部测试。
+- [x] **2.1 逐例分类。** 盘点所有测试及 fixture 的文件、Git、CLI、跨步骤依赖，登记到源码 marker；重点修正 `test_evidence.py`、`test_review_reuse.py`、`test_verification_records.py`、`test_maintenance_check.py` 的现有 unit 误分类。不因文件名包含 workflow 就整体归为 workflow。
+- [x] **2.2 替换自动白名单。** 删除 `UNIT_MODULES`/`WORKFLOW_MODULES` 分类推断；注册 markers、添加最小完整性检查。在隔离的小型 pytest collection 测试中验证漏标、多主层、未知 marker、distribution 非 integration 的失败。
+- [x] **2.3 整理 fixture。** 共享必要的临时仓库、worktree、命令替身和证据构造；避免可变全局现场和测试间复用同一个 Git 目录。确认环境变量恢复的必要边界，优先 scoped monkeypatch，不为统一风格强制重写全部 unittest。
+- [x] **2.4 优化重复覆盖。** 把纯规则矩阵放到 unit，将入口行为留在 integration；workflow 保留阶段衔接、失败恢复和证据链关键路径。删减测试须记录被哪项等价或更强的断言覆盖，不以减少数量为目标。
+- [x] **2.5 对齐命令与文档。** `just test` 真实使用 markers；在 AGENTS.md 明确各层定义、选择场景和零匹配行为。此阶段尚无 distribution 测试时，该筛选可以非零，不添加占位用例。
+- [x] **2.6 验证并交接。** 分别收集三个主层，开发时定向运行受影响用例，最终用一次过渡完整门禁验证全部回归；比较调整前后覆盖及耗时。确认全部 collection 数等于三个互斥主层数量之和，并行执行无共享现场故障；更新阶段记录。不为统计分层结果先完整跑三层再原样重跑全部测试。
 
 完成条件：所有测试显式且唯一分类；unit 的测试行为和准备不使用真实 I/O；各层回归仍覆盖原有业务语义。
 
@@ -218,7 +218,7 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 | 阶段 | 状态 | 改动与验证摘要 | 限制/待办/下一步 |
 | --- | --- | --- | --- |
 | 1 开发环境与入口 | 已完成（2026-09-19） | 基线：宿主 Python 3.14.7、uv 0.12.10、mise 2026.9.10、just 1.58.0 和 validator 可用；旧 uv 环境为 Python 3.12.14，收集 315 项，旧 full 315/315 通过（pytest 137.60 秒、整体 137.85 秒），validator 通过。新增 `mise.toml`/`mise.lock`、`.python-version`、justfile 和仓库测试 runner；开发 Python 固定 3.14.7 并由 uv 管理，uv 锁定 0.12.10，运行 dependencies 保持为空；locked 开发版本为 pytest 9.1.1、xdist 3.8.0、PyYAML 6.0.3、Ruff 0.16.8、ty 0.0.82。`maintenance_check.py` 已移到根 `scripts/`，旧 skill 内入口删除；根 README/AGENTS、docs、skill 文档链接、结构、explicit-only policy 和 Python 语法由新入口检查。`just install`、`check-toolchain`、`fmt`、`check-docs`、`validate-skill`、`test`、过渡 `gate-full` 已建立。最终 `just gate-full` 在 uv-managed Python 3.14.7 下 319/319 通过（pytest 121.19 秒、整体 122.41 秒），真实 validator 通过；`just check-docs` 与 `git diff --check` 通过。定向验证确认带空格 `-k` 保持 argv 边界，未知 suite/额外 `-m` 返回 2，零匹配返回 5。 | 当前 marker 仍有阶段 2 要修正的历史误分类；尚无 distribution 测试，Ruff/ty 尚未进入 gate。未运行真实消费项目 ticket graph，未验证真实 Codex 嵌套派发。未提交或 push。下一入口：阶段 2.1 逐例分类。 |
-| 2 测试分层 | 未开始 | — | 依赖阶段 1 |
+| 2 测试分层 | 已完成（2026-09-19） | 删除 `UNIT_MODULES`/`WORKFLOW_MODULES` 自动白名单，全部测试在源码中显式声明且唯一归入主 marker；继承的同名 marker 按集合去重，`distribution` 必须同时属于 `integration`。四个点名文件已从错误的 unit 改为 integration；纯内存规则只保留在 `graph`、`stage_policy`、`workflow_contract`，阶段推进、恢复和证据链关键路径归 workflow。新增 7 项隔离 collection 契约测试，覆盖漏标、多主层、未知 marker、错误 distribution 组合及合法继承/组合。环境变量现场由全局 autouse 快照恢复改为相关 unittest 的 scoped `patch.dict`；审计未发现可由等价或更强断言安全替代的业务用例，因此原 319 项业务回归全部保留。调整前分层为 unit 34、integration 173、workflow 112；调整后为 unit 18、integration 129、workflow 179，另增 7 项契约测试，总计 326，三个主层互斥且总和一致。定向验证为 unit 18/18、相关 integration 28/28、batch workflow 8/8；`just check-docs` 通过；`just test distribution --collect-only -q` 因零匹配按预期返回 5。最终仅运行一次 `just gate-full`：工具链和维护检查通过，4 个 xdist worker 下 326/326 通过（pytest 106.15 秒；阶段 1 的 319 项记录为 121.19 秒），真实 validator 通过。 | 尚无 distribution 测试；Ruff/ty 仍按计划在阶段 3 纳入门禁。耗时只是本机本次观测，不作为性能承诺。未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发；未提交或 push。下一入口：阶段 3.1 配置静态检查范围。 |
 | 3 静态质量 | 未开始 | — | 依赖阶段 2 |
 | 4 CLI 与内部调用 | 未开始 | — | 依赖阶段 3 |
 | 5 独立分发 | 未开始 | — | 依赖阶段 4 |

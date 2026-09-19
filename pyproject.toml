@@ -22,7 +22,8 @@ testpaths = ["tests"]
 pythonpath = ["scripts", "skills/beadwork-run/scripts", "tests"]
 addopts = ["--import-mode=importlib", "-ra", "--strict-config", "--strict-markers"]
 markers = [
-  "unit: pure rules without Git or subprocesses",
-  "integration: isolated filesystem, Git, or CLI boundaries",
-  "workflow: end-to-end workflow scenarios",
+  "unit: pure in-memory rules without real files, commands, or services in behavior or fixture setup",
+  "integration: one capability collaborating with a real local filesystem, Git, CLI, or process boundary",
+  "workflow: products passed across multiple operations, phase progression, or recovery scenarios",
+  "distribution: integration tests for the independently copied skill distribution",
 ]

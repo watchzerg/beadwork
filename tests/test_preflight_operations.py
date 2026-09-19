@@ -7,10 +7,14 @@ import subprocess
 import sys
 import unittest
 
+import pytest
+
 import test_controller as fixture
 import test_verify_phase as phase_fixture
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'skills/beadwork-run/scripts/preflight-operations.py'
+
+pytestmark = pytest.mark.workflow
 
 
 class PreflightOperationsTests(unittest.TestCase):

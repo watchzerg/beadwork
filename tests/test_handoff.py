@@ -5,10 +5,16 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+
+import pytest
+
 import evidence
 import draft_contracts
 
 import test_finalization as fixture
+
+
+pytestmark = pytest.mark.workflow
 
 
 class HandoffTests(unittest.TestCase):

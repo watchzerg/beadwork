@@ -7,9 +7,13 @@ import subprocess
 import sys
 import unittest
 
+import pytest
+
 import test_controller as controller_fixture
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/executor-operations.py"
+
+pytestmark = pytest.mark.workflow
 
 
 class ExecutorOperationsTests(unittest.TestCase):

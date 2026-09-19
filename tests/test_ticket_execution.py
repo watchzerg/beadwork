@@ -8,6 +8,9 @@ import subprocess
 import sys
 import unittest
 from unittest.mock import patch
+
+import pytest
+
 import evidence
 import ticket_reports
 import workflow_policy
@@ -15,6 +18,8 @@ import test_controller as fixture
 import test_executor_operations as review_fixture
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
+
+pytestmark = pytest.mark.workflow
 
 
 class TicketExecutionTests(unittest.TestCase):

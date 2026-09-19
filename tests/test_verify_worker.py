@@ -11,8 +11,12 @@ import sys
 import tempfile
 import unittest
 
+import pytest
+
 VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-worker.py"
 A, B = "a" * 40, "b" * 40
+
+pytestmark = pytest.mark.integration
 
 
 class WorkerDeliveryTests(unittest.TestCase):

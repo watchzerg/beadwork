@@ -10,6 +10,8 @@ import sys
 import time
 import unittest
 
+import pytest
+
 import test_controller as fixture
 import test_executor_operations as executor_fixture
 
@@ -17,6 +19,8 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
 SCRIPT = SCRIPTS / "run-verification.py"
 ASSEMBLE = SCRIPTS / "executor-operations.py"
 REAL_JUST = shutil.which("just")
+
+pytestmark = pytest.mark.integration
 
 
 class VerificationTests(unittest.TestCase):

@@ -16,10 +16,14 @@ import sys
 import tempfile
 import unittest
 
+import pytest
+
 
 VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-ticket.py"
 import verify_ticket as VALIDATOR
 import evidence
+
+pytestmark = pytest.mark.integration
 
 
 class TicketAcceptanceTests(unittest.TestCase):

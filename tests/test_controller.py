@@ -7,6 +7,9 @@ import subprocess
 import sys
 import unittest
 import uuid
+
+import pytest
+
 import execution_plan
 import evidence
 
@@ -16,6 +19,8 @@ import test_verify_ticket as ticket_fixture
 import test_verify_phase as phase_fixture
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/controller.py"
+
+pytestmark = pytest.mark.integration
 
 
 class ControllerTests(unittest.TestCase):

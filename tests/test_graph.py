@@ -1,7 +1,12 @@
 """graph 的纯判定矩阵；CLI 查询适配由 preflight/main 调用测试覆盖。"""
 import unittest
 
+import pytest
+
 import graph
+
+
+pytestmark = pytest.mark.unit
 
 
 def child(id_, status="open", labels=("ready-for-agent",), assignee=None):

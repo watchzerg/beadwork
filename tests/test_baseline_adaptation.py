@@ -7,12 +7,15 @@ import subprocess
 import sys
 import unittest
 
+import pytest
+
 import test_executor_operations as executor_fixture
 import test_finalization as final_fixture
 import test_verify_worker as worker_fixture
 import test_verify_phase as phase_fixture
 
 
+@pytest.mark.workflow
 class BaselineAdaptationTests(unittest.TestCase):
     def setUp(self):
         self.e = executor_fixture.ExecutorOperationsTests()
@@ -144,6 +147,7 @@ class BaselineAdaptationTests(unittest.TestCase):
         self.h.accept(ok=False)
 
 
+@pytest.mark.integration
 class ReceiptOutputTests(unittest.TestCase):
     def test_worker_success_blocked_and_failure(self):
         h = worker_fixture.WorkerDeliveryTests(); h.setUp(); self.addCleanup(h.doCleanups)
@@ -185,6 +189,7 @@ class ReceiptOutputTests(unittest.TestCase):
                 self.assertEqual(failed.stdout, "")
 
 
+@pytest.mark.workflow
 class EmptyBatchTests(unittest.TestCase):
     def test_final_review_accept_merge_and_cleanup_without_new_commits(self):
         f = final_fixture.FinalizationTests(); f.setUp(); self.addCleanup(f.doCleanups)

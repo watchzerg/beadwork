@@ -5,7 +5,13 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+
+import pytest
+
 import test_run_verification as verification_fixture
+
+
+pytestmark = pytest.mark.workflow
 
 
 class GateRepairTests(unittest.TestCase):

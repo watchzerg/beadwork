@@ -4,7 +4,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import pytest
+
 import evidence
+
+
+pytestmark = pytest.mark.integration
 
 
 class EvidenceTests(unittest.TestCase):

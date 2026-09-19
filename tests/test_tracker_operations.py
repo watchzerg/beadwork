@@ -6,9 +6,15 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import pytest
 
 import evidence
 import tracker_operations as tracker
+
+
+pytestmark = pytest.mark.integration
 
 
 class TrackerOperationsTests(unittest.TestCase):
@@ -32,10 +38,12 @@ elif a[:2]==['close','demo-1']:
 else: print(json.dumps({'bad':a})); sys.exit(2)
 ''')
         binary.chmod(0o755)
-        self.old_path = os.environ.get("PATH", "")
-        os.environ["PATH"] = str(self.root) + os.pathsep + self.old_path
-        os.environ["TRACKER_STATE"] = str(self.state)
-        self.addCleanup(lambda: os.environ.__setitem__("PATH", self.old_path))
+        environment = patch.dict(os.environ, {
+            "PATH": str(self.root) + os.pathsep + os.environ.get("PATH", ""),
+            "TRACKER_STATE": str(self.state),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
 
     def intent(self, kind, **extra):
         source = self.root / (kind + "-input.json")

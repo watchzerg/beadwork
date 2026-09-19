@@ -5,7 +5,9 @@ import pytest
 import run_tests
 
 
-@pytest.mark.integration
+pytestmark = pytest.mark.integration
+
+
 def test_pytest_argv_keeps_unit_serial_and_parallelizes_slow_suites(tmp_path, monkeypatch):
     monkeypatch.setenv("BEADWORK_TEST_JOBS", "8")
     unit = run_tests.pytest_argv(Path(tmp_path), "unit", [])
@@ -14,7 +16,6 @@ def test_pytest_argv_keeps_unit_serial_and_parallelizes_slow_suites(tmp_path, mo
     assert integration[-3:] == ["-n", "8", "--dist=worksteal"]
 
 
-@pytest.mark.integration
 def test_all_is_unfiltered_and_gate_rejects_filters(tmp_path):
     command = run_tests.pytest_argv(Path(tmp_path), "all", [], gate=True)
     assert "-m" not in command[4:]
@@ -22,7 +23,6 @@ def test_all_is_unfiltered_and_gate_rejects_filters(tmp_path):
         run_tests.pytest_argv(Path(tmp_path), "all", ["-k", "one"], gate=True)
 
 
-@pytest.mark.integration
 @pytest.mark.parametrize("extra", [["-m", "unit"], ["-m=unit"]])
 def test_extra_marker_expression_cannot_override_suite(tmp_path, extra):
     with pytest.raises(ValueError, match="不能覆盖"):

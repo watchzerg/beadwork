@@ -11,9 +11,13 @@ import sys
 import tempfile
 import unittest
 
+import pytest
+
 VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-phase.py"
 SHA_A = "a" * 40
 SHA_B = "b" * 40
+
+pytestmark = pytest.mark.integration
 
 
 class PhaseValidatorTests(unittest.TestCase):

@@ -7,10 +7,15 @@ import sys
 import tempfile
 import unittest
 import hashlib
+
+import pytest
+
 import execution_plan
 import evidence
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'skills/beadwork-run/scripts/controller.py'
+
+pytestmark = pytest.mark.workflow
 
 
 class MainSyncTests(unittest.TestCase):

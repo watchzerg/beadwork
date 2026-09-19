@@ -5,9 +5,14 @@ from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import patch
 
+import pytest
+
 import evidence
 import ticket_verification
 import verification_records
+
+
+pytestmark = pytest.mark.integration
 
 
 class VerificationRecordTests(TestCase):

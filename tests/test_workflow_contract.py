@@ -3,6 +3,9 @@ import pytest
 import workflow_contract
 
 
+pytestmark = pytest.mark.unit
+
+
 def test_stamp_and_require_current():
     value = {"role": "executor"}
     assert workflow_contract.stamp(value) is value

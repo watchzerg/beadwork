@@ -6,12 +6,17 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import pytest
 
 import batch_evidence
 import batch_initialize
 import evidence
 import execution_plan
 
+
+pytestmark = pytest.mark.workflow
 
 
 BD_FIXTURE = r'''import json,os,sys,subprocess
@@ -51,8 +56,12 @@ class BatchOperationsTests(unittest.TestCase):
         self.state.write_text(json.dumps({"issue": {"id": "demo", "status": "open", "assignee": None, "description": execution_plan.replace("", {"ticket_order": ["demo-1"]})}, "children": [{"id": "demo-1", "status": "open"}], "comments": []}))
         bd = self.bin / 'bd'; bd.write_text('#!' + sys.executable + '\n' + BD_FIXTURE); bd.chmod(0o755)
         just = self.bin / 'just'; just.write_text('#!' + sys.executable + '\n' + JUST_FIXTURE); just.chmod(0o755)
-        old = os.environ.get("PATH", ""); os.environ["PATH"] = str(self.bin) + os.pathsep + old
-        os.environ["TRACKER_STATE"] = str(self.state); self.addCleanup(lambda: os.environ.__setitem__("PATH", old))
+        environment = patch.dict(os.environ, {
+            "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
+            "TRACKER_STATE": str(self.state),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
 
     def git(self, *args):
         p = subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True)

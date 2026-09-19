@@ -1,6 +1,11 @@
 from pathlib import Path
 
+import pytest
+
 import maintenance_check
+
+
+pytestmark = pytest.mark.integration
 
 
 def test_local_link_check(tmp_path):
