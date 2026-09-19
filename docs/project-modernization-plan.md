@@ -1,6 +1,6 @@
 # Beadwork 项目工程化改造计划
 
-状态：阶段 1–4 已完成；阶段 5–6 尚未开始。
+状态：阶段 1–5 已完成；阶段 6 尚未开始。
 
 制定日期：2026-09-19。本文供后续独立 session 顺序实施、勾选和交接使用；不是本轮实施授权记录。
 
@@ -179,12 +179,12 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 
 前置：阶段 4 完成。目标：自动验证开发环境不会成为 skill 的隐式运行依赖。
 
-- [ ] **5.1 明确分发内容。** 以 `skills/beadwork-run/` 为分发根，排除 bytecode/cache 等生成文件；根目录的 tests、开发 scripts、.venv、工具配置不进入分发。先使用测试内的简单复制，不建立发布系统或打包后端。
-- [ ] **5.2 建立隔离 fixture。** 将内容复制到临时独立位置，从无关 cwd 启动已准备的 Python 3.14；清除 PYTHONPATH 等开发路径注入，以 `-S` 禁用 site-packages、`-B` 禁止 bytecode。不要盲目使用会移除脚本目录搜索路径的隔离参数导致正常自带模块无法 import。测试运行时不下载解释器。
-- [ ] **5.3 验证真实运行。** 顶层及所有命令组帮助、具备 schema 能力的各角色 schema、代表性报告文件操作和本地 Git 边界可运行；测试环境可提供明确的外部命令替身。标准库允许来自解释器安装目录，所有 Beadwork 自带模块及运行资源必须来自复制后的分发目录，不能回读原仓库。验证分发文档/资源的相对引用在复制后仍有效，且没有逃逸到原仓库的 symlink；源仓库内链接检查不能替代这一项。验证缺少必需工具时的清晰失败；既有 symlink 安装路径单独覆盖。
-- [ ] **5.4 检查依赖边界。** 增加运行源码 import 的标准库/自带模块检查，覆盖直接 import 和实际动态加载路径；结合隔离运行验证，不能只检查 `dependencies=[]`。无需为任意动态代码建立通用静态分析器。
-- [ ] **5.5 集成 marker 与门禁。** 分发测试标记 integration + distribution，`just test distribution` 可独立运行，`test all` 中只运行一次。缺少最低版本解释器时该必要验收失败，不 skip；开发工具检查说明准备方式。
-- [ ] **5.6 验证并交接。** 运行分发 suite、完整门禁，记录实际 Python 版本、宿主平台和测试范围；不把当前 macOS 验收写成已通过 Linux/Windows 矩阵。未来开发 Python 高于下限时，继续独立准备 3.14 运行这些测试。
+- [x] **5.1 明确分发内容。** 以 `skills/beadwork-run/` 为分发根，排除 bytecode/cache 等生成文件；根目录的 tests、开发 scripts、.venv、工具配置不进入分发。先使用测试内的简单复制，不建立发布系统或打包后端。
+- [x] **5.2 建立隔离 fixture。** 将内容复制到临时独立位置，从无关 cwd 启动已准备的 Python 3.14；清除 PYTHONPATH 等开发路径注入，以 `-S` 禁用 site-packages、`-B` 禁止 bytecode。不要盲目使用会移除脚本目录搜索路径的隔离参数导致正常自带模块无法 import。测试运行时不下载解释器。
+- [x] **5.3 验证真实运行。** 顶层及所有命令组帮助、具备 schema 能力的各角色 schema、代表性报告文件操作和本地 Git 边界可运行；测试环境可提供明确的外部命令替身。标准库允许来自解释器安装目录，所有 Beadwork 自带模块及运行资源必须来自复制后的分发目录，不能回读原仓库。验证分发文档/资源的相对引用在复制后仍有效，且没有逃逸到原仓库的 symlink；源仓库内链接检查不能替代这一项。验证缺少必需工具时的清晰失败；既有 symlink 安装路径单独覆盖。
+- [x] **5.4 检查依赖边界。** 增加运行源码 import 的标准库/自带模块检查，覆盖直接 import 和实际动态加载路径；结合隔离运行验证，不能只检查 `dependencies=[]`。无需为任意动态代码建立通用静态分析器。
+- [x] **5.5 集成 marker 与门禁。** 分发测试标记 integration + distribution，`just test distribution` 可独立运行，`test all` 中只运行一次。缺少最低版本解释器时该必要验收失败，不 skip；开发工具检查说明准备方式。
+- [x] **5.6 验证并交接。** 运行分发 suite、完整门禁，记录实际 Python 版本、宿主平台和测试范围；不把当前 macOS 验收写成已通过 Linux/Windows 矩阵。未来开发 Python 高于下限时，继续独立准备 3.14 运行这些测试。
 
 完成条件：只有分发目录与声明的外部工具即可执行被验收行为；无第三方 Python 包和仓库开发路径依赖；最低版本验证是完整门禁的必需部分。
 
@@ -224,7 +224,7 @@ suite、jobs 和额外 pytest 参数的转发若在 just 中难以清楚表达�
 | 2 测试分层 | 已完成（2026-09-19） | 删除 `UNIT_MODULES`/`WORKFLOW_MODULES` 自动白名单，全部测试在源码中显式声明且唯一归入主 marker；继承的同名 marker 按集合去重，`distribution` 必须同时属于 `integration`。四个点名文件已从错误的 unit 改为 integration；纯内存规则只保留在 `graph`、`stage_policy`、`workflow_contract`，阶段推进、恢复和证据链关键路径归 workflow。新增 7 项隔离 collection 契约测试，覆盖漏标、多主层、未知 marker、错误 distribution 组合及合法继承/组合。环境变量现场由全局 autouse 快照恢复改为相关 unittest 的 scoped `patch.dict`；审计未发现可由等价或更强断言安全替代的业务用例，因此原 319 项业务回归全部保留。调整前分层为 unit 34、integration 173、workflow 112；调整后为 unit 18、integration 129、workflow 179，另增 7 项契约测试，总计 326，三个主层互斥且总和一致。定向验证为 unit 18/18、相关 integration 28/28、batch workflow 8/8；`just check-docs` 通过；`just test distribution --collect-only -q` 因零匹配按预期返回 5。最终仅运行一次 `just gate-full`：工具链和维护检查通过，4 个 xdist worker 下 326/326 通过（pytest 106.15 秒；阶段 1 的 319 项记录为 121.19 秒），真实 validator 通过。 | 尚无 distribution 测试；Ruff/ty 仍按计划在阶段 3 纳入门禁。耗时只是本机本次观测，不作为性能承诺。未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发；未提交或 push。下一入口：阶段 3.1 配置静态检查范围。 |
 | 3 静态质量 | 已完成（2026-09-19） | `pyproject.toml` 已将 Ruff 和 ty 的检查范围固定为仓库 `scripts/`、skill 运行源码和 tests，并明确 Python 3.14 目标；Ruff 启用 E/F/I/UP/B 高收益规则，未启用 W/SIM。全仓 Python 已建立 Ruff format 基线并完成安全 lint 修复；`ExecutionPlan` 与 preflight `CommandResult` 使用标准库 `TypedDict` 固定核心边界，外部 JSON 仍由运行时逐字段校验，测试中的异构 JSON 仅在局部 fixture 标注 `dict[str, Any]`。修正了可能为空的 regex/查找结果、动态 stream 方法、异构命令结果、未使用值、错误 fixture import 和 `zip(strict=...)` 等真实静态问题。新增可独立运行的 `just lint`、`just typecheck`，`gate-full` 现按文档/结构 → Ruff lint/format → ty → 全量 pytest → validator 执行。定向回归先后通过 integration 60/60、workflow 128/128，以及最终边界补强后的 execution-plan 16/16、preflight 14/14；最终 `just gate-full` 在 Python 3.14.7 下 Ruff/ty 通过，326/326 测试通过（pytest 143.65 秒），真实 validator 通过。运行 `dependencies` 仍为空，新增 import 仅来自标准库或仓库自带模块。 | Ruff 全局忽略 `E501`，由 formatter 统一布局但不强制拆分所有长字符串；4 个公开脚本为在加载内部模块前设置 `sys.dont_write_bytecode`，保留有说明的局部 `E402` 豁免。尚无 distribution 测试；未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发。未 push。下一入口：阶段 4.1 完整列出调用者；本 session 不进入阶段 4。 |
 | 4 CLI 与内部调用 | 已完成（2026-09-19） | 完整调用者盘点在原 9 个迁移项之外确认 `tracker_operations.py`、`batch_initialize.py`、`batch_evidence.py` 也是活跃公开入口，已补入 3.1 映射；最终由 `beadwork.py` 与 `cli.py` 提供 10 个顶层命令组，覆盖全部 12 个旧入口能力。统一入口在加载运行模块前检查 Python >=3.14，从任意 cwd 及 skill 目录 symlink 可加载自带模块；argparse 逐级帮助、参数错误、JSON stdout、stderr 诊断和退出码集中处理，结构化 `ok:false` 现在返回非零。`plan_operations.py`、`preflight_operations.py` 已改为 snake_case，5 个 wrapper 和其他内部 `__main__` 已删除；`command_argv.py` 统一生成 `self_check_argv`，不拼 shell。preflight schema 由内部 API 生成并继续写入事实产物，代表性 executor/phase/worker schema 在禁止 `subprocess.run`/`Popen` 时通过；外部 Git、bd、just、gate 与进程组行为保留。活跃 skill 指令、长期维护文档、测试 fixture 和历史文档失效链接已迁移；历史入口名仍作为历史事实 inline 保留。定向验证包括 CLI 发现/版本/错误边界 8/8、统一入口相关 integration 79/79、关键 workflow 146/146，以及补正调用者后的相关回归。最终 `just gate-full` 在 Python 3.14.7 下文档/结构、Ruff、ty 全部通过，330/330 pytest 通过（153.79 秒），真实 validator 通过；活跃源码和文档扫描未发现旧公开入口调用，`git diff --check` 通过。代码提交：`8c1d1e0`。 | 尚无阶段 5 的独立分发测试；本阶段覆盖仓库内临时 Git/Beads fixtures、真实本地进程和 symlink 冷启动，但未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发。未测试或保留旧版本 flow/旧 CLI 兼容；未 push。下一入口：阶段 5.1 明确分发内容，本 session 不进入阶段 5。 |
-| 5 独立分发 | 未开始 | — | 依赖阶段 4 |
+| 5 独立分发 | 已完成（2026-09-19） | 新增 8 项 `integration + distribution` 验收：测试内只复制 `skills/beadwork-run/` 并排除 bytecode/cache，从无关 cwd 使用准备好的 Python 3.14、`-S -B` 和清理开发路径后的环境运行；覆盖 10 个顶层命令组与 nested verifier 帮助、executor/preflight/finalizer/fixer/reviewer/implementer schemas、报告文件校验、本地 Git 查询、明确的 `bd` 替身及缺工具诊断。复制后的 Markdown 相对资源与 symlink 目标必须留在分发根内；静态 import 检查限定为标准库/自带模块，唯一动态加载点实际遍历六类 schema，CLI 模块来源审计拒绝原仓库和 site-packages。`just test distribution` 8/8 通过；串行 `test all --collect-only` 收集 338 项且每个 distribution node 只出现一次。最终 `just gate-full` 在 Python 3.14.7、Darwin 25.6.0 arm64（macOS 26.6.2）下通过文档/结构、Ruff、ty、338/338 pytest（111.21 秒）和真实 validator；既有 symlink 安装入口回归也包含在全量测试中。代码提交：`3a82919`。 | 本次只证明当前 macOS 宿主上的复制分发、标准库边界和本地 fixture 行为，未宣称 Linux/Windows 矩阵通过；未运行真实消费项目 ticket graph，也未验证真实 Codex 嵌套派发。未来开发解释器高于下限时仍须单独准备 Python 3.14，缺失不得 skip。未 push。下一入口：阶段 6.1 最终扫描；本 session 不进入阶段 6。 |
 | 6 最终验收 | 未开始 | — | 依赖阶段 5 |
 
 ## 12. 计划自审记录
