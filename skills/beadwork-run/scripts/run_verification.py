@@ -95,6 +95,10 @@ def run(args):
         args.recipe in ("typecheck", "test") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
         "仅执行 typecheck、test、gate-*",
     )
+    repository.require(
+        not d.get("ticket_scope") or args.recipe != "gate-full",
+        "单票不接受 gate-full；请运行本票所需边界，最终全量由 finalizer 执行",
+    )
     executable = shutil.which("just")
     repository.require(executable is not None, "未找到 just")
     repository.require(

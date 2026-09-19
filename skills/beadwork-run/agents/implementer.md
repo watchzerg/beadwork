@@ -45,11 +45,11 @@
 4. 删除被 clean cutover 取代的旧代码、旧调用方和过时说明；不保留未要求的兼容层。
 5. 按可独立验证的增量分层实现（小票可单层）；typecheck 和相关验证所需的生产代码、调用方与测试迁移放在同一层。每层完成后按 executor-operations.md 的“每次提交前”执行并立即 commit；有代码变化的修复使用独立 fix commit，不创建空提交。review range 始终为原 base_commit，不假设只有一个 commit。
 6. 基线意外变化时保留现场并报告路径与 diff；在层完成或阻塞时向 executor 报告进度。
-7. 实现提交后以 verification.md 的 `--delivery` 运行 gate-core、声明的 boundary gates 及实际影响所需的补充 gates；新增原因写入 verification_notes。
+7. 实现提交后先读取当前 `gate-plan`，以 verification.md 的 `--delivery` 运行 `gate-core` 和本票声明且未列入 `defer_to_final` 的 boundary gates。延期边界仍要运行能观察本票行为的定向 `test` 或直接场景；无法收窄、Test plan 明确要求或只有完整边界能证明时，本票提前完整运行该 gate。实际新增边界及原因写入 verification_notes 并保留在 `required_boundary_gates`。
 
 项目安装由 controller 负责；验证经仓库 `just` recipes 执行。多个验证 gate 默认串行运行；只有仓库契约明确保证资源隔离时才并行，recipe 内部的并行由 recipe 自己负责。交付所需验证必须通过；TDD red 的原始失败和后续重跑记录全部保留。
 
-实现完成后的交付验证使用 `verification.md` 的 `--delivery`：代码失败时按该文件申请就地 gate 修正，每阶段最多三次，当前 implementer 集中修正、完成定向验证并提交，再验证修正候选。额度耗尽后交付候选仍有代码失败则返回 `BLOCKED / code_failure`；通过才向 executor 交付。开发中的 TDD red 和定向验证不消耗机会；环境或工具阻塞沿用 `outcome: blocked`。review 后的代码修复仍进入下一阶段。
+实现完成后的交付验证使用 `verification.md` 的 `--delivery`。当前 stage 一旦尝试某个完整 boundary delivery gate，它就成为该 stage 最终候选上的必须通过项，不得在失败后靠默认延期、恢复或计划适配忽略。代码失败时按该文件申请就地 gate 修正，每阶段最多三次，当前 implementer 集中修正、完成定向验证并提交，再验证修正候选。额度耗尽后交付候选仍有代码失败则返回 `BLOCKED / code_failure`；通过才向 executor 交付。开发中的 TDD red 和定向验证不消耗机会；环境或工具阻塞沿用 `outcome: blocked`。review 后的代码修复仍进入下一阶段。
 
 ## 4. 实现交付
 

@@ -23,7 +23,7 @@ class VerificationRecordTests(TestCase):
         self.dispatch = self.root / "dispatch.json"
         self.d = dict(
             role="implementer",
-            workflow_contract_version=1,
+            workflow_contract_version=2,
             ticket_scope="implementer",
             dispatch_path=str(self.dispatch),
             report_path=str(self.root / "report.json"),

@@ -10,6 +10,8 @@
 
 按 `../references/testing-contract.md` 定位共享测试契约与项目事实：检查测试模式或计划时读 `testing-plan.md`；检查测试观察接口及授权时读 `testing-seams.md`；核查 TDD red 证据时读 `testing-tdd.md`；检查命令、收集范围或验证覆盖时读 `testing-gates.md`。这些条件由本轮需求、diff 和证据触发，不以已有 finding 为前提；所需规则不可读取时报告 BLOCKED。
 
+单票审查按绑定 `gate-plan` 区分本票必跑完整 gates 与待 parent finalize 的 deferred 完整回归，但仍核对 deferred 边界的本票行为证据；不因完整慢 suite 按契约延期而报告缺失。
+
 ## Standards
 
 读取适用的 AGENTS、架构/领域约束、编码规范及相关 ADR，按文件/hunk 检查文档化规则违例；规则证据与代码证据都要具体。工具已负责的机械检查不重复枚举，但通过测试或 lint 不证明运行时行为正确。

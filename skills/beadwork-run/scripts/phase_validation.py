@@ -92,7 +92,15 @@ def preflight_schema() -> dict[str, Any]:
             "boundary_gates": {"type": "array", "items": TEXT, "uniqueItems": True},
             "gate_plan": nullable(
                 object_schema(
-                    {"core": TEXT, "full": {"type": "array", "items": TEXT, "uniqueItems": True}}
+                    {
+                        "core": TEXT,
+                        "full": {"type": "array", "items": TEXT, "uniqueItems": True},
+                        "defer_to_final": {
+                            "type": "array",
+                            "items": TEXT,
+                            "uniqueItems": True,
+                        },
+                    }
                 )
             ),
             "gate_plan_source": nullable(
@@ -318,6 +326,9 @@ def preflight_failures(
     elif (
         report["gate_plan"]["core"] != "gate-core"
         or report["gate_plan"]["core"] not in report["gate_plan"]["full"]
+        or not set(report["gate_plan"]["defer_to_final"]).issubset(
+            set(report["gate_plan"]["full"]) - {report["gate_plan"]["core"]}
+        )
     ):
         failures.append(fail("ready_gate_plan_valid"))
     if (

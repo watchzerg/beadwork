@@ -60,7 +60,8 @@ def command(d, directory, argv):
     evidence.write(
         folder / "started.json", {"argv": argv, "head": repository.sha(d["worktree"], "HEAD")}
     )
-    executed = process_runner.run(argv, d["worktree"], folder / "output.log")
+    stdout = folder / "stdout.log" if argv == ["just", "--one", "--", "gate-plan"] else None
+    executed = process_runner.run(argv, d["worktree"], folder / "output.log", stdout_path=stdout)
     result = {
         "argv": argv,
         "started_sha256": evidence.digest(folder / "started.json"),
@@ -70,6 +71,8 @@ def command(d, directory, argv):
         "recorder_error": executed["error"],
         "log_sha256": evidence.digest(folder / "output.log"),
     }
+    if stdout is not None:
+        result["stdout"] = evidence.binding(stdout)
     evidence.write(folder / "result.json", result)
     repository.require(
         executed["outcome"] == "exited"
@@ -78,6 +81,17 @@ def command(d, directory, argv):
         "同步命令失败或中断；保留现场，日志：" + str(folder / "output.log"),
     )
     return str(folder / "result.json")
+
+
+def plan_output(entry):
+    path = evidence.bound(entry)
+    result = evidence.read(path)
+    source = result.get("stdout")
+    repository.require(
+        source is not None and Path(source["path"]) == path.parent / "stdout.log",
+        "同步 gate-plan 缺少独立 stdout 来源",
+    )
+    return evidence.bound(source).read_text()
 
 
 def verification_commands(d, intent, head):
@@ -99,7 +113,7 @@ def verification_commands(d, intent, head):
         (["install"] if install else []) + ["env-facts"]
         if intent.get("final")
         else (
-            (["install"] if install else []) + ["env-facts", "gate-plan", "gate-full"]
+            (["install"] if install else []) + ["env-facts", "gate-plan", "gate-core"]
             if not unchanged
             else ["gate-plan"]
         )
@@ -193,7 +207,7 @@ def check_result(d, path, final=False):
             for entry, argv in zip(r["commands"], expected, strict=True)
             if argv[-1] == "gate-plan"
         )
-        raw = (Path(plan_entry["path"]).parent / "output.log").read_text()
+        raw = plan_output(plan_entry)
         repository.require(
             r.get("gate_plan") == gate_plan.parse(raw, r.get("recipes", [])),
             "同步 gate-plan 定义不符",
@@ -324,7 +338,7 @@ def sync(args, final=False):
             for entry, argv in zip(commands, verification_commands(d, intent, head), strict=True)
             if argv[-1] == "gate-plan"
         )
-        plan = gate_plan.parse((Path(entry["path"]).parent / "output.log").read_text(), recipes)
+        plan = gate_plan.parse(plan_output(entry), recipes)
     result = {
         "head": head,
         "target_main": target,

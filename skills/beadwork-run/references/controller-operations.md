@@ -15,7 +15,7 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 
 | kind | 输入与 controller 前置核对 |
 | --- | --- |
-| claim | expected_assignee：实际领取身份；parent 需 install/BASE gate-full 通过，child 需刷新后的 claim frontier 与 sync_result |
+| claim | expected_assignee：实际领取身份；parent 需 install/env-facts/gate-plan/gate-core 快速基线通过，child 需刷新后的 claim frontier 与 sync_result |
 | comment | body：核对后的完整正文；completion/integration-ready 使用 controller comment 生成正文，保留其 JSON 身份块 |
 | close | reason、prerequisite（path/sha256）；child 绑定成功 acceptance，parent 绑定成功 merge checkpoint；controller 另核对对应 completion 已写入 |
 
@@ -32,9 +32,9 @@ python3 <skill-dir>/scripts/beadwork.py batch-initialize prepare --input <initia
 python3 <skill-dir>/scripts/beadwork.py batch-initialize execute --intent <intent.json>
 ```
 
-prepare 输入为 repository_root、parent_id、固定 expected_children、expected_assignee，以及 preflight_acceptance、update_main_result 两个 path/sha256 bindings。先建立唯一目录；脚本绑定固定 main、READY preflight 和执行计划。execute 自动创建 Beads worktree，核对共享 workspace，完成 install/env-facts/BASE gate-full、parent claim 与中文批次 comment，全部成功才发布 ready.json，返回 base_commit、comment_id 和来源。正常调用不手写步骤或 comment。
+prepare 输入为 repository_root、parent_id、固定 expected_children、expected_assignee，以及 preflight_acceptance、update_main_result 两个 path/sha256 bindings。先建立唯一目录；脚本绑定固定 main、READY preflight 和执行计划。execute 自动创建 Beads worktree，核对共享 workspace，顺序完成 install/env-facts/gate-plan/gate-core、parent claim 与中文批次 comment，全部成功才发布 ready.json，返回 base_commit、绑定计划、comment_id 和来源。正常调用不手写步骤或 comment。
 
-失败使用原 intent 重试，保留旧日志；成功步骤仅在上游来源一致时复用。未知或中断命令先确认宿主任务与外部资源结束，再加 `--recovery <observations.json>`。文件为观察数组，每项包含 run_path（错误指向的运行目录）、task_id、stopped、observed_at、evidence、unresolved；stopped 必须为 true 且 unresolved 为空。脚本保存观察，不自行探测宿主任务。已进入 child 工作时走 recovery-batch.md，不重跑初始化。ready 只证明初始化完成，后续仍执行实时 frontier 和 sync-main。
+失败使用原 intent 重试，保留旧日志；成功步骤仅在上游来源一致时复用。`gate-plan` 单独绑定 stdout 并解析，stderr 保留为诊断日志；退出码为零但结构无效的计划不复用，下次追加运行记录。未知或中断命令先确认宿主任务与外部资源结束，再加 `--recovery <observations.json>`。文件为观察数组，每项包含 run_path（错误指向的运行目录）、task_id、stopped、observed_at、evidence、unresolved；stopped 必须为 true 且 unresolved 为空。脚本保存观察，不自行探测宿主任务。已进入 child 工作时走 recovery-batch.md，不重跑初始化。ready 只证明初始化完成，后续仍执行实时 frontier 和 sync-main。
 
 必要时使用只读事实入口，不能用它替代明确报告选择或宿主停止观察：
 
@@ -70,7 +70,7 @@ python3 <skill-dir>/scripts/beadwork.py controller sync-main --input <sync-input
 - `required_boundary_gates`：剩余 children 声明的边界及适用于剩余工作的已确认补充边界。脚本校验其属于当前 `gate-plan.full`、去重并排除 `gate-core` 与 `gate-full`。
 - `install_inputs`：目标仓库的安装/工具链输入文件或目录的相对路径列表。根据实际安装契约提供 manifest、lockfile、版本配置和影响安装的脚本；workspace manifest 也须包含。每批确认一次并复用，不能只列根 manifest。例如 Bun 项目需核对 `bun.lock`、各 workspace `package.json`、mise 配置及安装入口。
 
-脚本检查 topology、implementation 干净且两个 worktree 无未完成 Git 操作，重新查询 frontier，固定本地 main SHA；已包含则不重跑全量，只重新绑定只读 `gate-plan`。实际合入改变 implementation HEAD 后，安装输入有变化才运行 `just install`，随后顺序运行 `just env-facts`、`just gate-plan` 和一次无参数 `just gate-full`。所有 just 调用使用 `--one`；implementation 源码或 HEAD 在验证中变化即失败。不创建 agent、不自动解决冲突、不 fetch、不写 primary 或 Beads。
+脚本检查 topology、implementation 干净且两个 worktree 无未完成 Git 操作，重新查询 frontier，固定本地 main SHA；已包含则不重跑基线，只重新绑定只读 `gate-plan`。实际合入改变 implementation HEAD 后，安装输入有变化才运行 `just install`，随后顺序运行 `just env-facts`、`just gate-plan` 和一次无参数 `just gate-core`。所有 just 调用使用 `--one`；implementation 源码或 HEAD 在验证中变化即失败。不创建 agent、不自动解决冲突、不 fetch、不写 primary 或 Beads。
 
 成功输出 `sync_result`、`head`、`target_main`、`changed` 和刷新后的 `frontier`。只按这个 frontier 领取；无需再同步追赶随后移动的 main。`prepare executor mode=new` 必须带 `sync_result`，机械核对身份、HEAD、目标 ancestry 及验证日志；同步提交位于新票 BASE 之前。同步没有改变当前票修复阶段的入口。
 
@@ -134,7 +134,7 @@ controller 完成交付验收后调用：
 python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
 ```
 
-只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、验证记录、review 次数、当前阶段及模型、原始非阻塞 smells 和证据路径。controller 用 `--evidence` 加入更正前的报告、补证或 fetch fallback 等额外证据，核对正文并补足本轮必要说明后，将全文作为 tracker comment 的 body 写入。integration-ready 中的 JSON 身份块保持原样。
+只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、验证记录、review 次数、当前阶段及模型、原始非阻塞 smells 和证据路径。ticket completion 另从绑定计划与运行来源生成本票完整 gate 实测结果、定向行为证据和待 parent finalize 的边界；不让模型手写调度摘要。controller 用 `--evidence` 加入更正前的报告、补证或 fetch fallback 等额外证据，核对正文并补足本轮必要说明后，将全文作为 tracker comment 的 body 写入。integration-ready 中的 JSON 身份块保持原样。
 
 ## 合入本地 main
 

@@ -201,6 +201,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
                 gate_plan={
                     "core": "gate-core",
                     "full": ["gate-core", *d["required_boundary_gates"]],
+                    "defer_to_final": [],
                 },
                 workspace={
                     "primary_worktree": str(self.primary),
@@ -255,7 +256,8 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             command.mkdir()
             argv = ["just", "--one", "--", "gate-plan"]
             self.put(command / "started.json", {"argv": argv, "head": sync_result["head"]})
-            (command / "output.log").write_text(json.dumps(pr["gate_plan"]))
+            (command / "output.log").write_text("")
+            (command / "stdout.log").write_text(json.dumps(pr["gate_plan"]))
             self.put(
                 command / "result.json",
                 {
@@ -266,6 +268,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
                     "process_group_gone": True,
                     "recorder_error": None,
                     "log_sha256": evidence.digest(command / "output.log"),
+                    "stdout": evidence.binding(command / "stdout.log"),
                 },
             )
             sync_result["commands"] = [evidence.binding(command / "result.json")]
@@ -313,7 +316,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.acceptance = self.dispatch.parent / f"acceptance-{self.counter}.json"
         extra = []
         if (
-            self.d.get("workflow_contract_version") == 1
+            self.d.get("workflow_contract_version") == 2
             and self.d.get("role") == "finalizer"
             and self.d.get("attempt_id")
         ) or self.d.get("preflight_acceptance"):

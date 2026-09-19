@@ -8,4 +8,4 @@
 
 按任务读取 `testing-seams.md`（授权边界）、`testing-plan.md`（计划）、`testing-tdd.md`（red 证据）、`testing-gates.md`（验证覆盖）。各角色指令规定加载时机；已在当前上下文读取且未变化的文件无需重复加载。所需文件不可读取时，按当前阶段的缺事实/阻塞处理。
 
-需要用户确认的 seam 变化，在本流程返回 `BLOCKED`；已有批准不重复询问。无效计划不进入实现。实测 BASE 由 controller 建立恢复点并交接，执行者按测试契约记录证据。
+需要用户确认的 seam 变化，在本流程返回 `BLOCKED`；已有批准不重复询问。无效计划不进入实现。实测 BASE 由 controller 在安装后绑定 `gate-plan` 并通过 `gate-core` 建立快速基线，执行者按测试契约记录证据。完整 `gate-full` 保留给最终干净候选；单票的 deferred 边界仍需要能证明 acceptance 的定向证据。

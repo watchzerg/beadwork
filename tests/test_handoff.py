@@ -26,7 +26,7 @@ class HandoffTests(unittest.TestCase):
         self.bin.write_text(
             "#!"
             + sys.executable
-            + '\nimport os,sys,signal\nif sys.argv[1:]==["--summary"]: print("check-toolchain install test typecheck gate-plan gate-core gate-full gate-browser gate-extra env-facts fmt")\nelif sys.argv[3]=="gate-plan": print(\'{"core":"gate-core","full":["gate-core","gate-browser","gate-extra"]}\')\nelif os.environ.get("GATE_INTERRUPT"): os.kill(os.getpid(),signal.SIGTERM)\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n'
+            + '\nimport os,sys,signal\nif sys.argv[1:]==["--summary"]: print("check-toolchain install test typecheck gate-plan gate-core gate-full gate-browser gate-extra env-facts fmt")\nelif sys.argv[3]=="gate-plan": print(\'{"core":"gate-core","full":["gate-core","gate-browser","gate-extra"],"defer_to_final":[]}\')\nelif os.environ.get("GATE_INTERRUPT"): os.kill(os.getpid(),signal.SIGTERM)\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n'
         )
         self.bin.chmod(0o755)
         self.original_review = self.f.review

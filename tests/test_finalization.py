@@ -230,7 +230,7 @@ class FinalizationTests(unittest.TestCase):
         binary.write_text(
             "#!"
             + sys.executable
-            + '\nimport sys\nif sys.argv[1:]==["--summary"]: print("check-toolchain install typecheck test gate-plan gate-core gate-full gate-browser env-facts fmt")\nelif sys.argv[3]=="gate-plan": print(\'{"core":"gate-core","full":["gate-core","gate-browser"]}\')\nelse: print("collected 1 check")\n'
+            + '\nimport sys\nif sys.argv[1:]==["--summary"]: print("check-toolchain install typecheck test gate-plan gate-core gate-full gate-browser env-facts fmt")\nelif sys.argv[3]=="gate-plan": print(\'{"core":"gate-core","full":["gate-core","gate-browser"],"defer_to_final":[]}\')\nelse: print("collected 1 check")\n'
         )
         binary.chmod(0o755)
         result = subprocess.run(

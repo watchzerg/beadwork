@@ -49,7 +49,8 @@ if sys.argv[1:] == ['--summary']:
     print('check-toolchain install test typecheck gate-plan gate-core gate-full env-facts fmt gate-demo'); sys.exit(0)
 assert sys.argv[1:3] == ['--one','--']
 if sys.argv[3] == 'gate-plan':
-    print('{"core":"gate-core","full":["gate-core","gate-demo"]}'); sys.exit(0)
+    deferred = '["gate-demo"]' if os.environ.get('DEFER_GATE') == '1' else '[]'
+    print('{"core":"gate-core","full":["gate-core","gate-demo"],"defer_to_final":'+deferred+'}'); sys.exit(0)
 print('验证结果')
 sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 """
@@ -102,7 +103,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.h.h.git(self.h.wt, "add", "ticket.txt")
         self.h.h.git(self.h.wt, "commit", "-m", f"test-1 实现 {self.serial}")
 
-    def gate(self, recipe="gate-core", fail=False, delivery=True):
+    def gate(self, recipe="gate-core", fail=False, delivery=True, defer=False):
         argv = ["--dispatch", self.wd, "--recipe", recipe]
         if delivery:
             argv.append("--delivery")
@@ -115,7 +116,11 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
                 *map(str, argv),
             ],
             cwd=self.h.root,
-            env={**self.h.env, "FAIL_GATE": recipe if fail else ""},
+            env={
+                **self.h.env,
+                "FAIL_GATE": recipe if fail else "",
+                "DEFER_GATE": "1" if defer else "",
+            },
             capture_output=True,
             text=True,
         )
@@ -424,6 +429,127 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.gate()
         self.gate("gate-demo")
         self.implement()
+
+    def test_deferred_boundary_needs_core_but_not_full_boundary_delivery(self):
+        self.commit()
+        self.gate(defer=True)
+        self.implement()
+
+    def test_ticket_full_rejected_before_execution(self):
+        self.commit()
+        before = set(self.wd.parent.iterdir())
+        for flags in ([], ["--delivery"]):
+            rejected = self.cli(
+                "run-verification",
+                "--dispatch",
+                self.wd,
+                "--recipe",
+                "gate-full",
+                *flags,
+                ok=False,
+            )
+            self.assertIn("单票不接受 gate-full", rejected["error"])
+        self.assertEqual(set(self.wd.parent.iterdir()), before)
+
+    def test_existing_full_delivery_cannot_be_ignored(self):
+        self.commit()
+        result = self.gate("gate-demo", fail=True, defer=True)
+        started_path = result.parent / "started.json"
+        started = evidence.read(started_path)
+        started["argv"][3] = "gate-full"
+        self.h.put(started_path, started)
+        recorded = evidence.read(result)
+        recorded["started_sha256"] = evidence.digest(started_path)
+        self.h.put(result, recorded)
+        self.gate(defer=True)
+        rejected = self.implement(ok=False)
+        self.assertIn("单票不接受 gate-full", rejected["error"])
+
+    def test_measured_boundary_is_accumulated_without_draft_declaration(self):
+        fake = self.h.root / "bin/just"
+        fake.write_text(
+            fake.read_text()
+            .replace("fmt gate-demo", "fmt gate-demo gate-extra")
+            .replace('["gate-core","gate-demo"]', '["gate-core","gate-demo","gate-extra"]')
+        )
+        self.commit()
+        self.gate("gate-extra", defer=True)
+        self.gate(defer=True)
+        self.implement()
+        report = evidence.read(self.writer_report)
+        self.assertEqual(report["required_boundary_gates"], ["gate-demo", "gate-extra"])
+        self.assemble([self.review()])
+        self.deliver()
+        import batch_evidence
+
+        root = evidence.read(self.root_dispatch)
+        manifest = batch_evidence.manifest(
+            self.file(
+                "manifest",
+                {
+                    "parent_id": root["parent_id"],
+                    "expected_children": [root["ticket_id"]],
+                    "acceptances": [evidence.binding(self.acceptance)],
+                },
+            )
+        )
+        self.assertEqual(manifest["required_boundary_gates"], ["gate-demo", "gate-extra"])
+
+        import implementer_reports
+
+        report["required_boundary_gates"] = ["gate-demo"]
+        with self.assertRaisesRegex(ValueError, "丢失 boundary gate 下限"):
+            implementer_reports.check_implementation(
+                evidence.read(self.wd), report, state={"stage_dispatch": None}
+            )
+
+    def test_attempted_deferred_delivery_failure_cannot_be_ignored(self):
+        self.commit()
+        self.gate("gate-demo", fail=True, defer=True)
+        self.gate(defer=True)
+        self.implement(ok=False)
+
+    def test_unfinished_deferred_delivery_survives_same_stage_resume(self):
+        self.commit()
+        result = self.gate("gate-demo", defer=True)
+        result.rename(result.with_name("simulated-unpersisted-result.json"))
+        notes = {str(result.parent): "已确认旧进程及外部资源结束；结果未落盘，待重新验证。"}
+        self.implement("interrupted", verification_notes=notes)
+        self.assemble(outcome="interrupted")
+        self.stage()
+        self.gate(defer=True)
+        rejected = self.implement(ok=False, verification_notes=notes)
+        self.assertIn("gate-demo", rejected["error"])
+        self.gate("gate-demo", defer=True)
+        self.implement(verification_notes=notes)
+        self.assemble([self.review()])
+        self.deliver()
+        import controller
+
+        measured, pending, _ = controller.ticket_gate_summary(
+            json.loads(self.writer_report.read_text())
+        )
+        self.assertEqual(
+            measured,
+            [{"gate": "gate-core", "result": "通过"}, {"gate": "gate-demo", "result": "通过"}],
+        )
+        self.assertEqual(pending, [])
+
+    def test_unfinished_later_delivery_invalidates_prior_success(self):
+        self.commit()
+        self.gate("gate-demo", defer=True)
+        result = self.gate("gate-demo", defer=True)
+        result.rename(result.with_name("simulated-unpersisted-result.json"))
+        self.gate(defer=True)
+        notes = {str(result.parent): "已确认旧进程及外部资源结束；需重新运行。"}
+        rejected = self.implement(ok=False, verification_notes=notes)
+        self.assertIn("gate-demo", rejected["error"])
+
+    def test_delivery_gates_cannot_mix_defer_definitions_on_same_candidate(self):
+        self.commit()
+        self.gate(defer=True)
+        self.gate("gate-demo")
+        self.implement(ok=False)
 
     def test_review_requires_accepted_implementation_and_one_round(self):
         self.commit()
@@ -806,7 +932,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.gate()
         self.gate("gate-demo")
         self.gate("gate-extra")
-        self.implement(required_boundary_gates=["gate-demo", "gate-extra"])
+        self.implement()
         self.assemble([self.review(blocking=True)], "code_failure")
         self.stage("repair")
         self.assertIn("gate-extra", json.loads(self.wd.read_text())["required_boundary_gates"])
@@ -826,12 +952,16 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             .replace('["gate-core","gate-demo"]', '["gate-core","gate-demo","gate-extra"]')
         )
         self.commit()
-        self.implement("interrupted", required_boundary_gates=["gate-demo", "gate-extra"])
+        result = self.gate("gate-extra")
+        result.rename(result.with_name("simulated-unpersisted-result.json"))
+        notes = {str(result.parent): "已确认旧进程结束；结果未落盘，需重新验证。"}
+        self.implement("interrupted", verification_notes=notes)
+        self.assertIn("gate-extra", evidence.read(self.writer_report)["required_boundary_gates"])
         self.gate()
         self.gate("gate-demo")
-        self.implement(ok=False)
+        self.implement(ok=False, verification_notes=notes)
         self.gate("gate-extra")
-        self.implement()
+        self.implement(verification_notes=notes)
         self.assemble([self.review()])
         self.deliver()
         self.assertIn(
@@ -1053,8 +1183,10 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.stage(ok=False)
         self.stage("repair")
 
-    def test_completion_includes_stage_models_and_gate_lower_bound(self):
-        self.ready_writer()
+    def test_completion_includes_measured_and_deferred_gate_summary(self):
+        self.commit()
+        self.gate(defer=True)
+        self.implement()
         self.assemble([self.review()])
         self.deliver()
         path = self.root_dispatch.parent / "completion.md"
@@ -1073,6 +1205,8 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertIn("implementer", text)
         self.assertIn("Boundary gates：", text)
         self.assertIn("gate-demo", text)
+        self.assertIn('本票完整 gate 义务与实测：[{"gate": "gate-core", "result": "通过"}]', text)
+        self.assertIn('待 parent finalize 完整回归：["gate-demo"]', text)
 
     def test_six_gate_failure_stages_stop_at_limit(self):
         for stage in range(6):

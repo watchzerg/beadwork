@@ -87,7 +87,7 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
 if sys.argv[1:] == ['--summary']:
     print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser')
 elif sys.argv[1:] == ['--one', '--', 'gate-plan']:
-    print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
+    print('{"core":"gate-core","full":["gate-core","gate-browser"],"defer_to_final":[]}')
 else:
     assert sys.argv[1:] == ['--one', '--', 'check-toolchain'], sys.argv
 """
@@ -155,7 +155,12 @@ else:
         self.assertEqual(self.facts["failed_checks"], [])
         snapshot = json.loads(Path(self.facts["facts_path"]).read_text())
         self.assertEqual(
-            snapshot["gate_plan"], {"core": "gate-core", "full": ["gate-core", "gate-browser"]}
+            snapshot["gate_plan"],
+            {
+                "core": "gate-core",
+                "full": ["gate-core", "gate-browser"],
+                "defer_to_final": [],
+            },
         )
         receipt = self.assemble()
         self.h.report = self.h.dispatch.parent / "report.json"
@@ -242,7 +247,7 @@ else:
 if sys.argv[1:] == ['--summary']:
     print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser gate-extra')
 elif sys.argv[1:] == ['--one', '--', 'gate-plan']:
-    print('{"core":"gate-core","full":["gate-core","gate-browser","gate-browser"]}')
+    print('{"core":"gate-core","full":["gate-core","gate-browser","gate-browser"],"defer_to_final":[]}')
 else:
     assert sys.argv[1:] == ['--one', '--', 'check-toolchain'], sys.argv
 """

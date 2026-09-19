@@ -116,7 +116,16 @@ def manifest(input_path):
         dispatch = evidence.read(acceptance["dispatch_path"])
         report = evidence.read(acceptance["report_path"])
         require(dispatch["parent_id"] == data["parent_id"], "ticket 属于其他 parent")
-        gates = report.get("required_boundary_gates", report.get("boundary_gates", []))
+        gates = list(dispatch.get("required_boundary_gates", []))
+        gates += report.get("required_boundary_gates", report.get("boundary_gates", []))
+        if dispatch.get("ticket_scope") == "root":
+            execution = report["execution"]
+            stage = evidence.read(evidence.bound(execution["stage_dispatch"]))
+            gates += stage["required_boundary_gates"]
+            for item in execution["implementers"]:
+                implementation = evidence.read(evidence.bound(item["report"]))
+                gates += implementation["required_boundary_gates"]
+        gates = list(dict.fromkeys(gates))
         tickets.append(
             {
                 "ticket_id": dispatch["ticket_id"],

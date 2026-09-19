@@ -29,7 +29,7 @@ Direct verification 用于无需新增 red → green 测试的改动或基线已
 
 按可观察行为及已有覆盖选择模式，不按文件类型决定。纯重构、机械迁移可以复用已有 behavioral oracle；配置和 wiring 若改变权限、持久化或错误处理等行为，仍需相应行为测试。
 
-两种模式都必须声明 `Boundary gates`（无则写 `none`），包括 Verification 引用的额外 gate。检查名称与覆盖有效性时，读取 `testing-gates.md`。
+两种模式都必须声明 `Boundary gates`（无则写 `none`），包括 Verification 引用的额外 gate。该字段表示本票影响与 parent 最终覆盖范围，不等于每个成员都必须在本票运行完整 suite；默认调度由当前 `gate-plan.defer_to_final` 机械计算。若 acceptance 必须在本票完整运行某个延期边界，在 Verification 中明确写出。检查名称与覆盖有效性时，读取 `testing-gates.md`。
 
 执行时基线已满足 Expected red 不属于计划结构错误：beadwork-run 按 `baseline-adaptation.md` 核准实际执行计划，保留原声明和 seam 授权。部分行为已有时，仅对剩余行为取得 red。
 

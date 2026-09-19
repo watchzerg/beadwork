@@ -35,7 +35,7 @@ python3 <skill-dir>/scripts/beadwork.py executor implementer-check --dispatch <i
 
 draft 结构读取生成的输入 schema。只提供语义判断：acceptance 的证据映射、test_plan 的判断依据与 red 证据、未采集的人工验证、实际收尾与阻塞事项。verification_notes 按运行目录记录有效 red、新增 gate 原因或未知运行收尾；required_boundary_gates 保留已声明及实际补充下限。脚本生成 mode/seams、身份和验证来源，不手工复制。
 
-组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求无参数 gate-core 和必要 boundary gates 在同一干净交付 HEAD 通过；每次 `--delivery` 运行绑定当时的 `gate-plan`，筛选只用于开发期 `test`。TDD red 和直接验证的语义仍由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器同时固定该报告交付时的 verification_sources（运行目录及 started/result 的内容绑定，缺失文件显式为 null）；同 stage 后续新增运行不会改变已交付报告的验证历史，新报告仍采集全部当前来源。来源缺失或损坏时，组装器在 `verification_issues` 保存原绑定与实际错误；这种报告只能 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
+组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求当前绑定 `gate-plan` 下的 `gate-core` 和本票非 deferred boundary gates 在同一干净交付 HEAD 通过；当前 stage 已尝试的其他完整 boundary delivery gates 也必须在该 HEAD 通过。每次 `--delivery` 运行绑定当时的 `gate-plan`，用于成功的 gates 不得混用不同 `defer_to_final` 定义；筛选只用于开发期 `test`。TDD red 和直接验证的语义仍由 executor 验收，deferred 完整 suite 未在本票运行不自动构成失败。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器同时固定该报告交付时的 verification_sources（运行目录及 started/result 的内容绑定，缺失文件显式为 null）；同 stage 后续新增运行不会改变已交付报告的验证历史，新报告仍采集全部当前来源。来源缺失或损坏时，组装器在 `verification_issues` 保存原绑定与实际错误；这种报告只能 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
 
 stdout 为短回执；executor 确认 implementer 及命令结束，保存到该 implementer 目录下的新 receipt 文件，然后执行：
 

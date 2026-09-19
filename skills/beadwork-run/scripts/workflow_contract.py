@@ -2,7 +2,7 @@
 
 import repository
 
-VERSION = 1
+VERSION = 2
 
 
 def stamp(value):

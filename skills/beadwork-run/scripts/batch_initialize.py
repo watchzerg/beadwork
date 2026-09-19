@@ -6,6 +6,7 @@ from pathlib import Path
 
 import evidence
 import execution_plan
+import gate_plan
 import operation_commands as commands
 import repository
 import tracker_operations as tracker
@@ -125,7 +126,7 @@ def observation(recovery, run):
     return value
 
 
-def step(folder, name, argv, cwd, context, recovery=None):
+def step(folder, name, argv, cwd, context, recovery=None, *, plan_recipes=None):
     directory = folder / name
     directory.mkdir(exist_ok=True)
     attempts = sorted(directory.glob("attempt-*"))
@@ -142,10 +143,21 @@ def step(folder, name, argv, cwd, context, recovery=None):
             evidence.write(run / "closure.json", observation(recovery, run))
         if result and commands.succeeded(result) and started["context"] == context:
             reusable = evidence.binding(run / "result.json")
+            if plan_recipes is not None:
+                raw = commands.stdout(reusable)
+                try:
+                    gate_plan.parse(raw, plan_recipes)
+                except ValueError:
+                    reusable = None
         else:
             reusable = None
     return reusable or commands.run(
-        directory, f"attempt-{len(attempts) + 1:06d}", argv, cwd, context
+        directory,
+        f"attempt-{len(attempts) + 1:06d}",
+        argv,
+        cwd,
+        context,
+        capture_stdout=plan_recipes is not None,
     )
 
 
@@ -264,15 +276,30 @@ def execute(intent_path, recovery=None):
     require(not repository.git(root, "diff", "HEAD", "--", ".beads"), "primary .beads 已变化")
     sources = workspace(d, folder)
     context = {"head": d["target_main"]}
-    for recipe in ("install", "env-facts", "gate-full"):
-        source = step(folder, recipe, ["just", "--one", "--", recipe], wt, context, recovery)
+    plan = None
+    plan_source = None
+    for recipe in ("install", "env-facts", "gate-plan", "gate-core"):
+        recipes = repository.run(["just", "--summary"], wt).split() if recipe == "gate-plan" else []
+        source = step(
+            folder,
+            recipe,
+            ["just", "--one", "--", recipe],
+            wt,
+            context,
+            recovery,
+            plan_recipes=recipes if recipe == "gate-plan" else None,
+        )
         commands.require_success(source)
         require(
             repository.sha(wt, "HEAD") == d["target_main"] and not repository.status(wt),
             "初始化验证期间源码变化",
         )
         sources.append(source)
+        if recipe == "gate-plan":
+            plan = gate_plan.parse(commands.stdout(source), recipes)
+            plan_source = source
         context = source  # 上游重跑后，下游不可复用旧成功。
+    require(plan is not None, "初始化缺少有效 gate-plan")
     live_unstarted(d)
     common = dict(repository_root=root, parent_id=d["parent_id"], issue_id=d["parent_id"])
     claimed, claim_source = tracker_step(
@@ -292,9 +319,9 @@ def execute(intent_path, recovery=None):
             "worktree：" + str(wt),
             "BASE：" + d["target_main"],
             update["note"],
-            "install、env-facts、BASE gate-full 已通过。",
+            "依赖与环境准备完成，快速基线 gate-core 通过。",
             "初始化证据：" + str(path),
-            *["命令证据：" + x["path"] for x in sources[-3:]],
+            *["命令证据：" + x["path"] for x in sources[-4:]],
         ]
     )
     # 发布输入一经固定，恢复复用原正文；验证来源仍留在不可变记录中。
@@ -314,6 +341,8 @@ def execute(intent_path, recovery=None):
         base_commit=d["target_main"],
         expected_children=d["expected_children"],
         commands=sources,
+        gate_plan=plan,
+        gate_plan_source=plan_source,
         claim_source=claim_source,
         comment_source=comment_source,
         comment_id=comment["comment_id"],

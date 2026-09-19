@@ -25,7 +25,7 @@ python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.js
 
 ## 最多三次就地 gate 修正
 
-开发中的 TDD red 与定向验证沿用上述命令。实现提交后，完整交付 gates 增加 `--delivery`（放在 `--` 参数分隔符之前）；入口要求干净 HEAD，并在原始记录中区分交付候选与开发验证。
+开发中的 TDD red 与定向验证沿用上述命令。实现提交后，完整交付 gates 增加 `--delivery`（放在 `--` 参数分隔符之前）；入口要求干净 HEAD，并在原始记录中区分交付候选与开发验证。本票默认交付集合由绑定 `gate-plan` 和累计 `required_boundary_gates` 计算：`gate-core` 始终必跑，非 deferred 边界必跑，deferred 边界保留给 parent finalize。当前 stage 一旦对某边界使用 `--delivery`，该 gate 即成为本 stage 最终候选的附加义务；失败、恢复或计划适配都不会清除它。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <writer-dispatch.json> --recipe gate-core --delivery

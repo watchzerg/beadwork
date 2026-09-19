@@ -8,16 +8,21 @@ import process_runner
 import repository
 
 
-def run(folder, name, argv, cwd, context=None):
+def run(folder, name, argv, cwd, context=None, *, capture_stdout=False):
     directory = Path(folder) / (name + "-" + uuid.uuid4().hex)
     directory.mkdir()
     started = {"argv": list(map(str, argv)), "cwd": str(cwd), "context": context}
     evidence.write(directory / "started.json", started)
-    result = process_runner.run(started["argv"], str(cwd), directory / "output.log")
+    stdout = directory / "stdout.log" if capture_stdout else None
+    result = process_runner.run(
+        started["argv"], str(cwd), directory / "output.log", stdout_path=stdout
+    )
     result.update(
         started=evidence.binding(directory / "started.json"),
         log=evidence.binding(directory / "output.log"),
     )
+    if stdout is not None:
+        result["stdout"] = evidence.binding(stdout)
     evidence.write(directory / "result.json", result)
     return evidence.binding(directory / "result.json")
 
@@ -32,7 +37,19 @@ def read(source):
     )
     started = evidence.read(evidence.bound(value["started"]))
     log = evidence.bound(value["log"])
+    if "stdout" in value:
+        repository.require(
+            Path(value["stdout"]["path"]) == path.parent / "stdout.log",
+            "命令 stdout 证据目录不符",
+        )
+        evidence.bound(value["stdout"])
     return value, started, log
+
+
+def stdout(source):
+    value, _, _ = read(source)
+    repository.require("stdout" in value, "命令缺少独立 stdout 来源")
+    return evidence.bound(value["stdout"]).read_text()
 
 
 def succeeded(value):

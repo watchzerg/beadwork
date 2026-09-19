@@ -42,7 +42,7 @@ if sys.argv[1:] == ['--summary']:
     print('check-toolchain install test typecheck gate-plan gate-core gate-full env-facts fmt gate-demo'); sys.exit(0)
 assert sys.argv[1:3] == ['--one', '--']
 if sys.argv[3] == 'gate-plan':
-    print('{"core":"gate-core","full":["gate-core","gate-demo"]}'); sys.exit(0)
+    print('{"core":"gate-core","full":["gate-core","gate-demo"],"defer_to_final":[]}'); sys.exit(0)
 mode = os.environ.get('TEST_MODE', 'pass')
 print(json.dumps({'argv': sys.argv[3:], 'cwd': os.getcwd()}), flush=True)
 if mode == 'fail': print('目标断言失败'); sys.exit(7)

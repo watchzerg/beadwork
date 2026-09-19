@@ -105,7 +105,11 @@ class PhaseValidatorTests(unittest.TestCase):
             ],
             "linked_spec": "spec",
             "boundary_gates": ["gate-browser"],
-            "gate_plan": {"core": "gate-core", "full": ["gate-core", "gate-browser"]},
+            "gate_plan": {
+                "core": "gate-core",
+                "full": ["gate-core", "gate-browser"],
+                "defer_to_final": [],
+            },
             "gate_plan_source": {"path": "/evidence/gate-plan.json", "sha256": "a" * 64},
             "workspace": {
                 "primary_worktree": "/repo",

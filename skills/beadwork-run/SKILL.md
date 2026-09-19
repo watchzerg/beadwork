@@ -26,7 +26,7 @@ worktree: .worktrees/<full-parent-id>
 
 ## 执行约定
 
-- controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；运行 BASE `gate-full` 或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
+- controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；建立快速基线或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
 - Beads 读取结构化结果使用 `--json`；未列出的命令语法按需查询 CLI 帮助。
 - controller 将 `<skill-dir>` 解析为本 skill 的绝对目录。内置脚本使用 python3 ≥ 3.14（仅标准库和 skill 自带模块），在待检查 repository/worktree 中运行；正常调用无需读取源码。stdout 为 JSON，非零退出按停止处理，不能当作空结果。executor 的命令采集入口另按 `references/verification.md` 区分验证失败（可核对 TDD red）、记录器异常和中断。
 - 项目安装与验证经目标仓库的 `just` recipes 执行，recipe 检查由 preflight 负责。Beads 的 claim/comment/close 统一使用 controller-operations.md 的 tracker intent/读回入口。
@@ -58,7 +58,7 @@ preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gp
 
 按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本同时固定报告的执行计划与 `gate-plan` 来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发；boundary gates 作为每票影响范围义务保留。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
 
-进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `beadwork.py graph next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、BASE `gate-full` 或 claim。
+进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `beadwork.py graph next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、安装后 `gate-plan` / `gate-core` 快速基线或 claim。
 
 `BLOCKED` 不推进流程。工具链缺失时 controller 按 recipe 输出安装声明版本，再派新 preflight 复查；已获得首次 children 集合时将其作为 `expected_children` 一并传入，不重置范围。其他缺事实、冲突或失败沿用停止处理，不自动补写 ticket。
 
@@ -107,7 +107,7 @@ executor 负责内部实现、阶段修复和双轴 review。controller 收到�
 
 按共享交付契约确认 executor 及后代任务结束，保存原始回执，按 report-delivery.md 保存直接派发者的收尾观察，并带 --closure 执行 controller `accept`。脚本绑定 root、当前阶段、implementer 来源、BASE/HEAD、完整 commits、验证与原始双轴证据；失败停止，不把 implementer DONE 当成 ticket DONE。
 
-controller 核对整票交付来源、最终状态、必要 gates 和最后 review 的 HEAD、现场与任务收尾事实；验收与报告有矛盾、缺证或越界迹象时打开相关源码/日志追查。test plan、TDD red、seams 和 acceptance 的日常语义验收由 executor 承担，不再逐 stage 重做。确认误写 primary 时保留现场并停止，不自动还原。
+controller 核对整票交付来源、最终状态、当前计划下的必跑 gates、延期边界的行为证据和最后 review 的 HEAD、现场与任务收尾事实；验收与报告有矛盾、缺证或越界迹象时打开相关源码/日志追查。test plan、TDD red、seams 和 acceptance 的日常语义验收由 executor 承担，不再逐 stage 重做。确认误写 primary 时保留现场并停止，不自动还原。
 
 补证沿用 append-only `acceptance-evidence-N.json`，字段为 report_path、report_sha256 与 sources（source/evidence）；不替代原报告或 PASS。completion comment 引用原始、更正与补证来源。
 

@@ -8,11 +8,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 import evidence
 import execution_plan
+import main_sync
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
@@ -79,9 +81,10 @@ if a==['--summary']:
  print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser');sys.exit(0)
 assert a[:2]==['--one','--']
 with (p/'commands').open('a') as f: f.write(' '.join(a[2:])+'\\n')
-if a[2]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
+if a[2]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"],"defer_to_final":[]}')
+if a[2]=='gate-plan': print('计划诊断，不属于 JSON 输出',file=sys.stderr)
 if (p/'signal').exists(): os.kill(os.getppid(),signal.SIGTERM); __import__('time').sleep(5)
-if (p/'fail').exists() and a[2]=='gate-full': sys.exit(1)
+if (p/'fail').exists() and a[2]=='gate-core': sys.exit(1)
 """,
         )
         self.data = {
@@ -137,6 +140,25 @@ if (p/'fail').exists() and a[2]=='gate-full': sys.exit(1)
     def commands(self):
         p = self.root / "commands"
         return p.read_text().splitlines() if p.exists() else []
+
+    def test_plan_stdout_is_separate_and_bound_during_ready_validation(self):
+        result = self.sync()
+        entry = result["commands"][0]
+        source = evidence.read(evidence.bound(entry))["stdout"]
+        stdout = evidence.bound(source)
+        self.assertEqual(json.loads(stdout.read_text()), result["gate_plan"])
+        self.assertIn("计划诊断", stdout.with_name("output.log").read_text())
+        dispatch = {
+            **self.data,
+            "worktree": str(self.wt),
+            "branch": "implement/demo-1",
+            "ticket_id": "demo-1.1",
+        }
+        with patch.dict(os.environ, self.env):
+            main_sync.check_result(dispatch, result["sync_result"])
+            stdout.write_text("{}")
+            with self.assertRaisesRegex(ValueError, "证据文件已变化"):
+                main_sync.check_result(dispatch, result["sync_result"])
 
     def final_input(self, name="package.json"):
         (self.root / "status").write_text("closed")
@@ -326,8 +348,8 @@ p=Path(os.environ['FIXTURE'])
 if sys.argv[1:]==['--summary']:
  print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser');sys.exit(0)
 with (p/'commands').open('a') as f: f.write(' '.join(sys.argv[3:])+'\\n')
-if sys.argv[-1]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
-if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删除')
+if sys.argv[-1]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"],"defer_to_final":[]}')
+if sys.argv[-1]=='gate-core': (p/'parent-description').write_text('计划被删除')
 """,
         )
         result = self.sync()
@@ -375,7 +397,7 @@ if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删�
         target = self.change(self.primary)
         r = self.sync()
         self.assertEqual(r["head"], target)
-        self.assertEqual(self.commands(), ["env-facts", "gate-plan", "gate-full"])
+        self.assertEqual(self.commands(), ["env-facts", "gate-plan", "gate-core"])
         self.assertEqual(self.git(self.primary, "rev-parse", "HEAD"), target)
         self.assertFalse(self.sync()["changed"])
         self.assertEqual(len(self.commands()), 4)
@@ -420,7 +442,7 @@ if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删�
     def test_install_inputs_trigger_install(self):
         self.change(self.primary, "bun.lock")
         self.sync()
-        self.assertEqual(self.commands(), ["install", "env-facts", "gate-plan", "gate-full"])
+        self.assertEqual(self.commands(), ["install", "env-facts", "gate-plan", "gate-core"])
 
     def test_failed_smoke_is_retried_even_if_main_already_merged(self):
         self.change(self.primary)
@@ -428,7 +450,7 @@ if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删�
         self.sync(ok=False)
         (self.root / "fail").unlink()
         self.sync()
-        self.assertEqual(self.commands(), ["env-facts", "gate-plan", "gate-full"] * 2)
+        self.assertEqual(self.commands(), ["env-facts", "gate-plan", "gate-core"] * 2)
 
     def test_pending_sync_keeps_target_when_main_moves(self):
         target = self.change(self.primary)
@@ -455,7 +477,7 @@ if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删�
         self.sync(ok=False)
         (self.root / "signal").unlink()
         self.sync()
-        self.assertEqual(self.commands(), ["env-facts", "env-facts", "gate-plan", "gate-full"])
+        self.assertEqual(self.commands(), ["env-facts", "env-facts", "gate-plan", "gate-core"])
 
     def test_pending_sync_rejects_old_ready_even_at_same_head(self):
         r = self.sync()
@@ -502,7 +524,7 @@ p=Path(os.environ['FIXTURE'])/'repo'
 if sys.argv[1:]==['--summary']:
  print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser');sys.exit(0)
 with (Path(os.environ['FIXTURE'])/'commands').open('a') as f: f.write(' '.join(sys.argv[3:])+'\\n')
-if sys.argv[-1]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"]}')
+if sys.argv[-1]=='gate-plan': print('{"core":"gate-core","full":["gate-core","gate-browser"],"defer_to_final":[]}')
 if sys.argv[3]=='env-facts':
     (p/'later').write_text('later')
     subprocess.run(['git','-C',str(p),'add','later'],check=True)

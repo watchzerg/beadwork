@@ -17,11 +17,14 @@ import draft_contracts
 import evidence
 import execution_plan
 import finalization
+import gate_plan
 import handoff
 import report_io
 import repository
 import ticket_execution
 import ticket_reports
+import ticket_verification
+import verification_records
 import workflow_contract
 import workflow_policy
 
@@ -374,6 +377,29 @@ def accepted(path):
     return a, d, r
 
 
+def ticket_gate_summary(implementation):
+    """从 implementer 固定快照推导完整 gate 实测与延期摘要。"""
+    head = implementation["head_commit"]
+    rows = []
+    for item in implementation["verification_sources"]:
+        _, started, _, result, _ = verification_records.read(item)
+        rows.append((started, result))
+    boundaries = implementation["required_boundary_gates"]
+    plan, required, passed, _ = ticket_verification.delivery_coverage(rows, head, boundaries)
+    measured = [
+        {"gate": gate, "result": "通过" if gate in passed else "未通过"} for gate in required
+    ]
+    pending = [
+        gate for gate in gate_plan.deferred_for_ticket(plan, boundaries) if gate not in passed
+    ]
+    behavior = [
+        row
+        for row in implementation["verification"]
+        if " test" in row["command"] or row["command"].endswith(" test")
+    ]
+    return measured, pending, behavior
+
+
 def comment(args):
     a, d, r = accepted(args.acceptance)
     require(
@@ -411,8 +437,13 @@ def comment(args):
             for item in r["execution"]["implementers"]:
                 implementation = read(evidence.bound(item["report"]))
                 gates += implementation["required_boundary_gates"]
+            measured, pending, behavior = ticket_gate_summary(implementation)
             lines += [
                 "Boundary gates：" + json.dumps(list(dict.fromkeys(gates)), ensure_ascii=False),
+                "本票完整 gate 义务与实测：" + json.dumps(measured, ensure_ascii=False),
+                "定向行为验证来源："
+                + json.dumps(behavior or implementation["acceptance"], ensure_ascii=False),
+                "待 parent finalize 完整回归：" + json.dumps(pending, ensure_ascii=False),
                 "阶段与实现来源：" + json.dumps(r["execution"], ensure_ascii=False),
             ]
         if d.get("plan_adjustment"):

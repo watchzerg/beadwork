@@ -4,8 +4,51 @@ import shlex
 
 import dispatch_contract
 import evidence
+import gate_plan
 import repository
 import verification_records
+
+
+def attempted_boundaries(starts):
+    """从交付尝试累计实测边界，包括失败和未完成记录。"""
+    return list(
+        dict.fromkeys(
+            start["argv"][3]
+            for start in starts
+            if start.get("delivery_attempt") is not None
+            and start["argv"][3] not in ("gate-core", "gate-full")
+        )
+    )
+
+
+def delivery_coverage(rows, head, boundaries):
+    """按全部 started 记录承担义务；未知结果不能解除义务或覆盖较新的尝试。"""
+    deliveries = [row for row in rows if row[0].get("delivery_attempt") is not None]
+    repository.require(
+        all(start["argv"][3] != "gate-full" for start, _ in deliveries),
+        "单票不接受 gate-full 交付记录；最终全量由 finalizer 执行",
+    )
+    latest = {
+        start["argv"][3]: (start, end)
+        for start, end in sorted(deliveries, key=lambda row: row[0]["started_ns"])
+        if start["before"]["head"] == head
+    }
+    repository.require("gate-core" in latest, "交付 HEAD 缺少 gate-core 计划来源")
+    plan = latest["gate-core"][0].get("gate_plan")
+    repository.require(plan is not None, "gate-core 缺少当次 gate-plan 定义")
+    attempted = set(attempted_boundaries(start for start, _ in deliveries))
+    gate_plan.require_boundaries(plan, sorted(attempted))
+    required = set(gate_plan.required_for_ticket(plan, boundaries)) | attempted
+    passed = {
+        recipe
+        for recipe, (start, end) in latest.items()
+        if end is not None
+        and start["before"] == end["after"] == {"head": head, "status": ""}
+        and end["outcome"] == "exited"
+        and end["exit_code"] == 0
+        and end["process_group_gone"] is True
+    }
+    return plan, [gate for gate in plan["full"] if gate in required], passed, latest
 
 
 def origins(d):

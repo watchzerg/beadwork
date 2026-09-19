@@ -27,7 +27,7 @@ class ReviewReuseTests(TestCase):
             dispatch,
             dict(
                 role="executor",
-                workflow_contract_version=1,
+                workflow_contract_version=2,
                 dispatch_path=str(dispatch),
                 report_path=str(self.root / "report.json"),
                 base_commit="a" * 40,
