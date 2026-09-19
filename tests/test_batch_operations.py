@@ -183,7 +183,13 @@ class BatchOperationsTests(unittest.TestCase):
 
     def cli(self, *args, ok=True):
         result = subprocess.run(
-            [sys.executable, "-B", str(Path(batch_initialize.__file__)), *map(str, args)],
+            [
+                sys.executable,
+                "-B",
+                str(Path(batch_initialize.__file__).with_name("beadwork.py")),
+                "batch-initialize",
+                *map(str, args),
+            ],
             capture_output=True,
             text=True,
         )

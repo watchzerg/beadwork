@@ -17,7 +17,7 @@ executor 和 finalizer 在每轮审查前读取本文件，直接派发两个独
 reviewer 从自身文件读取方法与 smell baseline，派发者只交接本轮事实。schema 文件按共享交付契约传路径。无需额外 review coordinator agent。
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py review-prepare --dispatch <本角色的dispatch.json>
+python3 <skill-dir>/scripts/beadwork.py executor review-prepare --dispatch <本角色的dispatch.json>
 ```
 
 ## 验收与结果
@@ -25,7 +25,7 @@ python3 <skill-dir>/scripts/executor-operations.py review-prepare --dispatch <�
 等待两个 reviewer 及其命令结束，原样保存回执，编写 selection.json：`{"standards":{"report":"<绝对路径>","receipt":"<绝对路径>","closure":"<本轴收尾记录绝对路径>"},"spec":{"report":"<绝对路径>","receipt":"<绝对路径>","closure":"<本轴收尾记录绝对路径>"}}`。报告和回执必须位于各自轴目录；更正时显式选择新文件。执行：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py review-collect --round <round.json> --input <selection.json> --output <本轮目录/collection.json>
+python3 <skill-dir>/scripts/beadwork.py executor review-collect --round <round.json> --input <selection.json> --output <本轮目录/collection.json>
 ```
 
 脚本复用 reviewer verifier 校验两轴身份、报告和回执，复查真实 HEAD 与干净状态，保存原始 JSON 值组成的 `pair`、派生 `gate` 和来源文件的 hash 绑定。输出文件已存在时换新文件名。派发者仍核对报告与原始证据的语义一致性。

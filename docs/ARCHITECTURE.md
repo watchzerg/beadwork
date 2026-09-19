@@ -59,15 +59,16 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 
 | 分组 | 入口与实现 | 职责 |
 | --- | --- | --- |
-| 顶层入口 | [controller.py](../skills/beadwork-run/scripts/controller.py)、[executor-operations.py](../skills/beadwork-run/scripts/executor-operations.py) → [executor_operations.py](../skills/beadwork-run/scripts/executor_operations.py) | 批次验收与集成；多角色命令路由、现场检查 |
+| 公开入口 | [beadwork.py](../skills/beadwork-run/scripts/beadwork.py) → [cli.py](../skills/beadwork-run/scripts/cli.py) | 唯一公开 Python CLI、Python 下限检查、argparse 路由、JSON 与退出码边界 |
+| 顶层操作 | [controller.py](../skills/beadwork-run/scripts/controller.py)、[executor_operations.py](../skills/beadwork-run/scripts/executor_operations.py) | 批次验收与集成；多角色操作、现场检查 |
 | 操作编排 | [ticket_execution.py](../skills/beadwork-run/scripts/ticket_execution.py)、[finalization.py](../skills/beadwork-run/scripts/finalization.py)、[review_operations.py](../skills/beadwork-run/scripts/review_operations.py) | 阶段准备、验收后选择、review 准备与收集、最终交付 |
 | 状态 | [ticket_state.py](../skills/beadwork-run/scripts/ticket_state.py)、[final_state.py](../skills/beadwork-run/scripts/final_state.py)、[gate_repair.py](../skills/beadwork-run/scripts/gate_repair.py) | 检查点、当前 writer、来源选择、冻结和额度 |
 | 报告与只读来源 | [ticket_reports.py](../skills/beadwork-run/scripts/ticket_reports.py)、[implementer_reports.py](../skills/beadwork-run/scripts/implementer_reports.py)、[fixer_reports.py](../skills/beadwork-run/scripts/fixer_reports.py)、[review_evidence.py](../skills/beadwork-run/scripts/review_evidence.py) | 组装候选报告并校验字段、Git 事实和原始来源；不推进阶段 |
-| 验证 | [run-verification.py](../skills/beadwork-run/scripts/run-verification.py)、[ticket_verification.py](../skills/beadwork-run/scripts/ticket_verification.py)、[final_verification.py](../skills/beadwork-run/scripts/final_verification.py) | 运行采集与报告读取分开；ticket/final 各自判断覆盖 |
+| 验证 | [run_verification.py](../skills/beadwork-run/scripts/run_verification.py)、[ticket_verification.py](../skills/beadwork-run/scripts/ticket_verification.py)、[final_verification.py](../skills/beadwork-run/scripts/final_verification.py) | 运行采集与报告读取分开；ticket/final 各自判断覆盖 |
 | 基础契约 | [evidence.py](../skills/beadwork-run/scripts/evidence.py)、[repository.py](../skills/beadwork-run/scripts/repository.py)、[dispatch_contract.py](../skills/beadwork-run/scripts/dispatch_contract.py)、[report_io.py](../skills/beadwork-run/scripts/report_io.py) | 文件绑定、仓库事实、dispatch 身份与计划、固定 verifier 调用；不依赖阶段编排 |
-| 其他独立入口 | [preflight-operations.py](../skills/beadwork-run/scripts/preflight-operations.py)、[graph.py](../skills/beadwork-run/scripts/graph.py)、[tracker_operations.py](../skills/beadwork-run/scripts/tracker_operations.py)、[batch_evidence.py](../skills/beadwork-run/scripts/batch_evidence.py) | 准入、依赖图、controller 专用 tracker 写入、批次证据 |
+| 其他操作 | [preflight_operations.py](../skills/beadwork-run/scripts/preflight_operations.py)、[plan_operations.py](../skills/beadwork-run/scripts/plan_operations.py)、[graph.py](../skills/beadwork-run/scripts/graph.py)、[tracker_operations.py](../skills/beadwork-run/scripts/tracker_operations.py)、[batch_initialize.py](../skills/beadwork-run/scripts/batch_initialize.py)、[batch_evidence.py](../skills/beadwork-run/scripts/batch_evidence.py) | 准入、串行计划、依赖图、tracker intent、批次初始化和批次证据 |
 
-外部报告校验入口是 [verify-ticket.py](../skills/beadwork-run/scripts/verify-ticket.py)、[verify-phase.py](../skills/beadwork-run/scripts/verify-phase.py) 和 [verify-worker.py](../skills/beadwork-run/scripts/verify-worker.py)。工作流内部通过 Python API 直接调用校验实现，CLI wrapper 只服务外部自检和人工诊断，避免为每次内部校验重复启动解释器。仓库级 [maintenance_check.py](../scripts/maintenance_check.py) 只负责结构、链接和 Python 语法检查；完整门禁由根目录 justfile 编排。
+外部报告校验统一使用 `beadwork.py verify ticket|phase|worker`，实现分别位于 [verify_ticket.py](../skills/beadwork-run/scripts/verify_ticket.py)、[phase_validation.py](../skills/beadwork-run/scripts/phase_validation.py) 和 [worker_validation.py](../skills/beadwork-run/scripts/worker_validation.py)。工作流内部通过 Python API 直接调用校验实现，避免为 schema 或报告检查重复启动解释器。`self_check_argv` 由 [command_argv.py](../skills/beadwork-run/scripts/command_argv.py) 统一构造，不经过 shell。仓库级 [maintenance_check.py](../scripts/maintenance_check.py) 只负责结构、链接和 Python 语法检查；完整门禁由根目录 justfile 编排。
 
 `handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排。`test_module_boundaries.py` 检查 import 回路、依赖方向、schema 冷启动和安装 symlink 入口。
 
@@ -75,6 +76,6 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 
 单次 stage 验收显式传递已核验的 checkpoint 状态，并按 reviewer dispatch/report/receipt 的内容复用成功校验；跨命令不保留缓存，closure 和当前调用方身份仍逐次检查。checkpoint 直接保存累计 gate 状态，读取时不再从旧报告补字段。fixer 的固定验证来源由 worker verifier 检查一次，调用方继续检查当前来源完整性、Git 现场与收尾证据。
 
-源码拆分的范围与验证结果见[实施方案](script-modularization-plan.md)及[验收记录](script-modularization-acceptance.md)。正常流程的历史精简见[改造计划](normal-flow-simplification-plan.md)。当前初始化由 `batch_initialize.py` 完整执行；清理直接校验本地 merge checkpoint 与现场；角色只填写生成的 draft 输入契约。
+源码拆分的范围与验证结果见[实施方案](script-modularization-plan.md)及[验收记录](script-modularization-acceptance.md)。正常流程的历史精简见[改造计划](normal-flow-simplification-plan.md)。当前初始化由 `beadwork.py batch-initialize` 调用 `batch_initialize.py` 完整执行；清理直接校验本地 merge checkpoint 与现场；角色只填写生成的 draft 输入契约。
 
-串行顺序由 parent 的 `ticket_order` 区块声明；`execution_plan.py` 负责解析、依赖与状态校验、批次计划来源链，`plan-operations.py` 提供发布和显式接纳入口。`expected_children` 仍表示成员集合。详见[串行规划契约](../skills/beadwork-run/references/serial-planning.md)。
+串行顺序由 parent 的 `ticket_order` 区块声明；`execution_plan.py` 负责解析、依赖与状态校验、批次计划来源链，`beadwork.py plan` 提供发布和显式接纳入口。`expected_children` 仍表示成员集合。详见[串行规划契约](../skills/beadwork-run/references/serial-planning.md)。

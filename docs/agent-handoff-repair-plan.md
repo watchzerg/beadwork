@@ -34,7 +34,7 @@ agent 继续负责需求、覆盖、失败根因和 finding 处置的语义判�
 6. `final-assemble`、阶段推进、`final-deliver` 和 controller accept 均核对检查点选择。不得漏掉已选 review，不得使用更正前的阶段报告，也不得在进入下一 stage 后重新选择旧 stage 的结果。
 7. review 已开始后冻结 writer。中断恢复继续缺失轴或报告更正；完整代码类 blocking review 只能 repair 到下一 stage，非代码阻塞停留原 stage。
 
-主要落点：[finalization.py](../skills/beadwork-run/scripts/finalization.py)、[executor-operations.py](../skills/beadwork-run/scripts/executor-operations.py)、[gate_repair.py](../skills/beadwork-run/scripts/gate_repair.py) 和 controller 的最终验收入口。优先参考 ticket 的检查点实现，不提前抽象通用工作流引擎。
+主要落点：[finalization.py](../skills/beadwork-run/scripts/finalization.py)、`executor-operations.py`（历史入口；当前实现为 [executor_operations.py](../skills/beadwork-run/scripts/executor_operations.py)）、[gate_repair.py](../skills/beadwork-run/scripts/gate_repair.py) 和 controller 的最终验收入口。优先参考 ticket 的检查点实现，不提前抽象通用工作流引擎。
 
 验收负例与恢复用例：
 
@@ -48,7 +48,7 @@ agent 继续负责需求、覆盖、失败根因和 finding 处置的语义判�
 
 目标：成功、代码失败和修复额度均有可校验来源；结构正确的报告不能自行证明验证通过。
 
-复用 [run-verification.py](../skills/beadwork-run/scripts/run-verification.py) 的 started/result/log 采集、hash 校验与快照机制。当前采集器只接受 executor/implementer/fixer，需明确扩展 finalizer 的验证权限：允许当前 stage 0 采集 final/gate；修复阶段原则上由当前 fixer 运行。fixer 已停止后确需 finalizer 补充验证时，必须绑定当前 stage、候选 HEAD 和补充原因，不授予源码写入或 gate-fix 权限。
+复用 `run-verification.py`（历史入口；当前实现为 [run_verification.py](../skills/beadwork-run/scripts/run_verification.py)）的 started/result/log 采集、hash 校验与快照机制。当前采集器只接受 executor/implementer/fixer，需明确扩展 finalizer 的验证权限：允许当前 stage 0 采集 final/gate；修复阶段原则上由当前 fixer 运行。fixer 已停止后确需 finalizer 补充验证时，必须绑定当前 stage、候选 HEAD 和补充原因，不授予源码写入或 gate-fix 权限。
 
 最终阶段验证采用以下规则：
 
@@ -64,7 +64,7 @@ fixer `BLOCKED / code_failure` 只在本逻辑 stage 的三次 gate-fix 已用�
 
 合法的部分 BLOCKED 报告应能交付。来源缺失或损坏时保留问题指针并按证据阻塞处理，不能要求伪造完整快照，也不能据此推进代码修复阶段。接收阻塞报告与授予接替 writer 权限分开；未确认旧任务停止时只能保存现场与停止记录。
 
-主要落点：run-verification.py、finalization.py、gate_repair.py、[verify-worker.py](../skills/beadwork-run/scripts/verify-worker.py)、[verify-phase.py](../skills/beadwork-run/scripts/verify-phase.py) 及对应 CLI 路由。共用运行事实读取函数可以小范围提取，保留 implementer 现有可观察行为和报告字段。
+主要落点：run-verification.py、finalization.py、gate_repair.py、`verify-worker.py`（历史入口；当前实现为 [worker_validation.py](../skills/beadwork-run/scripts/worker_validation.py)）、`verify-phase.py`（历史入口；当前实现为 [phase_validation.py](../skills/beadwork-run/scripts/phase_validation.py)）及对应 CLI 路由。共用运行事实读取函数可以小范围提取，保留 implementer 现有可观察行为和报告字段。
 
 验收用例：
 
@@ -112,7 +112,7 @@ fixer `BLOCKED / code_failure` 只在本逻辑 stage 的三次 gate-fix 已用�
 
 上下文补充写新的事实文件并在检查点追加绑定，不覆盖原 dispatch、不生成新 BASE、不重置额度。继续原 agent 与接替 agent 使用同一来源；未获授权的 acceptance/seam 变化不能伪装为事实补充。reviewer 只接收本轴前次审查，避免通过输入引入跨轴结论依赖。
 
-主要落点：[controller.py](../skills/beadwork-run/scripts/controller.py)、[preflight-operations.py](../skills/beadwork-run/scripts/preflight-operations.py)、[ticket_execution.py](../skills/beadwork-run/scripts/ticket_execution.py)、finalization.py、executor-operations.py。
+主要落点：[controller.py](../skills/beadwork-run/scripts/controller.py)、`preflight-operations.py`（历史入口；当前实现为 [preflight_operations.py](../skills/beadwork-run/scripts/preflight_operations.py)）、[ticket_execution.py](../skills/beadwork-run/scripts/ticket_execution.py)、finalization.py、executor-operations.py。
 
 验收用例：缺必要来源在派发前失败；显式空 gate 集合合法；parent 即 spec 合法；错误 ticket/HEAD 的报告指针及损坏 hash 被拒绝；跨 cwd 读取所有路径有效；上下文补充在恢复中保留且不改变阶段/额度；两轴 dispatch 不携带对方前次 findings。
 

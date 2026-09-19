@@ -1,6 +1,5 @@
 """单票阶段编排与交付选择；只写证据，不派发 agent。"""
 
-import sys
 import uuid
 from pathlib import Path
 
@@ -17,6 +16,7 @@ import ticket_reports
 import ticket_state
 import ticket_verification
 import workflow_policy
+from command_argv import beadwork_argv
 
 ROLES = ("implementer", "standards", "spec")
 
@@ -81,16 +81,14 @@ def save_dispatch(d, folder, role):
                 d["report_schema_path" if kind == "schema" else "receipt_schema_path"],
                 worker("--" + kind),
             )
-        d["self_check_argv"] = [
-            sys.executable,
-            "-B",
-            str(report_io.SCRIPTS / "executor-operations.py"),
+        d["self_check_argv"] = beadwork_argv(
+            "executor",
             "implementer-check",
             "--dispatch",
             d["dispatch_path"],
             "--report",
             d["report_path"],
-        ]
+        )
     else:
         evidence.write(d["report_schema_path"], report_io.verifier("executor", "--schema"))
         evidence.write(d["receipt_schema_path"], report_io.verifier("executor", "--receipt-schema"))

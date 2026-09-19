@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
-import json
-import sys
 from pathlib import Path
 
 import evidence
@@ -325,27 +322,10 @@ def execute(intent_path, recovery=None):
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("prepare")
-    p.add_argument("--input", required=True)
-    p.add_argument("--output", required=True)
-    p = sub.add_parser("execute")
-    p.add_argument("--intent", required=True)
-    p.add_argument("--recovery")
-    args = parser.parse_args()
-    value = (
+def execute_command(args):
+    """执行已经由统一 CLI 解析的批次初始化命令。"""
+    return (
         prepare(args.input, args.output)
         if args.command == "prepare"
         else execute(args.intent, args.recovery)
     )
-    print(json.dumps(value, ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)

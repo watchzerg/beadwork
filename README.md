@@ -98,6 +98,8 @@ ln -s ~/projects/beadwork/skills/beadwork-run ~/projects/grok-image-saver/.agent
 
 修改后即可在下一次读取时使用磁盘内容，无需先 commit 或 push。本地 commit 用于保存可回退的版本，push 频率独立决定。
 
+skill 的唯一公开 Python 入口是 `python3 <skill-dir>/scripts/beadwork.py <command> …`；顶层及各命令组可用 `--help` 逐级发现。内部模块只提供 Python API，不作为独立脚本调用。
+
 维护者注意：正在运行的 agent 可能已经读取旧指令，后续读取又可能取得修改后的内容。是否避开正在进行的运行，由维护者自行判断；这不是 AI 修改源码前需要核实或请求确认的条件。
 
 开发环境要求宿主已有 mise 和 just。mise 只管理项目 uv；uv 管理 `.python-version` 固定的 Python 3.14 补丁版本、`.venv` 和开发依赖。`mise.lock` 固定 uv 的实际版本，`uv.lock` 固定 Ruff、ty、pytest、pytest-xdist 和 PyYAML；稳定版本解析明确排除 prerelease。

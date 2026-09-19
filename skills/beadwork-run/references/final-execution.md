@@ -5,7 +5,7 @@
 ## 准备与恢复
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py final-stage --dispatch <root-dispatch.json> --input <facts.json>
+python3 <skill-dir>/scripts/beadwork.py executor final-stage --dispatch <root-dispatch.json> --input <facts.json>
 ```
 
 首次 facts 为 `{}`；恢复使用 `continuation: resume`，推进使用 `continuation: repair`。已有检查点时脚本使用明确选择；显式 previous_stage 必须匹配当前阶段。repair 只接受已选 code_failure，最多 stage 5。同阶段恢复返回原 dispatch、selected_fixer、review_round、selected_review、selected_stage 和 context_sources，不重新分配额度。
@@ -16,7 +16,7 @@ fixer DONE 已验收或 review 已开始时，不再派 writer。恢复前先由
 
 ## 验证与补充边界
 
-stage 0 由 finalizer 用 run-verification.py 采集一次无参数 `gate-full`，交付验证加 `--delivery`。stage 1..5 由 fixer 采集同一入口；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
+stage 0 由 finalizer 用 `beadwork.py run-verification` 采集一次无参数 `gate-full`，交付验证加 `--delivery`。stage 1..5 由 fixer 采集同一入口；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
 
 最终成功依据 started/result/output.log 的绑定、正常退出码、相同干净 HEAD 和进程组结束事实。相同 gate 在交付 HEAD 取最新结果，较早成功不能覆盖较晚失败。未知结果需要实际收尾说明；日志损坏时可以组装 BLOCKED/blocked 或 interrupted，组装器自动保留 verification_issues，不能据此通过或推进代码修复。
 
@@ -27,7 +27,7 @@ fixer 的开发定向验证和历史辅助 gate 全部保留在运行快照中�
 新增边界一经确认，立即持久化，不等待成功报告：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py final-gates --dispatch <stage-dispatch.json> --input <gates.json>
+python3 <skill-dir>/scripts/beadwork.py executor final-gates --dispatch <stage-dispatch.json> --input <gates.json>
 ```
 
 gates.json 为 `{names: ["gate-example"], sources: [{gate: "gate-example", source: "新增原因及依据"}]}`。累计下限继承到下一 stage/fixer、最终报告与接替者；同 attempt 不自动删减。final-gates 由 finalizer 调用，fixer 通过消息提交新增边界；fixer 报告验收也会合并实际边界。
@@ -35,9 +35,9 @@ gates.json 为 `{names: ["gate-example"], sources: [{gate: "gate-example", sourc
 ## fixer 交付
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py fixer-assemble --dispatch <fixer-dispatch.json> --draft <draft.json> --output <report.json>
-python3 <skill-dir>/scripts/executor-operations.py fixer-check --dispatch <fixer-dispatch.json> --report <report.json>
-python3 <skill-dir>/scripts/executor-operations.py fixer-accept --dispatch <stage-dispatch.json> --report <report.json> --receipt <receipt.json> --closure <closure-source.json>
+python3 <skill-dir>/scripts/beadwork.py executor fixer-assemble --dispatch <fixer-dispatch.json> --draft <draft.json> --output <report.json>
+python3 <skill-dir>/scripts/beadwork.py executor fixer-check --dispatch <fixer-dispatch.json> --report <report.json>
+python3 <skill-dir>/scripts/beadwork.py executor fixer-accept --dispatch <stage-dispatch.json> --report <report.json> --receipt <receipt.json> --closure <closure-source.json>
 ```
 
 fixer 读取 dispatch.draft_schema_path，只填写处置、补充边界及原因、verification_notes、实际收尾和剩余工作。身份、HEAD、commits、验证运行及来源由脚本生成；stdout 为短回执，保存原件。
@@ -49,7 +49,7 @@ DONE 需当前 HEAD 的一次完整 `gate-full`；code_failure 需三次 gate-fi
 按 review.md 派两轴；review-prepare 校验验证来源及 fixer 选择，并固定唯一 round。只剩半成品准备时使用 `review-prepare --resume`；已完成 round 从 final-stage 返回值恢复。review-collect 同时保存 selected_review。同 round 更正使原 selected_stage 失效，重新组装后才可交付或推进。
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py final-assemble --dispatch <stage-dispatch.json> --draft <draft.json> --output <stage-report.json>
+python3 <skill-dir>/scripts/beadwork.py executor final-assemble --dispatch <stage-dispatch.json> --draft <draft.json> --output <stage-report.json>
 ```
 
 finalizer 使用阶段 draft_schema_path 填写语义判断。组装器从 checkpoint 读取已选 fixer、review 和历史，生成运行记录、完整报告、receipt 并追加 selected_stage；不接受手工来源数组。
@@ -59,7 +59,7 @@ stage 0 的实测代码失败或完整代码类 blocking review 允许推进；�
 ## root 交付
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py final-deliver --dispatch <root-dispatch.json> --output <root-report.json>
+python3 <skill-dir>/scripts/beadwork.py executor final-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
 入口只交付检查点选中的阶段报告：保持原字节，生成同目录 `<root-report-stem>-receipt.json` 并重新完整验收。不运行 gates、不派 review；stage 0..4 的 code_failure 先继续内部修复，stage 5 用尽才交还 controller。

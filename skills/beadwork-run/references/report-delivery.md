@@ -34,7 +34,7 @@ draft 字段由 draft_contracts 统一生成和校验；完整报告与回执字
 新 ticket、最终阶段 fixer/reviewer 和最终 root 交付，直接派发者先确认任务及其命令结束，再记录观察：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py handoff-close --dispatch <child-dispatch.json> --report <child-report.json> --input <observation.json>
+python3 <skill-dir>/scripts/beadwork.py executor handoff-close --dispatch <child-dispatch.json> --report <child-report.json> --input <observation.json>
 ```
 
 observation 的字段为 task_id、stopped（布尔值）、observed_at、evidence、unresolved（未结束事项数组）。填写实际宿主观察，不能把收到回执、取消请求已发送或消息静默视作停止。将 `handoff-close` 的原始 JSON 输出保存到新文件，直接传给 `--closure`；也接受只保存 `closure_source` 字段值的 path/sha256 binding，内部统一保存 binding。
@@ -46,7 +46,7 @@ controller accept、implementer-accept、fixer-accept 增加 `--closure <closure
 ## 补充事实与接替
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py context-add --dispatch <root-or-stage-dispatch.json> --input <facts.json>
+python3 <skill-dir>/scripts/beadwork.py executor context-add --dispatch <root-or-stage-dispatch.json> --input <facts.json>
 ```
 
 facts 只包含非空 reason 和 sources（path/sha256 数组）。事实文件应已写入证据目录且可读取。入口追加绑定链，恢复及 reviewer dispatch 返回 context_sources；不修改原 dispatch、BASE、acceptance/seam 授权或额度。继续原 agent 与接替 agent 都先读取这些来源；发现与原需求冲突时交回派发者处理。

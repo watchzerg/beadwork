@@ -5,7 +5,7 @@ controller 创建并交接 `ticket_scope: root` 的 executor dispatch。executor
 ## 阶段准备与恢复
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py ticket-stage --dispatch <root-dispatch.json> --input <facts.json>
+python3 <skill-dir>/scripts/beadwork.py executor ticket-stage --dispatch <root-dispatch.json> --input <facts.json>
 ```
 
 首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round`、`review_started`、`required_boundary_gates` 和 `gate_sources`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
@@ -29,8 +29,8 @@ root 目录的 `checkpoint-NNNNNN.json` 保存 hash 绑定的连续检查点，�
 首次执行前，implementer 读取 dispatch 指向的 draft_schema_path 指向的输入 schema。输入事实、规则/spec、必要 gate 范围和恢复来源由 executor 显式交接。`inspect`/`check-layer` 的用法见 `executor-operations.md`；验证记录和三次修复见 `verification.md`。
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py implementer-assemble --dispatch <implementer-dispatch.json> --draft <draft.json> --output <report.json>
-python3 <skill-dir>/scripts/executor-operations.py implementer-check --dispatch <implementer-dispatch.json> --report <report.json>
+python3 <skill-dir>/scripts/beadwork.py executor implementer-assemble --dispatch <implementer-dispatch.json> --draft <draft.json> --output <report.json>
+python3 <skill-dir>/scripts/beadwork.py executor implementer-check --dispatch <implementer-dispatch.json> --report <report.json>
 ```
 
 draft 结构读取生成的输入 schema。只提供语义判断：acceptance 的证据映射、test_plan 的判断依据与 red 证据、未采集的人工验证、实际收尾与阻塞事项。verification_notes 按运行目录记录有效 red、新增 gate 原因或未知运行收尾；required_boundary_gates 保留已声明及实际补充下限。脚本生成 mode/seams、身份和验证来源，不手工复制。
@@ -40,7 +40,7 @@ draft 结构读取生成的输入 schema。只提供语义判断：acceptance �
 stdout 为短回执；executor 确认 implementer 及命令结束，保存到该 implementer 目录下的新 receipt 文件，然后执行：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py implementer-accept --dispatch <stage-dispatch.json> --report <implementer-report.json> --receipt <implementer-receipt.json> --closure <closure-source.json>
+python3 <skill-dir>/scripts/beadwork.py executor implementer-accept --dispatch <stage-dispatch.json> --report <implementer-report.json> --receipt <implementer-receipt.json> --closure <closure-source.json>
 ```
 
 该入口重新校验身份、Git 和验证来源，并将选择追加到 root 检查点。重复验收同一来源幂等。实现的 passed/code_failure 一经验收，不能改报中断来继续旧 writer；已封存阶段不再接受新的实现来源，阶段/审查报告更正仍可在同 HEAD 完成。验收失败按证据/报告问题处理，不消耗 stage。合法部分报告也保留来源，但只有实现 DONE 才可准备 review。
@@ -54,7 +54,7 @@ python3 <skill-dir>/scripts/executor-operations.py implementer-accept --dispatch
 同 HEAD 的审查更正必须来自同一 round；选中新 collection 后清除当前 `selected_stage`，重新组装前不能整票交付或推进 stage。原阶段报告和检查点保留。进入下一 stage 后，旧 stage 不再接受新的 collection 选择。
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py ticket-assemble --dispatch <stage-dispatch.json> --draft <stage-draft.json> --output <stage-report.json>
+python3 <skill-dir>/scripts/beadwork.py executor ticket-assemble --dispatch <stage-dispatch.json> --draft <stage-draft.json> --output <stage-report.json>
 ```
 
 stage draft 使用本阶段 draft_schema_path；verification 只填额外核对的人工场景，实现与前阶段日志自动纳入。
@@ -69,7 +69,7 @@ stage draft 使用本阶段 draft_schema_path；verification 只填额外核对�
 完成整票或必须交还 controller 时：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py ticket-deliver --dispatch <root-dispatch.json> --output <root-report.json>
+python3 <skill-dir>/scripts/beadwork.py executor ticket-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
 该入口将明确选中的阶段报告原样复制到 root 目录，重新执行完整验收并返回 root 短回执；不重跑 gates 或 review。未达到当前授权上限的 code_failure 不允许交付给 controller 作为最终代码失败。controller 使用 root dispatch 和这份报告/回执运行 `accept`；成功后生成 completion 并关闭 ticket。

@@ -14,7 +14,7 @@ import pytest
 import evidence
 import execution_plan
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/controller.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
 pytestmark = pytest.mark.workflow
 
@@ -121,6 +121,7 @@ if (p/'fail').exists() and a[2]=='gate-full': sys.exit(1)
                 sys.executable,
                 "-B",
                 str(SCRIPT),
+                "controller",
                 "sync-final" if final else "sync-main",
                 "--input",
                 str(p),
@@ -213,7 +214,16 @@ if (p/'fail').exists() and a[2]=='gate-full': sys.exit(1)
 
         def prepare(ok=True):
             result = subprocess.run(
-                [sys.executable, "-B", str(SCRIPT), "prepare", "finalizer", "--input", str(source)],
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPT),
+                    "controller",
+                    "prepare",
+                    "finalizer",
+                    "--input",
+                    str(source),
+                ],
                 env=self.env,
                 capture_output=True,
                 text=True,
@@ -243,7 +253,7 @@ if (p/'fail').exists() and a[2]=='gate-full': sys.exit(1)
 
         def call(*args):
             result = subprocess.run(
-                [sys.executable, "-B", str(SCRIPT), *map(str, args)],
+                [sys.executable, "-B", str(SCRIPT), "controller", *map(str, args)],
                 env=self.env,
                 text=True,
                 capture_output=True,
@@ -336,7 +346,16 @@ if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删�
         source = self.root / "blocked-prepare.json"
         source.write_text(json.dumps(data))
         proc = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "prepare", "executor", "--input", str(source)],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "controller",
+                "prepare",
+                "executor",
+                "--input",
+                str(source),
+            ],
             env=self.env,
             capture_output=True,
             text=True,
@@ -456,7 +475,16 @@ if sys.argv[-1]=='gate-full': (p/'parent-description').write_text('计划被删�
         p = self.root / "prepare.json"
         p.write_text(json.dumps(self.prepare_input(data)))
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "prepare", "executor", "--input", str(p)],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "controller",
+                "prepare",
+                "executor",
+                "--input",
+                str(p),
+            ],
             env=self.env,
             capture_output=True,
             text=True,
@@ -498,7 +526,16 @@ if sys.argv[3]=='env-facts':
         source = self.root / "prepare.json"
         source.write_text(json.dumps(self.prepare_input(data)))
         proc = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "prepare", "executor", "--input", str(source)],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "controller",
+                "prepare",
+                "executor",
+                "--input",
+                str(source),
+            ],
             env=self.env,
             capture_output=True,
             text=True,
@@ -523,7 +560,16 @@ if sys.argv[3]=='env-facts':
         )
         p = self.root / "prepare.json"
         p.write_text(json.dumps(self.prepare_input(data)))
-        args = [sys.executable, "-B", str(SCRIPT), "prepare", "executor", "--input", str(p)]
+        args = [
+            sys.executable,
+            "-B",
+            str(SCRIPT),
+            "controller",
+            "prepare",
+            "executor",
+            "--input",
+            str(p),
+        ]
         bad = json.loads(original)
         bad["commands"] = []
         ready.write_text(json.dumps(bad))
@@ -551,7 +597,16 @@ if sys.argv[3]=='env-facts':
         )
         p = self.root / "prepare.json"
         p.write_text(json.dumps(self.prepare_input(data)))
-        args = [sys.executable, "-B", str(SCRIPT), "prepare", "executor", "--input", str(p)]
+        args = [
+            sys.executable,
+            "-B",
+            str(SCRIPT),
+            "controller",
+            "prepare",
+            "executor",
+            "--input",
+            str(p),
+        ]
         result = subprocess.run(args, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         dispatch = json.loads(Path(json.loads(result.stdout)["dispatch_path"]).read_text())
@@ -564,7 +619,8 @@ if sys.argv[3]=='env-facts':
             [
                 sys.executable,
                 "-B",
-                str(SCRIPT.with_name("executor-operations.py")),
+                str(SCRIPT),
+                "executor",
                 "ticket-stage",
                 "--dispatch",
                 dispatch["dispatch_path"],
@@ -607,6 +663,7 @@ if sys.argv[3]=='env-facts':
                         sys.executable,
                         "-B",
                         str(SCRIPT),
+                        "controller",
                         "prepare",
                         "executor",
                         "--input",
@@ -622,7 +679,16 @@ if sys.argv[3]=='env-facts':
         path = self.root / "tampered-input.json"
         path.write_text(json.dumps(original))
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "prepare", "executor", "--input", str(path)],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "controller",
+                "prepare",
+                "executor",
+                "--input",
+                str(path),
+            ],
             env=self.env,
             capture_output=True,
             text=True,
@@ -652,7 +718,16 @@ if sys.argv[3]=='env-facts':
         source = self.root / "prepare.json"
         source.write_text(json.dumps(self.prepare_input(data)))
         proc = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "prepare", "executor", "--input", str(source)],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "controller",
+                "prepare",
+                "executor",
+                "--input",
+                str(source),
+            ],
             env=self.env,
             capture_output=True,
             text=True,

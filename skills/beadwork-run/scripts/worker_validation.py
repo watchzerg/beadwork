@@ -257,47 +257,20 @@ def schema(role, receipt=False):
     return result
 
 
-def main(argv):
-    emit_receipt = "--emit-receipt" in argv
-    if emit_receipt:
-        argv = list(argv)
-        argv.remove("--emit-receipt")
-        if not argv or argv[0] != "--check-report":
-            raise ValueError("--emit-receipt 仅用于报告自检")
-    if len(argv) == 2 and argv[0] == "--receipt-schema" and argv[1] in ROLES:
-        print(json.dumps(receipt_schema(argv[1]), ensure_ascii=False))
-        return
-    if len(argv) == 2 and argv[0] == "--schema" and argv[1] in ROLES:
-        print(json.dumps(schema(argv[1]), ensure_ascii=False))
-        return
-    if (
-        len(argv) not in (5, 6)
-        or argv[0] != "--check-report"
-        or argv[1] not in ROLES
-        or argv[-2] != "--expected"
-    ):
-        raise ValueError("用法：--check-report <role> <report> [receipt] --expected <dispatch>")
-    role, path = argv[1:3]
-    result = check(role, path, argv[-1], argv[3] if len(argv) == 6 else None)
+def execute(args):
+    """执行已经由统一 CLI 解析的 worker 报告校验。"""
+    if args.schema:
+        return schema(args.schema)
+    if args.receipt_schema:
+        return receipt_schema(args.receipt_schema)
+    role, path = args.role, args.check_report
+    result = check(role, path, args.expected, args.receipt)
     failures = result.get("failures", [])
     status, digest = result["status"], result["report_sha256"]
-    if emit_receipt:
-        if len(argv) != 5 or failures:
+    if args.emit_receipt:
+        if args.receipt or failures:
             raise ValueError(
                 json.dumps(failures or ["receipt 自检不接受已有 receipt"], ensure_ascii=False)
             )
-        print(
-            json.dumps(
-                {"status": status, "report_path": os.path.abspath(path), "report_sha256": digest}
-            )
-        )
-        return
-    print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
-
-
-if __name__ == "__main__":
-    try:
-        main(sys.argv[1:])
-    except Exception as error:
-        sys.stderr.write(json.dumps({"error": str(error)}, ensure_ascii=False) + "\n")
-        sys.exit(1)
+        return {"status": status, "report_path": os.path.abspath(path), "report_sha256": digest}
+    return result

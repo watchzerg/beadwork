@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
@@ -184,34 +183,17 @@ def run(args):
         "log_tail": tail(log),
         "error": executed["error"],
     }
-    print(json.dumps(summary, ensure_ascii=False))
-    return (
+    exit_code = (
         (0 if executed["exit_code"] == 0 else 1)
         if executed["outcome"] == "exited"
         else (3 if executed["outcome"] == "interrupted" else 2)
     )
+    return summary, exit_code
 
 
 collect = ticket_verification.collect
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dispatch", required=True)
-    parser.add_argument("--recipe", required=True)
-    parser.add_argument(
-        "--delivery", action="store_true", help="固定干净 HEAD 的交付验证；开发定向验证不传"
-    )
-    parser.add_argument("parameters", nargs=argparse.REMAINDER)
-    return run(parser.parse_args())
-
-
-if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception as error:
-        print(
-            json.dumps({"outcome": "recorder_error", "error": str(error)}, ensure_ascii=False),
-            file=sys.stderr,
-        )
-        sys.exit(2)
+def execute(args):
+    """执行已经由统一 CLI 解析的验证采集命令。"""
+    return run(args)

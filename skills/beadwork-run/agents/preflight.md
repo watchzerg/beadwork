@@ -7,7 +7,7 @@
 读取 controller 交接的 `dispatch_path`、`draft_schema_path` 和 `rules_paths`；按 `../references/testing-contract.md` 定位 `testing-plan.md`、`testing-seams.md`、`testing-gates.md`。路径均为绝对路径。
 
 ```bash
-python3 <skill-dir>/scripts/preflight-operations.py collect --dispatch <dispatch.json>
+python3 <skill-dir>/scripts/beadwork.py preflight collect --dispatch <dispatch.json>
 ```
 
 保存返回的 `facts_path`、`facts_sha256`、`semantic_inputs_path`。采集器只执行只读 Beads/Git、`just --summary`、`just check-toolchain`、无参数 `just gate-plan` 和 schema 生成；不会安装依赖、运行产品测试或探测外部服务。它固定首次 direct children 集合，自动核对 parent 执行计划、blocking 依赖、顺序及已接纳计划漂移，核对重新派发时的 `expected_children`，复用 graph 的批量平铺检查。它保存原始结果，自动检查 labels、Beads export 配置、primary/branch/ignore/`.beads`、工具链、必需 recipes 及 gate-plan 的 core、有序 full、重复/缺失/未登记成员和保留入口，返回失败摘要和未关闭票 ID，不返回完整原始输出。
@@ -32,9 +32,9 @@ python3 <skill-dir>/scripts/preflight-operations.py collect --dispatch <dispatch
 缺事实/冲突时使用 BLOCKED，保留具体 blockers 和未完成工作；plans 以未关闭票 ID 为键，closed 票无需填写。sources 只补本轮语义判断使用的来源。
 
 ```bash
-python3 <skill-dir>/scripts/preflight-operations.py assemble --dispatch <dispatch.json> --facts-sha256 <collect返回的hash> --draft <draft.json> --output <report.json>
+python3 <skill-dir>/scripts/beadwork.py preflight assemble --dispatch <dispatch.json> --facts-sha256 <collect返回的hash> --draft <draft.json> --output <report.json>
 ```
 
-组装器校验快照和原始证据绑定，自动填充机械结果、children/status、workspace、gate 并集与来源，执行原有 `verify-phase.py` 自检；stdout 就是最终短回执。机械失败会使报告 BLOCKED。输出必须使用本 dispatch 目录内的新文件名；失败保留候选，补正使用 report-N.json。`execution_plan` 由采集器及组装器填充，不加入语义草稿；controller 验收入口不变。
+组装器校验快照和原始证据绑定，自动填充机械结果、children/status、workspace、gate 并集与来源，执行原有 `beadwork.py verify phase` 自检；stdout 就是最终短回执。机械失败会使报告 BLOCKED。输出必须使用本 dispatch 目录内的新文件名；失败保留候选，补正使用 report-N.json。`execution_plan` 由采集器及组装器填充，不加入语义草稿；controller 验收入口不变。
 
 按 `../references/report-delivery.md` 保存回执，确认命令结束后交付。controller 核对来源和语义，并在写入前复核现场。

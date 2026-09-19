@@ -18,7 +18,7 @@ implementer 在当前阶段 review 前向 executor 提交计划建议：JSON 含
 executor 语义核对后执行：
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py ticket-adapt-plan --dispatch <当前stage-dispatch.json> --input <已核准建议.json>
+python3 <skill-dir>/scripts/beadwork.py executor ticket-adapt-plan --dispatch <当前stage-dispatch.json> --input <已核准建议.json>
 ```
 
 入口追加计划调整、expected-plan 和新 stage/implementer 上下文，保留原 BASE、stage、stage_base、models、approved seams、gate_repair_root、review 历史和全部已有验证来源；把新上下文选择写入 root 检查点。同一 implementer 改用返回的 implementer dispatch 继续，executor 改用返回的 stage dispatch。不重派 writer，不消耗阶段/修复机会，不覆盖原计划。

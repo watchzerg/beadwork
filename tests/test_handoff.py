@@ -49,7 +49,8 @@ class HandoffTests(unittest.TestCase):
             [
                 sys.executable,
                 "-B",
-                str(fixture.OPS.with_name("run-verification.py")),
+                str(fixture.OPS),
+                "run-verification",
                 "--dispatch",
                 str(dispatch),
                 "--recipe",
@@ -81,7 +82,8 @@ class HandoffTests(unittest.TestCase):
                     [
                         sys.executable,
                         "-B",
-                        str(fixture.OPS.with_name("run-verification.py")),
+                        str(fixture.OPS),
+                        "run-verification",
                         "--dispatch",
                         str(stage),
                         "--recipe",
@@ -225,6 +227,7 @@ class HandoffTests(unittest.TestCase):
                 sys.executable,
                 "-B",
                 str(fixture.OPS),
+                "executor",
                 "handoff-close",
                 "--dispatch",
                 str(self.f.root),
@@ -406,7 +409,9 @@ class HandoffTests(unittest.TestCase):
             [
                 sys.executable,
                 "-B",
-                str(fixture.OPS.with_name("verify-worker.py")),
+                str(fixture.OPS),
+                "verify",
+                "worker",
                 "--check-report",
                 "fixer",
                 str(path),
@@ -717,7 +722,8 @@ class HandoffTests(unittest.TestCase):
             [
                 sys.executable,
                 "-B",
-                str(fixture.OPS.with_name("run-verification.py")),
+                str(fixture.OPS),
+                "run-verification",
                 "--dispatch",
                 str(stage),
                 "--recipe",

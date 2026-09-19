@@ -14,6 +14,7 @@
 - 修改只处理当前需求；保留既有协议字段、branch/worktree 布局和 append-only 证据语义，除非任务明确要求改变。
 - skill 运行源码最低支持 Python 3.14，只依赖标准库和 skill 自带模块。开发环境的具体 Python 补丁版本由 `.python-version` 固定；提高最低版本须作为单独兼容性变更。
 - 不维护被替代入口、参数或历史 flow 的兼容层。接口迁移按已批准范围直接更新当前调用者和文档。
+- skill 的唯一公开 Python CLI 是 `python3 <skill-dir>/scripts/beadwork.py <command> …`；内部模块不作为脚本入口。
 - 真实项目的 Beads 数据、执行证据和本机备份不进入本仓库。
 
 ## 开发环境与验证

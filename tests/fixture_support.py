@@ -12,7 +12,7 @@ import report_io
 import repository
 import workflow_policy
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/controller.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
 
 def prepare_utility_stage(data):

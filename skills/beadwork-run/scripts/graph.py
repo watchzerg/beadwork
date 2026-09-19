@@ -2,8 +2,8 @@
 """beadwork-run 内置只读 Beads 查询脚本。
 
 用法:
-  python3 graph.py check-flat <parent-id>
-  python3 graph.py next <parent-id> <expected-child-id>...
+  python3 beadwork.py graph check-flat <parent-id>
+  python3 beadwork.py graph next <parent-id> <expected-child-id>...
 
 stdout 成功时只输出一行紧凑 JSON；业务不满足时输出带 reason 的结果并 exit 0。
 运行/输入/schema 错误时向 stderr 输出 {"error":...} 并 exit 1。
@@ -18,28 +18,15 @@ import json
 import os
 import re
 import subprocess
-import sys
-from typing import Any
+from typing import Any, Never
 
 import execution_plan
 
 ID_RE = re.compile(r"[^\s-]+-\S+")
 
 
-def _use_utf8() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if callable(reconfigure):
-            reconfigure(encoding="utf-8")
-
-
-def fail(message: str) -> None:
-    sys.stderr.write(json.dumps({"error": message}, ensure_ascii=False) + "\n")
-    raise SystemExit(1)
-
-
-def emit(payload: dict[str, Any]) -> None:
-    print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+def fail(message: str) -> Never:
+    raise ValueError(message)
 
 
 def run_bd(args: list[str], cwd: str) -> str:
@@ -116,10 +103,9 @@ def flat_result(children: list[dict[str, Any]], dependents: list[Any]) -> dict[s
     )
 
 
-def check_flat(children: list[dict[str, Any]], cwd: str) -> None:
+def check_flat(children: list[dict[str, Any]], cwd: str) -> dict[str, Any]:
     if not children:
-        emit(flat_result(children, []))
-        return
+        return flat_result(children, [])
     dep_out = run_bd(
         [
             "dep",
@@ -134,7 +120,7 @@ def check_flat(children: list[dict[str, Any]], cwd: str) -> None:
     )
     dependents = parse_bd_json(dep_out, "bd dep list")
     try:
-        emit(flat_result(children, dependents))
+        return flat_result(children, dependents)
     except ValueError as error:
         fail(str(error))
 
@@ -246,29 +232,18 @@ def select_next(parent_id, expected_children, cwd, expected_source=None):
         return {"next": "blocked", "reason": "execution_plan_invalid", "detail": str(error)}
 
 
-def main() -> None:
-    _use_utf8()
-    argv = sys.argv[1:]
-    if len(argv) < 2:
-        fail(
-            "用法: python3 graph.py check-flat <parent-id> | python3 graph.py next <parent-id> <expected-child-id>..."
-        )
-    subcommand, parent_id, rest = argv[0], argv[1], argv[2:]
-    if subcommand not in ("check-flat", "next"):
-        fail(f"未知子命令: {subcommand}")
+def execute(args) -> dict[str, Any]:
+    """执行已经由统一 CLI 解析的只读 graph 命令。"""
+    subcommand, parent_id = args.command, args.parent_id
+    rest = getattr(args, "expected_child_id", [])
     validate_id(parent_id)
-    if subcommand == "check-flat" and len(rest) != 0:
-        fail("check-flat 只接受一个 parent-id")
     if subcommand == "next":
-        if len(rest) == 0:
-            fail("next 需要至少一个 expected-child-id")
         for id_ in rest:
             validate_id(id_)
     cwd = os.getcwd()
 
     if subcommand == "next":
-        emit(select_next(parent_id, rest, cwd))
-        return
+        return select_next(parent_id, rest, cwd)
 
     # 验证 parent 存在（bd show --json 返回数组）
     show_out = run_bd(["show", parent_id, "--readonly", "--json"], cwd)
@@ -299,12 +274,4 @@ def main() -> None:
     if len({child["id"] for child in children}) != len(children):
         fail("children ID 重复")
 
-    check_flat(children, cwd)
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:  # noqa: BLE001 - 对齐 TS 版顶层 catch 行为
-        _use_utf8()
-        fail(str(error))
+    return check_flat(children, cwd)

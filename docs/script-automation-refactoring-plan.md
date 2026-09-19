@@ -100,7 +100,7 @@
 
 **目标与问题。** 在 `round.json` 写出前中断后，ticket 的 `review-prepare --resume` 会新建目录；finalization 已能复用预留目录。
 
-**修改范围。** [executor-operations.py](../skills/beadwork-run/scripts/executor-operations.py)、ticket checkpoint 和 review 恢复说明。
+**修改范围。** `executor-operations.py`（历史入口；当前实现为 [executor_operations.py](../skills/beadwork-run/scripts/executor_operations.py)）、ticket checkpoint 和 review 恢复说明。
 
 **实施步骤。**
 
@@ -135,7 +135,7 @@
 
 **目标与问题。** `controller.read()` 接受重复 key/非有限数值；schema 引擎未执行对象形式的 `additionalProperties`。
 
-**修改范围。** 所有输入/证据 JSON loader、[verify-ticket.py](../skills/beadwork-run/scripts/verify-ticket.py) 的 schema 引擎及三个 verifier 调用入口。
+**修改范围。** 所有输入/证据 JSON loader、`verify-ticket.py`（历史入口；当前实现为 [verify_ticket.py](../skills/beadwork-run/scripts/verify_ticket.py)）的 schema 引擎及三个 verifier 调用入口。
 
 **实施步骤。**
 
@@ -168,7 +168,7 @@
 
 ### G06：提取共用命令记录器
 
-**目标。** [run-verification.py](../skills/beadwork-run/scripts/run-verification.py) 与 [main_sync.py](../skills/beadwork-run/scripts/main_sync.py) 共用进程组、取消、日志和执行终态采集。
+**目标。** `run-verification.py`（历史入口；当前实现为 [run_verification.py](../skills/beadwork-run/scripts/run_verification.py)）与 [main_sync.py](../skills/beadwork-run/scripts/main_sync.py) 共用进程组、取消、日志和执行终态采集。
 
 **实施步骤。**
 

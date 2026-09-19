@@ -13,7 +13,7 @@ import pytest
 import test_controller as controller_fixture
 from fixture_support import closure_source
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/executor-operations.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
 pytestmark = pytest.mark.workflow
 
@@ -30,7 +30,7 @@ class ExecutorOperationsTests(unittest.TestCase):
 
     def call(self, *args, ok=True):
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), *map(str, args)],
+            [sys.executable, "-B", str(SCRIPT), "executor", *map(str, args)],
             cwd=self.h.root,
             env=self.h.env,
             capture_output=True,

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import subprocess
@@ -225,17 +224,18 @@ def prepare(args):
     write(d["report_schema_path"], verifier(args.role, "--schema"))
     write(d["receipt_schema_path"], verifier(args.role, "--receipt-schema"))
     if args.role == "preflight":
-        d["self_check_argv"] = [
-            sys.executable,
-            "-B",
-            str(SCRIPTS / "verify-phase.py"),
+        from command_argv import beadwork_argv
+
+        d["self_check_argv"] = beadwork_argv(
+            "verify",
+            "phase",
             "--check-report",
             "preflight",
             d["report_path"],
             "--expected",
             d["dispatch_path"],
             "--emit-receipt",
-        ]
+        )
     if args.role == "preflight":
         draft_contracts.publish(d, "preflight")
     write(d["dispatch_path"], d)
@@ -577,41 +577,6 @@ def cleanup(args):
     return {"cleaned": True, "parent_id": d["parent_id"]}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-    p = commands.add_parser("prepare")
-    p.add_argument("role", choices=("preflight", "executor", "finalizer"))
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("update-main")
-    p.add_argument("--repository-root", required=True)
-    p = commands.add_parser("sync-main")
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("sync-final")
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("adapt-plan")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("accept")
-    p.add_argument("--closure", help="收尾来源 path/sha256 JSON")
-    for name in ("dispatch", "report", "receipt", "output"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("comment")
-    for name in ("acceptance", "summary", "output"):
-        p.add_argument("--" + name, required=True)
-    p.add_argument("--evidence", action="append", default=[])
-    p = commands.add_parser("merge")
-    for name in ("acceptance", "comment-id", "output"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("cleanup")
-    p.add_argument("--merge-record", required=True)
-    args = parser.parse_args()
-    try:
-        print(json.dumps(globals()[args.command.replace("-", "_")](args), ensure_ascii=False))
-    except (ValueError, KeyError, OSError, TypeError) as error:
-        print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+def execute(args):
+    """执行已经由统一 CLI 解析的 controller 命令。"""
+    return globals()[args.command.replace("-", "_")](args)

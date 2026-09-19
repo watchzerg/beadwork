@@ -22,7 +22,7 @@ import pytest
 import evidence
 import verify_ticket as VALIDATOR
 
-VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-ticket.py"
+VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
 pytestmark = pytest.mark.integration
 
@@ -135,14 +135,14 @@ class TicketAcceptanceTests(unittest.TestCase):
             ]
         )
         result = subprocess.run(
-            [sys.executable, str(VERIFIER), *args],
+            [sys.executable, str(VERIFIER), "verify", "ticket", *args],
             cwd=self.worktree,
             env=self.env,
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
         parsed = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0 if parsed["ok"] else 1, result.stderr)
         self.assertEqual(self.report_file.read_bytes(), raw, "验收不能覆写原始报告")
         self.assertEqual(parsed["report_sha256"], hashlib.sha256(raw).hexdigest())
         return parsed
@@ -160,6 +160,8 @@ class TicketAcceptanceTests(unittest.TestCase):
             [
                 sys.executable,
                 str(VERIFIER),
+                "verify",
+                "ticket",
                 "--check-report",
                 str(self.report_file),
                 str(receipt_file),
@@ -169,9 +171,10 @@ class TicketAcceptanceTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0 if parsed["ok"] else 1, result.stderr)
         self.assertEqual(self.report_file.read_bytes(), original)
-        return json.loads(result.stdout)
+        return parsed
 
     def receipt(self) -> dict:
         return {
@@ -513,7 +516,10 @@ class TicketAcceptanceTests(unittest.TestCase):
 
     def test_schema_output_is_reusable_and_unknown_fields_fail_closed(self) -> None:
         result = subprocess.run(
-            [sys.executable, str(VERIFIER), "--schema"], capture_output=True, text=True, check=True
+            [sys.executable, str(VERIFIER), "verify", "ticket", "--schema"],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         schema = json.loads(result.stdout)
         self.assertEqual(schema["$schema"], "http://json-schema.org/draft-07/schema#")

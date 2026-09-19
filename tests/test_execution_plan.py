@@ -103,7 +103,7 @@ else: raise AssertionError(a)
 
     def call(self, script, *args, ok=True):
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPTS / script), *map(str, args)],
+            [sys.executable, "-B", str(SCRIPTS / "beadwork.py"), script, *map(str, args)],
             cwd=self.root,
             env=self.env,
             capture_output=True,
@@ -113,7 +113,7 @@ else: raise AssertionError(a)
         return json.loads(result.stdout if ok else result.stderr)
 
     def next(self):
-        return self.call("graph.py", "next", "p-1", *self.order)
+        return self.call("graph", "next", "p-1", *self.order)
 
     def intent(self, name, ticket=None, kind="claim", **extra):
         source = self.root / (name + "-input.json")
@@ -182,11 +182,11 @@ else: raise AssertionError(a)
                 reason="批准剩余票重排",
             ),
         )
-        result = self.call("plan-operations.py", "adopt", "--input", source)
+        result = self.call("plan", "adopt", "--input", source)
         self.assertNotEqual(result, self.binding)
         evidence.bound(self.binding)
         self.assertEqual(self.next()["ticket_id"], self.order[-1])
-        self.assertEqual(self.call("plan-operations.py", "adopt", "--input", source), result)
+        self.assertEqual(self.call("plan", "adopt", "--input", source), result)
 
     def test_claim_guard_and_stale_intent(self):
         path = self.intent("wrong", self.order[-1])
@@ -226,10 +226,10 @@ else: raise AssertionError(a)
             ),
         )
         intent = self.root / "publish.json"
-        self.call("plan-operations.py", "prepare", "--input", source, "--output", intent)
-        self.call("plan-operations.py", "publish", "--intent", intent)
+        self.call("plan", "prepare", "--input", source, "--output", intent)
+        self.call("plan", "publish", "--intent", intent)
         intent.with_name(intent.stem + "-result.json").unlink()
-        self.call("plan-operations.py", "publish", "--intent", intent)
+        self.call("plan", "publish", "--intent", intent)
         state = json.loads(self.state_path.read_text())
         self.assertEqual(len(state["writes"]), 1)
         self.assertTrue(state["parent"]["description"].startswith("保留正文"))
@@ -239,7 +239,7 @@ else: raise AssertionError(a)
         self.save()
         self.assertIn(
             "正文已变化",
-            self.call("plan-operations.py", "publish", "--intent", intent, ok=False)["error"],
+            self.call("plan", "publish", "--intent", intent, ok=False)["error"],
         )
 
     def test_active_and_closed_tickets_cannot_be_moved(self):
@@ -261,7 +261,7 @@ else: raise AssertionError(a)
         )
         self.assertIn(
             "不得移动",
-            self.call("plan-operations.py", "adopt", "--input", source, ok=False)["error"],
+            self.call("plan", "adopt", "--input", source, ok=False)["error"],
         )
         self.state["children"][0]["status"] = "open"
         self.state["children"][1]["status"] = "in_progress"
@@ -285,7 +285,7 @@ else: raise AssertionError(a)
                 reason="批准重排未开始部分",
             ),
         )
-        self.call("plan-operations.py", "adopt", "--input", source)
+        self.call("plan", "adopt", "--input", source)
         with self.assertRaisesRegex(ValueError, "选择已变化"):
             tracker.execute(intent)
         self.assertEqual(json.loads(self.state_path.read_text())["writes"], [])
@@ -325,7 +325,7 @@ else: raise AssertionError(a)
         )
         self.assertIn(
             "未完成 main-sync",
-            self.call("plan-operations.py", "adopt", "--input", source, ok=False)["error"],
+            self.call("plan", "adopt", "--input", source, ok=False)["error"],
         )
         self.assertEqual(plans.selected(self.root, "p-1"), self.binding)
 
@@ -343,7 +343,7 @@ else: raise AssertionError(a)
         )
         self.assertIn(
             "previous",
-            self.call("plan-operations.py", "adopt", "--input", source, ok=False)["error"],
+            self.call("plan", "adopt", "--input", source, ok=False)["error"],
         )
         with self.assertRaisesRegex(ValueError, "未开工批次"):
             plans.adopt(

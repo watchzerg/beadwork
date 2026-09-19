@@ -7,8 +7,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+
+import report_io
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
 
@@ -42,10 +45,13 @@ def dependencies():
 class ModuleBoundaryTests(unittest.TestCase):
     def test_no_cycles_or_reverse_entry_dependencies(self):
         edges = dependencies()
-        entries = {"controller", "executor_operations"}
+        entry = {"cli"}
+        operations = {"controller", "executor_operations"}
         for name, imports in edges.items():
-            if name != "executor-operations":
-                self.assertFalse(imports & entries, (name, imports & entries))
+            if name not in {"beadwork", "cli"}:
+                self.assertFalse(imports & entry, (name, imports & entry))
+            if name not in {"cli", *operations}:
+                self.assertFalse(imports & operations, (name, imports & operations))
             seen = set()
             pending = list(imports)
             while pending:
@@ -69,6 +75,7 @@ class ModuleBoundaryTests(unittest.TestCase):
         for name in foundations:
             self.assertLessEqual(edges[name], foundations, name)
         operations = {
+            "cli",
             "controller",
             "executor_operations",
             "ticket_execution",
@@ -121,25 +128,44 @@ with patch('subprocess.Popen', side_effect=AssertionError('schema 不得执行�
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_internal_schema_apis_do_not_start_subprocesses(self):
+        with (
+            patch("subprocess.run", side_effect=AssertionError("schema 不得启动子进程")),
+            patch("subprocess.Popen", side_effect=AssertionError("schema 不得启动子进程")),
+        ):
+            values = [
+                report_io.verifier("executor", "--schema"),
+                report_io.verifier("preflight", "--schema"),
+                report_io.verifier("finalizer", "--schema"),
+                report_io.reviewer("--schema"),
+                report_io.implementer("--schema"),
+                report_io.fixer("--schema"),
+            ]
+        self.assertTrue(all(isinstance(value, dict) for value in values))
+
     def test_wrapper_schema_from_installed_symlink_and_unrelated_cwd(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             installed = folder / "installed"
             installed.symlink_to(SCRIPTS.parent, target_is_directory=True)
-            for name, role in [
-                ("verify-ticket.py", None),
-                ("verify-worker.py", "implementer"),
-                ("verify-phase.py", "finalizer"),
+            for arguments in [
+                ("verify", "ticket", "--schema"),
+                ("verify", "worker", "--schema", "implementer"),
+                ("verify", "phase", "--schema", "finalizer"),
             ]:
-                args = ["--schema"] + ([role] if role else [])
                 actual = subprocess.run(
-                    [sys.executable, "-B", str(installed / "scripts" / name), *args],
+                    [
+                        sys.executable,
+                        "-B",
+                        str(installed / "scripts/beadwork.py"),
+                        *arguments,
+                    ],
                     cwd=folder,
                     capture_output=True,
                     text=True,
                 )
                 expected = subprocess.run(
-                    [sys.executable, "-B", str(SCRIPTS / name), *args],
+                    [sys.executable, "-B", str(SCRIPTS / "beadwork.py"), *arguments],
                     cwd=SCRIPTS,
                     capture_output=True,
                     text=True,

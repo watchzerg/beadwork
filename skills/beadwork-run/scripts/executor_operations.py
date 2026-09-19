@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import sys
@@ -144,86 +143,8 @@ def check_layer(args):
 assemble = ticket_reports.assemble
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-    p = commands.add_parser("context-add")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("handoff-close")
-    for name in ("dispatch", "report", "input"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("ticket-stage")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("ticket-deliver")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--output", required=True)
-    p = commands.add_parser("ticket-adapt-plan")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--input", required=True)
-    for command in ("ticket-assemble", "implementer-assemble"):
-        p = commands.add_parser(command)
-        for name in ("dispatch", "draft", "output"):
-            p.add_argument("--" + name, required=True)
-    p = commands.add_parser("implementer-check")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--report", required=True)
-    p = commands.add_parser("implementer-accept")
-    p.add_argument("--closure")
-    for name in ("dispatch", "report", "receipt"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("begin-gate-repair")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--failure", required=True)
-    p = commands.add_parser("final-deliver")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--output", required=True)
-    p = commands.add_parser("fixer-assemble")
-    for name in ("dispatch", "draft", "output"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("fixer-check")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--report", required=True)
-    p = commands.add_parser("fixer-accept")
-    p.add_argument("--closure")
-    for name in ("dispatch", "report", "receipt"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("final-gates")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("final-stage")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("final-assemble")
-    for name in ("dispatch", "draft", "output"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("inspect")
-    p.add_argument("--dispatch", required=True)
-    p = commands.add_parser("check-layer")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--input", required=True)
-    p = commands.add_parser("review-prepare")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--resume", action="store_true", help="仅恢复原 round 的未完成准备")
-    p.add_argument("--evidence", help="无提交审查的 acceptance 映射 JSON")
-    p = commands.add_parser("review-collect")
-    for name in ("round", "input", "output"):
-        p.add_argument("--" + name, required=True)
-    p = commands.add_parser("assemble")
-    for name in ("dispatch", "draft", "output"):
-        p.add_argument("--" + name, required=True)
-    p.add_argument("--review", action="append", default=[])
-    p.add_argument(
-        "--verification-dispatch",
-        action="append",
-        default=[],
-        help="显式恢复同票旧 dispatch 的验证历史",
-    )
-    p = commands.add_parser("check")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--report", required=True)
-    args = parser.parse_args()
+def execute(args):
+    """执行已经由统一 CLI 解析的 executor 命令。"""
     action = {
         "context-add": lambda a: handoff.add_context(a.dispatch, load(a.input)),
         "handoff-close": lambda a: handoff.close(a.dispatch, a.report, load(a.input)),
@@ -253,12 +174,4 @@ def main():
         "assemble": assemble,
         "check": lambda a: check_report(a.dispatch, a.report),
     }
-    print(json.dumps(action[args.command](args), ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        sys.stderr.write(json.dumps({"error": str(error)}, ensure_ascii=False) + "\n")
-        sys.exit(1)
+    return action[args.command](args)

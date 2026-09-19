@@ -1,6 +1,5 @@
 """ticket 与 final review 共用的 append-only 文件和双轴输入机制。"""
 
-import sys
 import uuid
 from pathlib import Path
 
@@ -16,6 +15,7 @@ import repository
 import review_evidence
 import ticket_execution
 import ticket_state
+from command_argv import beadwork_argv
 
 AXES = review_evidence.AXES
 
@@ -175,17 +175,16 @@ def prepare_review(args):
         identity["handoff_required"] = bool(d.get("preflight_acceptance")) or final_state.strict(d)
         if "stage" in d:
             identity.update(stage=d["stage"], **d["models"][axis])
-        identity["self_check_argv"] = [
-            sys.executable,
-            "-B",
-            str(report_io.SCRIPTS / "verify-worker.py"),
+        identity["self_check_argv"] = beadwork_argv(
+            "verify",
+            "worker",
             "--check-report",
             "reviewer",
             identity["report_path"],
             "--expected",
             identity["dispatch_path"],
             "--emit-receipt",
-        ]
+        )
         publish_or_match(identity["report_schema_path"], report_io.reviewer("--schema"))
         publish_or_match(identity["receipt_schema_path"], report_io.reviewer("--receipt-schema"))
         publish_or_match(identity["dispatch_path"], identity)

@@ -45,7 +45,7 @@ beadwork-run 的安装与验证通过本项目 justfile 提供的契约 recipes 
 
 ## justfile
 
-目标项目提供下列入口。当前 preflight 的必需名称清单见 [preflight-operations.py](../skills/beadwork-run/scripts/preflight-operations.py) 的 `RECIPES`；具体调用方式见 skill 内的执行指令。
+目标项目提供下列入口。当前 preflight 的必需名称清单见 [preflight_operations.py](../skills/beadwork-run/scripts/preflight_operations.py) 的 `RECIPES`；具体调用方式见 skill 内的执行指令。
 
 | Recipe | 职责与调用约定 |
 | --- | --- |

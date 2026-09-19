@@ -3,8 +3,8 @@
 implementer/fixer 的 `typecheck`、`test` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe。只有 `test` 接受定向参数；`typecheck` 与完整 gate 拒绝参数。v2 finalizer 只采集带 `--delivery` 的无参数 `gate-full`，其他调用在创建运行记录前拒绝。`fmt` 和 controller 的 `install` 沿用原入口。
 
 ```bash
-python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
-python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --recipe gate-core
+python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
+python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe gate-core
 ```
 
 脚本在 dispatch.worktree 执行实际 `just` 命令，继承已准备好的环境，在本轮 `verification-*` 目录保存 started.json、完整 output.log 和完成后的 result.json。启动时 stderr 返回运行目录，结束时 stdout 返回命令、退出码、耗时、HEAD、dirty 状态和最多末尾 2048 字节/20 行日志。通常直接阅读摘要，需进一步诊断时搜索完整日志；不必重抄命令和结果。
@@ -28,8 +28,8 @@ python3 <skill-dir>/scripts/run-verification.py --dispatch <dispatch.json> --rec
 开发中的 TDD red 与定向验证沿用上述命令。实现提交后，完整交付 gates 增加 `--delivery`（放在 `--` 参数分隔符之前）；入口要求干净 HEAD，并在原始记录中区分交付候选与开发验证。
 
 ```bash
-python3 <skill-dir>/scripts/run-verification.py --dispatch <writer-dispatch.json> --recipe gate-core --delivery
-python3 <skill-dir>/scripts/executor-operations.py begin-gate-repair --dispatch <writer-dispatch.json> --failure <失败运行目录/result.json>
+python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <writer-dispatch.json> --recipe gate-core --delivery
+python3 <skill-dir>/scripts/beadwork.py executor begin-gate-repair --dispatch <writer-dispatch.json> --failure <失败运行目录/result.json>
 ```
 
 writer 确认交付失败由代码导致后，在修改前调用上述入口申请修正，每逻辑阶段最多三次，全程由当前 writer 处理。脚本核对失败来源、正常非零退出、日志、候选和逻辑阶段，返回本次编号与授予时的剩余额度；同一申请幂等重试不重复计数，新申请必须来自当前候选。环境/工具阻塞不申请；脚本不从退出码推断代码根因。

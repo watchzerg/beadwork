@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-phase.py"
+VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 SHA_A = "a" * 40
 SHA_B = "b" * 40
 
@@ -224,11 +224,14 @@ class PhaseValidatorTests(unittest.TestCase):
             )
             args.extend(["--expected", str(dispatch)])
         result = subprocess.run(
-            [sys.executable, str(VERIFIER), *args], capture_output=True, text=True
+            [sys.executable, str(VERIFIER), "verify", "phase", *args],
+            capture_output=True,
+            text=True,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0 if parsed["ok"] else 1, result.stderr)
         self.assertEqual(report_path.read_bytes(), raw)
-        return json.loads(result.stdout)
+        return parsed
 
     def rejected(self, phase: str, report: dict, check: str) -> None:
         actual = self.invoke(phase, report)

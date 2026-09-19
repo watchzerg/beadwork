@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
-import sys
 
 import evidence
 import execution_plan
@@ -244,22 +242,6 @@ def execute(intent_path):
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("prepare")
-    p.add_argument("--input", required=True)
-    p.add_argument("--output", required=True)
-    p = sub.add_parser("execute")
-    p.add_argument("--intent", required=True)
-    args = parser.parse_args()
-    result = prepare(args.input, args.output) if args.command == "prepare" else execute(args.intent)
-    print(json.dumps(result, ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)
+def execute_command(args):
+    """执行已经由统一 CLI 解析的 tracker 命令。"""
+    return prepare(args.input, args.output) if args.command == "prepare" else execute(args.intent)

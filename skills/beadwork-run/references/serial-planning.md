@@ -27,8 +27,8 @@
 ```
 
 ```bash
-python3 <skill-dir>/scripts/plan-operations.py prepare --input <publish-input.json> --output <publish-intent.json>
-python3 <skill-dir>/scripts/plan-operations.py publish --intent <publish-intent.json>
+python3 <skill-dir>/scripts/beadwork.py plan prepare --input <publish-input.json> --output <publish-intent.json>
+python3 <skill-dir>/scripts/beadwork.py plan publish --intent <publish-intent.json>
 ```
 
 脚本检查完整 children、平铺关系、逐票 blocking 依赖和活动票位置；生成只替换目标区块的正文，写前重读，写后读回。发布失败保留 intent；同一 intent 重试不会重复追加区块。正文或 parent 状态被其他人修改时重新 prepare，不覆盖对方修改。写前检查与写后验证不是跨进程事务。
@@ -53,7 +53,7 @@ python3 <skill-dir>/scripts/plan-operations.py publish --intent <publish-intent.
 
 Preflight collect 自动解析计划并保存原始来源；READY 验收再次查询现场，并固定批次计划。缺计划返回 BLOCKED，不自动按票号或 priority 推断。计划位置、范围、依赖、漂移和 reopen 检查由脚本承担；模型只核对增量交付和恢复事实。
 
-`graph.py next`、main-sync 和 child claim 共用计划事实与选择。第一张未关闭票不可领取则停止；活动票必须是该票且符合原有恢复身份。恢复使用原 claim intent、BASE、stage 和执行现场，排序不能重启或更换 writer。
+`beadwork.py graph next`、main-sync 和 child claim 共用计划事实与选择。第一张未关闭票不可领取则停止；活动票必须是该票且符合原有恢复身份。恢复使用原 claim intent、BASE、stage 和执行现场，排序不能重启或更换 writer。
 
 计划证据位于 `<primary>/.worktrees/.evidence/<parent>/execution-plan/initial.json`。调整使用唯一 `after-<前记录 SHA256>.json`，每条记录绑定前记录及批准来源；从 initial 沿来源链查找，禁止按目录时间选择。`started-*`、`closed-*` 记录领取与关闭来源，用于拒绝移动已开始票及重新打开已完成票。
 
@@ -64,7 +64,7 @@ Parent 其他正文、JSON 空白变化不影响顺序比较。执行序列变�
 用只读入口获取 parent 计划及当前选择绑定：
 
 ```bash
-python3 <skill-dir>/scripts/plan-operations.py inspect --repository-root <primary> --parent <parent-id>
+python3 <skill-dir>/scripts/beadwork.py plan inspect --repository-root <primary> --parent <parent-id>
 ```
 
 首次计划只由 READY preflight 固定，要求批次尚未开工。缺计划或已有执行现场但未采用计划时直接拒绝，不提供迁移、补建或默认排序。
@@ -84,7 +84,7 @@ python3 <skill-dir>/scripts/plan-operations.py inspect --repository-root <primar
 `previous` 必须使用 inspect 返回的已采用计划绑定，不接受 `null`。不得因下一张被阻塞就自行接纳改序。
 
 ```bash
-python3 <skill-dir>/scripts/plan-operations.py adopt --input <adopt-input.json>
+python3 <skill-dir>/scripts/beadwork.py plan adopt --input <adopt-input.json>
 ```
 
 脚本校验现场、范围和受保护位置，追加来源绑定。发布成功但接纳前中断时，执行器保持阻塞；继续同一接纳操作即可。缺来源、多个活动票、reopen、children 增删或恢复矛盾时报告具体阻塞，不改写历史。

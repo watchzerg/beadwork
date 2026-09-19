@@ -7,8 +7,8 @@ controller 执行本文件命令；子 agent 不调用。脚本只负责确定�
 claim、start/completion/stop comment、close 均通过 controller 专用入口，先核对当前步骤前置条件：
 
 ```bash
-python3 <skill-dir>/scripts/tracker_operations.py prepare --input <operation.json> --output <intent.json>
-python3 <skill-dir>/scripts/tracker_operations.py execute --intent <intent.json>
+python3 <skill-dir>/scripts/beadwork.py tracker prepare --input <operation.json> --output <intent.json>
+python3 <skill-dir>/scripts/beadwork.py tracker execute --intent <intent.json>
 ```
 
 operation 公共字段为 repository_root（primary 绝对路径）、parent_id、issue_id、kind；按操作补充：
@@ -28,8 +28,8 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 先执行 `update-main` 并将成功 JSON 原样保存到批次证据目录的新文件，再准备初始化：
 
 ```bash
-python3 <skill-dir>/scripts/batch_initialize.py prepare --input <initialize-input.json> --output <primary>/.worktrees/.evidence/<parent>/initialize/<唯一目录>/intent.json
-python3 <skill-dir>/scripts/batch_initialize.py execute --intent <intent.json>
+python3 <skill-dir>/scripts/beadwork.py batch-initialize prepare --input <initialize-input.json> --output <primary>/.worktrees/.evidence/<parent>/initialize/<唯一目录>/intent.json
+python3 <skill-dir>/scripts/beadwork.py batch-initialize execute --intent <intent.json>
 ```
 
 prepare 输入为 repository_root、parent_id、固定 expected_children、expected_assignee，以及 preflight_acceptance、update_main_result 两个 path/sha256 bindings。先建立唯一目录；脚本绑定固定 main、READY preflight 和执行计划。execute 自动创建 Beads worktree，核对共享 workspace，完成 install/env-facts/BASE gate-full、parent claim 与中文批次 comment，全部成功才发布 ready.json，返回 base_commit、comment_id 和来源。正常调用不手写步骤或 comment。
@@ -39,20 +39,20 @@ prepare 输入为 repository_root、parent_id、固定 expected_children、expec
 必要时使用只读事实入口，不能用它替代明确报告选择或宿主停止观察：
 
 ```bash
-python3 <skill-dir>/scripts/batch_evidence.py --output <facts.json> inspect --repository-root <primary> --parent-id <parent-id>
-python3 <skill-dir>/scripts/batch_evidence.py --output <manifest.json> manifest --input <manifest-input.json>
+python3 <skill-dir>/scripts/beadwork.py batch-evidence --output <facts.json> inspect --repository-root <primary> --parent-id <parent-id>
+python3 <skill-dir>/scripts/beadwork.py batch-evidence --output <manifest.json> manifest --input <manifest-input.json>
 ```
 
 manifest-input 为 parent_id、固定 expected_children、按该顺序一一对应的成功 ticket acceptance bindings。输出 tickets 和 required_boundary_gates；controller 核对实际补充边界，并继续交接原始 ticket/completion pointers，不能用 manifest 替代 review findings 或顺序执行记录。
 
-以下 controller.py 命令成功 stdout 为 JSON，非零退出停止；证据使用新文件名，输入路径均为绝对路径。
+以下 `beadwork.py controller` 命令成功 stdout 为 JSON，非零退出停止；证据使用新文件名，输入路径均为绝对路径。
 
 ## 更新 primary 的本地 main
 
 初始化及最终集成前调用：
 
 ```bash
-python3 <skill-dir>/scripts/controller.py update-main --repository-root <repository-path>
+python3 <skill-dir>/scripts/beadwork.py controller update-main --repository-root <repository-path>
 ```
 
 脚本在 fetch 前及 fast-forward 前检查 primary checkout main、干净且无未完成 Git 操作；fetch 失败时仅允许使用现存本地 `origin/main`，不能 fast-forward 则停止。返回固定 `main_commit`、`fetch_failed` 和供 comment 使用的 note。此命令与最终 `merge` 执行期间，用户需暂停操作 primary。
@@ -62,7 +62,7 @@ python3 <skill-dir>/scripts/controller.py update-main --repository-root <reposit
 仅在 frontier 为 `claim`、旧 writer 及其命令已确认结束时调用；恢复当前票仍走 `prepare executor mode=resume`。
 
 ```bash
-python3 <skill-dir>/scripts/controller.py sync-main --input <sync-input.json>
+python3 <skill-dir>/scripts/beadwork.py controller sync-main --input <sync-input.json>
 ```
 
 输入：`repository_root`、`parent_id`、固定的 `expected_children`，以及：
@@ -83,7 +83,7 @@ python3 <skill-dir>/scripts/controller.py sync-main --input <sync-input.json>
 全部 children 关闭、旧任务结束后，使用 `update-main` 返回的固定 SHA 调用：
 
 ```bash
-python3 <skill-dir>/scripts/controller.py sync-final --input <final-sync-input.json>
+python3 <skill-dir>/scripts/beadwork.py controller sync-final --input <final-sync-input.json>
 ```
 
 输入为 repository_root、parent_id、固定 expected_children、reviewed_main（完整 SHA）和本批次已确认的 install_inputs。此入口代替手工 merge，复用同步的 intent、命令日志和恢复机制，证据保存在 `final-sync/`。安装输入相对合并前 HEAD 有变化时执行 `just install`；实际合入后运行 `just env-facts`，gates 仍由 finalizer 执行。没有变化则跳过命令。
@@ -95,7 +95,7 @@ python3 <skill-dir>/scripts/controller.py sync-final --input <final-sync-input.j
 ## 准备派发材料
 
 ```bash
-python3 <skill-dir>/scripts/controller.py prepare <preflight|executor|finalizer> --input <input.json>
+python3 <skill-dir>/scripts/beadwork.py controller prepare <preflight|executor|finalizer> --input <input.json>
 ```
 
 公共输入：`repository_root`（当前仓库任一 worktree）、`parent_id`、`rules_paths`（适用规则绝对路径列表）。其他字段按角色：
@@ -119,7 +119,7 @@ finalizer root dispatch 建立 attempt 身份；finalizer 使用 final-stage 管
 先确认子 agent 及其命令已结束，将其回执原样保存到本轮证据目录。报告路径由 controller 指定，更正报告显式选中。
 
 ```bash
-python3 <skill-dir>/scripts/controller.py accept --dispatch <dispatch.json> --report <report.json> --receipt <receipt.json> --output <acceptance-N.json> --closure <closure-source.json>
+python3 <skill-dir>/scripts/beadwork.py controller accept --dispatch <dispatch.json> --report <report.json> --receipt <receipt.json> --output <acceptance-N.json> --closure <closure-source.json>
 ```
 
 复用现有 verifier 检查报告、回执和身份；executor 另核验整票 root、阶段和 implementer 来源链并执行现有 Git 验收，finalizer 检查实际 branch/HEAD、ancestry、`.beads`，成功状态要求 implementation worktree 干净。非成功报告按原状态规则允许部分证据和未提交工作。成功输出并保存绑定 dispatch/report/receipt hash 的机械验收记录；校验失败不生成通过记录。
@@ -131,7 +131,7 @@ python3 <skill-dir>/scripts/controller.py accept --dispatch <dispatch.json> --re
 controller 完成交付验收后调用：
 
 ```bash
-python3 <skill-dir>/scripts/controller.py comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
+python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
 ```
 
 只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、验证记录、review 次数、当前阶段及模型、原始非阻塞 smells 和证据路径。controller 用 `--evidence` 加入更正前的报告、补证或 fetch fallback 等额外证据，核对正文并补足本轮必要说明后，将全文作为 tracker comment 的 body 写入。integration-ready 中的 JSON 身份块保持原样。
@@ -141,7 +141,7 @@ python3 <skill-dir>/scripts/controller.py comment --acceptance <acceptance-N.jso
 仅在语义验收通过、writer 已结束、生成的 integration-ready comment 已成功写入 parent 后调用：
 
 ```bash
-python3 <skill-dir>/scripts/controller.py merge --acceptance <acceptance-N.json> --comment-id <integration-ready-id> --output <merge-checkpoint.json>
+python3 <skill-dir>/scripts/beadwork.py controller merge --acceptance <acceptance-N.json> --comment-id <integration-ready-id> --output <merge-checkpoint.json>
 ```
 
 脚本只读查询实际 parent comment，核对其 parent、BASE/HEAD 和验收证据绑定，再核对 worktree、main 与受审 HEAD。先写 checkpoint，随后 fast-forward 到固定受审 SHA。返回 `merged: true` 才能继续写 parent completion 和关闭 parent。
@@ -153,7 +153,7 @@ python3 <skill-dir>/scripts/controller.py merge --acceptance <acceptance-N.json>
 controller 完成 parent completion 并关闭后调用：
 
 ```bash
-python3 <skill-dir>/scripts/controller.py cleanup --merge-record <merge-checkpoint.json>
+python3 <skill-dir>/scripts/beadwork.py controller cleanup --merge-record <merge-checkpoint.json>
 ```
 
 脚本读取 merge checkpoint，只读查询 parent 已关闭，确认受审 HEAD 已在 main 历史中、尚存 branch 仍指向该 SHA、worktree 属于该仓库和 branch 且干净，再非强制删除。已删除的部分跳过，可重跑；证据目录保留。失败保留未清理部分。此入口只完成本地收尾，不要求远端同步或推送结果。

@@ -16,8 +16,8 @@ import test_controller as fixture
 import test_executor_operations as executor_fixture
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts"
-SCRIPT = SCRIPTS / "run-verification.py"
-ASSEMBLE = SCRIPTS / "executor-operations.py"
+SCRIPT = SCRIPTS / "beadwork.py"
+ASSEMBLE = SCRIPT
 REAL_JUST = shutil.which("just")
 
 pytestmark = pytest.mark.integration
@@ -62,6 +62,7 @@ if mode == 'hang':
             sys.executable,
             "-B",
             str(SCRIPT),
+            "run-verification",
             "--dispatch",
             str(self.dispatch),
             "--recipe",
@@ -110,6 +111,7 @@ if mode == 'hang':
             sys.executable,
             "-B",
             str(ASSEMBLE),
+            "executor",
             "assemble",
             "--dispatch",
             str(self.dispatch),
@@ -188,6 +190,7 @@ if mode == 'hang':
                 sys.executable,
                 "-B",
                 str(SCRIPT),
+                "run-verification",
                 "--dispatch",
                 str(e.dispatch),
                 "--recipe",
@@ -312,6 +315,7 @@ if mode == 'hang':
                 sys.executable,
                 "-B",
                 str(SCRIPT),
+                "run-verification",
                 "--dispatch",
                 str(self.dispatch),
                 "--recipe",

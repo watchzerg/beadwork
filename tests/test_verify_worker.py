@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/verify-worker.py"
+VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 A, B = "a" * 40, "b" * 40
 
 pytestmark = pytest.mark.integration
@@ -103,6 +103,8 @@ class WorkerDeliveryTests(unittest.TestCase):
                 sys.executable,
                 "-B",
                 str(VERIFIER),
+                "verify",
+                "worker",
                 "--check-report",
                 role,
                 str(path),
@@ -113,9 +115,10 @@ class WorkerDeliveryTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0 if parsed["ok"] else 1, result.stderr)
         self.assertEqual(raw, path.read_bytes())
-        return json.loads(result.stdout)
+        return parsed
 
     def reject(self, role, report, check):
         result = self.invoke(role, report)
@@ -229,7 +232,9 @@ class WorkerDeliveryTests(unittest.TestCase):
         for role in ("reviewer", "fixer"):
             for args in (["--schema", role], ["--receipt-schema", role]):
                 result = subprocess.run(
-                    [sys.executable, "-B", str(VERIFIER), *args], capture_output=True, text=True
+                    [sys.executable, "-B", str(VERIFIER), "verify", "worker", *args],
+                    capture_output=True,
+                    text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIsInstance(json.loads(result.stdout), dict)
@@ -240,6 +245,8 @@ class WorkerDeliveryTests(unittest.TestCase):
                 sys.executable,
                 "-B",
                 str(VERIFIER),
+                "verify",
+                "worker",
                 "--check-report",
                 "reviewer",
                 str(self.root / "report.json"),

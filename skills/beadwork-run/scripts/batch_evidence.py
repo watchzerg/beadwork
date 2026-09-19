@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 import evidence
@@ -180,17 +178,8 @@ def summary(input_path):
     return {"facts": machine, "text": "\n".join(lines) + "\n"}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("inspect")
-    p.add_argument("--repository-root", required=True)
-    p.add_argument("--parent-id", required=True)
-    for name in ("manifest", "summary"):
-        p = sub.add_parser(name)
-        p.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
+def execute(args):
+    """执行已经由统一 CLI 解析的批次证据命令。"""
     result = (
         inspect(args.repository_root, args.parent_id)
         if args.command == "inspect"
@@ -199,17 +188,4 @@ def main():
         else summary(args.input)
     )
     evidence.write(evidence.absolute(args.output), result)
-    print(
-        json.dumps(
-            {"output": str(evidence.absolute(args.output)), "sha256": evidence.digest(args.output)},
-            ensure_ascii=False,
-        )
-    )
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)
+    return {"output": str(evidence.absolute(args.output)), "sha256": evidence.digest(args.output)}

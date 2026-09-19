@@ -14,7 +14,7 @@ import execution_plan
 import test_controller as fixture
 import test_verify_phase as phase_fixture
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/preflight-operations.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
 pytestmark = pytest.mark.workflow
 
@@ -114,6 +114,7 @@ else:
                 sys.executable,
                 "-B",
                 str(SCRIPT),
+                "preflight",
                 command,
                 "--dispatch",
                 str(self.h.dispatch),

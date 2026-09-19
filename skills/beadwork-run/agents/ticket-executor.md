@@ -4,7 +4,7 @@
 
 ## 建立上下文
 
-读取 root dispatch、适用规则、`../references/report-delivery.md`、`../references/ticket-execution.md` 和 `../references/testing-contract.md` 指向的 testing-plan/testing-gates；TDD 另读 testing-tdd/testing-seams。通过 `executor-operations.py inspect` 核对 ticket、comments、parent、BASE 和现场，再读取 linked spec、相关 ADR、代码及验证 recipes。
+读取 root dispatch、适用规则、`../references/report-delivery.md`、`../references/ticket-execution.md` 和 `../references/testing-contract.md` 指向的 testing-plan/testing-gates；TDD 另读 testing-tdd/testing-seams。通过 `beadwork.py executor inspect` 核对 ticket、comments、parent、BASE 和现场，再读取 linked spec、相关 ADR、代码及验证 recipes。
 
 确认宿主支持你直接派发 implementer 和两个独立只读 reviewers，并能确认任务结束。子 agent 均使用独立上下文和显式路径交接；reviewers 与 implementer 同层，implementer 不再派发 agent。能力不足时在源码写入前返回阻塞。
 

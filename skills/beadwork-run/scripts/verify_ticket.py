@@ -2,10 +2,10 @@
 """beadwork-run 内置只读验收脚本。
 
 用法:
-  python3 verify-ticket.py --schema
-  python3 verify-ticket.py --receipt-schema
-  python3 verify-ticket.py --check-report <executor-report.json> [<receipt.json>]
-  python3 verify-ticket.py <branch> <BASE> <HEAD> <status> <executor-report.json> <expected-plan.json>
+  python3 beadwork.py verify ticket --schema
+  python3 beadwork.py verify ticket --receipt-schema
+  python3 beadwork.py verify ticket --check-report <executor-report.json> [<receipt.json>]
+  python3 beadwork.py verify ticket <branch> <BASE> <HEAD> <status> <executor-report.json> <expected-plan.json>
 
 校验结果为紧凑 JSON：ok、原始报告的 report_sha256，以及失败时的 failures；--schema 输出报告 schema，--receipt-schema 输出返回回执 schema。
 仅对 Git 只读（symbolic-ref/rev-parse/rev-list/cat-file/merge-base/log/status），无任何写操作。
@@ -472,90 +472,54 @@ def check_delivery(
     }
 
 
-def emit_result(failures: list[dict[str, Any]], report_hash: str) -> None:
-    print(
-        json.dumps(
-            {
-                "ok": not failures,
-                "report_sha256": report_hash,
-                **({"failures": failures} if failures else {}),
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-    )
-
-
-def main(argv: list[str]) -> None:
-    emit_receipt = "--emit-receipt" in argv
-    if emit_receipt:
-        argv = list(argv)
-        argv.remove("--emit-receipt")
-        if not argv or argv[0] != "--check-report":
-            raise ValueError("--emit-receipt 仅用于报告自检")
-    if argv == ["--receipt-schema"]:
-        print(json.dumps(RECEIPT, ensure_ascii=False, separators=(",", ":")))
-        return
-    if argv == ["--schema"]:
+def execute(args):
+    """执行已经由统一 CLI 解析的 executor 报告校验。"""
+    if args.schema:
+        axis_schema = axis_report_schema()
+        value = executor_schema(axis_schema)
+        check_schema(value)
+        return value
+    if args.receipt_schema:
+        return RECEIPT
+    if args.check_report:
         axis_schema = axis_report_schema()
         schema = executor_schema(axis_schema)
         check_schema(schema)
-        print(json.dumps(schema, ensure_ascii=False, separators=(",", ":")))
-        return
-    if len(argv) in (2, 3) and argv[0] == "--check-report":
-        axis_schema = axis_report_schema()
-        schema = executor_schema(axis_schema)
-        check_schema(schema)
-        report, report_hash = read_json(argv[1])
+        report, report_hash = read_json(args.check_report)
         failures = report_errors(report, schema)
-        if len(argv) == 3:
-            receipt, _ = read_json(argv[2])
+        if args.receipt:
+            receipt, _ = read_json(args.receipt)
             problems = schema_errors(receipt, RECEIPT)
             if problems:
                 failures.append({"check": "receipt_schema", "observed": problems})
             else:
                 expected = {
                     "status": report.get("status") if isinstance(report, dict) else None,
-                    "report_path": os.path.abspath(argv[1]),
+                    "report_path": os.path.abspath(args.check_report),
                     "report_sha256": report_hash,
                 }
                 for field, value in expected.items():
                     if receipt[field] != value:
                         failures.append({"check": "receipt_" + field + "_matches"})
-        if emit_receipt:
-            if len(argv) != 2 or failures:
+        if args.emit_receipt:
+            if args.receipt or failures:
                 raise ValueError(
                     json.dumps(failures or ["receipt 自检不接受已有 receipt"], ensure_ascii=False)
                 )
-            print(
-                json.dumps(
-                    {
-                        "status": report["status"],
-                        "report_path": os.path.abspath(argv[1]),
-                        "report_sha256": report_hash,
-                    }
-                )
-            )
-            return
-        emit_result(failures, report_hash)
-        return
-    if len(argv) != 6:
+            return {
+                "status": report["status"],
+                "report_path": os.path.abspath(args.check_report),
+                "report_sha256": report_hash,
+            }
+        return {
+            "ok": not failures,
+            "report_sha256": report_hash,
+            **({"failures": failures} if failures else {}),
+        }
+    if len(args.delivery) != 6:
         raise ValueError(
-            "用法：verify-ticket.py <branch> <BASE> <HEAD> <status> "
+            "用法：beadwork.py verify ticket <branch> <BASE> <HEAD> <status> "
             "<executor-report.json> <expected-plan.json>"
         )
-    branch, base, reported_head, status, report_file, plan_file = argv
-    result = check_delivery(
-        os.getcwd(), branch, base, reported_head, status, report_file, plan_file
-    )
-    print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
-
-
-if __name__ == "__main__":
-    _use_utf8()
-    try:
-        main(sys.argv[1:])
-    except Exception as error:  # noqa: BLE001 - 对齐 TS 版顶层 catch 行为
-        _use_utf8()
-        sys.stderr.write(json.dumps({"error": str(error)}, ensure_ascii=False) + "\n")
-        sys.exit(1)
+    branch, base, reported_head, status, report_file, plan_file = args.delivery
+    return check_delivery(os.getcwd(), branch, base, reported_head, status, report_file, plan_file)

@@ -1,6 +1,5 @@
 """最终集成的阶段准备和证据校验；只写证据，源码和 Git 引用只读。"""
 
-import sys
 import uuid
 from pathlib import Path
 
@@ -17,6 +16,7 @@ import report_io
 import repository
 import review_evidence
 import workflow_policy
+from command_argv import beadwork_argv
 
 same_attempt = dispatch_contract.same_attempt
 
@@ -674,16 +674,14 @@ def publish_fixer(d, previous, fixer_done):
             ("receipt_schema_path", "--receipt-schema"),
         ):
             evidence.write(fd[name], report_io.fixer(flag))
-        fd["self_check_argv"] = [
-            sys.executable,
-            "-B",
-            str(report_io.SCRIPTS / "executor-operations.py"),
+        fd["self_check_argv"] = beadwork_argv(
+            "executor",
             "fixer-check",
             "--dispatch",
             fd["dispatch_path"],
             "--report",
             fd["report_path"],
-        ]
+        )
         draft_contracts.publish(fd, "fixer")
         evidence.write(fd["dispatch_path"], fd)
         fixer_path = fd["dispatch_path"]

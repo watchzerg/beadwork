@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """发布 parent 执行计划或显式接纳剩余票改序；只操作指定 parent 和批次证据。"""
 
-import argparse
-import json
-import sys
-
 import evidence
 import execution_plan as plans
 import repository
@@ -92,20 +88,8 @@ def adopt(source):
     )
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    subs = parser.add_subparsers(dest="command", required=True)
-    p = subs.add_parser("prepare")
-    p.add_argument("--input", required=True)
-    p.add_argument("--output", required=True)
-    p = subs.add_parser("publish")
-    p.add_argument("--intent", required=True)
-    p = subs.add_parser("adopt")
-    p.add_argument("--input", required=True)
-    p = subs.add_parser("inspect")
-    p.add_argument("--repository-root", required=True)
-    p.add_argument("--parent", required=True)
-    args = parser.parse_args()
+def execute(args):
+    """执行已经由统一 CLI 解析的 plan 命令。"""
     if args.command == "prepare":
         result = prepare(args.input, args.output)
     elif args.command == "publish":
@@ -119,12 +103,4 @@ def main():
             "selected": plans.selected(args.repository_root, args.parent, False),
             "unfinished": [x["id"] for x in children if x["status"] != "closed"],
         }
-    print(json.dumps(result, ensure_ascii=False))
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)
+    return result

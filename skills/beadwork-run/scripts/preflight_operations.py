@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import NotRequired, TypedDict
@@ -316,24 +314,16 @@ class FactsCollector:
         self.check("gate_plan", project_gate_plan)
 
         def schemas():
-            for script, role in [
-                ("verify-ticket.py", None),
-                ("verify-phase.py", "preflight"),
-                ("verify-phase.py", "finalizer"),
-                ("verify-worker.py", "reviewer"),
-                ("verify-worker.py", "fixer"),
-            ]:
-                raw, _ = self.run(
-                    "schema-" + (role or "executor"),
-                    [
-                        sys.executable,
-                        "-B",
-                        report_io.SCRIPTS / script,
-                        "--schema",
-                        *([role] if role else []),
-                    ],
-                )
-                repository.require(isinstance(json.loads(raw), dict), "schema 不是对象")
+            values = {
+                "executor": report_io.verifier("executor", "--schema"),
+                "preflight": report_io.verifier("preflight", "--schema"),
+                "finalizer": report_io.verifier("finalizer", "--schema"),
+                "reviewer": report_io.reviewer("--schema"),
+                "fixer": report_io.fixer("--schema"),
+            }
+            for role, value in values.items():
+                repository.require(isinstance(value, dict), "schema 不是对象")
+                self.save("schema-" + role, value)
             return "facts/schema-*.json：全部 schema 已生成"
 
         self.check("review_schema", schemas)
@@ -519,27 +509,6 @@ def assemble(args):
     return receipt
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("collect")
-    p.add_argument("--dispatch", required=True)
-    p = sub.add_parser("assemble")
-    p.add_argument("--dispatch", required=True)
-    p.add_argument("--facts-sha256", required=True)
-    p.add_argument("--draft", required=True)
-    p.add_argument("--output", required=True)
-    args = parser.parse_args()
-    print(
-        json.dumps(
-            collect(args) if args.command == "collect" else assemble(args), ensure_ascii=False
-        )
-    )
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)
+def execute(args):
+    """执行已经由统一 CLI 解析的 preflight 命令。"""
+    return collect(args) if args.command == "collect" else assemble(args)

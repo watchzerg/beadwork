@@ -5,7 +5,7 @@ inspect 使用 root/stage executor 或 implementer dispatch；check-layer 仅由
 ## 开工或接替
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py inspect --dispatch <dispatch.json>
+python3 <skill-dir>/scripts/beadwork.py executor inspect --dispatch <dispatch.json>
 ```
 
 核对 worktree 归属、branch、BASE ancestry 和 schema/expected-plan 文件。新票要求 HEAD 等于 BASE 且现场干净；恢复票允许已有 commits 和未提交工作。查询当前 ticket、comments 和 parent，核对 ID、ticket 的 `in_progress` 与正文存在性。
@@ -17,7 +17,7 @@ executor 读取这些来源，再按 agent 指令读取规则、spec、ADR 和�
 ## 每次提交前
 
 ```bash
-python3 <skill-dir>/scripts/executor-operations.py check-layer --dispatch <dispatch.json> --input <layer.json>
+python3 <skill-dir>/scripts/beadwork.py executor check-layer --dispatch <dispatch.json> --input <layer.json>
 ```
 
 `layer.json` 仅包含 `files`（本次提交的 worktree 相对文件路径数组）和 `message`（实际 commit message）。路径逐项填写，允许删除；重命名填写旧、新两个路径，不能使用 glob、目录简写或 `..`。该清单只约束本次提交。

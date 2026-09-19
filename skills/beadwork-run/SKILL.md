@@ -58,7 +58,7 @@ preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gp
 
 按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本同时固定报告的执行计划与 `gate-plan` 来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发；boundary gates 作为每票影响范围义务保留。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
 
-进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `graph.py next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、BASE `gate-full` 或 claim。
+进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `beadwork.py graph next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、BASE `gate-full` 或 claim。
 
 `BLOCKED` 不推进流程。工具链缺失时 controller 按 recipe 输出安装声明版本，再派新 preflight 复查；已获得首次 children 集合时将其作为 `expected_children` 一并传入，不重置范围。其他缺事实、冲突或失败沿用停止处理，不自动补写 ticket。
 
@@ -77,7 +77,7 @@ preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gp
 每轮调用只读脚本，传入 preflight 记录的完整 children ID 集合（逐个参数，不是逗号拼接）：
 
 ```bash
-python3 <skill-dir>/scripts/graph.py next <parent-id> <expected-child-id>...
+python3 <skill-dir>/scripts/beadwork.py graph next <parent-id> <expected-child-id>...
 ```
 
 脚本读取 parent 执行计划，核对固定计划、children、blocking 依赖及状态，仅选择批准序列中第一张未关闭的票；`bd ready` 只判断该票是否可领取。计划缺失、变化或下一张被阻塞时停止，不回退 priority／票号排序。规划、发布和显式改序见 [serial-planning.md](references/serial-planning.md)，只在这些场景读取。按 `next` 处理：
@@ -129,7 +129,7 @@ controller 核对整票交付来源、最终状态、必要 gates 和最后 revi
 
 ### 4.1 controller 准备现场
 
-1. 用 `graph.py next` 和固定 children 集合重新确认结果为 `done`；范围变化或未全部关闭即停止。
+1. 用 `beadwork.py graph next` 和固定 children 集合重新确认结果为 `done`；范围变化或未全部关闭即停止。
 2. 执行 controller 的 `update-main`；返回的 fetch fallback note 写入最终 `integration-ready` comment。已有未完成 `sync-final` 时直接用原输入恢复，不重新选取 main。
 3. 使用返回的 `main_commit` 作为完整 `REVIEWED_MAIN` SHA，按 controller-operations.md 执行 `sync-final`：合入该 SHA，安装输入有变化时刷新依赖。成功后才派发 finalizer；冲突由 controller 加载 `resolving-merge-conflicts` 组织解决，再恢复原同步。
 4. 确认所有先前 writer 及命令已结束，准备 finalizer 输入。

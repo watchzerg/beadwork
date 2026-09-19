@@ -14,7 +14,7 @@ import pytest
 import test_controller as controller_fixture
 from fixture_support import closure_source
 
-OPS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/executor-operations.py"
+OPS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
 pytestmark = pytest.mark.workflow
 
@@ -30,7 +30,7 @@ class FinalizationTests(unittest.TestCase):
 
     def call(self, *args, ok=True):
         result = subprocess.run(
-            [sys.executable, "-B", str(OPS), *map(str, args)],
+            [sys.executable, "-B", str(OPS), "executor", *map(str, args)],
             cwd=self.h.root,
             env=self.h.env,
             text=True,
@@ -237,7 +237,8 @@ class FinalizationTests(unittest.TestCase):
             [
                 sys.executable,
                 "-B",
-                str(OPS.with_name("run-verification.py")),
+                str(OPS),
+                "run-verification",
                 "--dispatch",
                 str(dispatch),
                 "--recipe",

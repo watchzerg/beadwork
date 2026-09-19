@@ -2,9 +2,9 @@
 """preflight/finalizer 阶段报告的只读机械验收。
 
 用法：
-  python3 verify-phase.py --schema <preflight|finalizer>
-  python3 verify-phase.py --receipt-schema <preflight|finalizer>
-  python3 verify-phase.py --check-report <preflight|finalizer> <report.json> [receipt.json] [--expected dispatch.json]
+  python3 beadwork.py verify phase --schema <preflight|finalizer>
+  python3 beadwork.py verify phase --receipt-schema <preflight|finalizer>
+  python3 beadwork.py verify phase --check-report <preflight|finalizer> <report.json> [receipt.json] [--expected dispatch.json]
 
 报告和 receipt 都是 append-only 证据；本脚本不会写入 Git、Beads 或报告文件。
 """
@@ -568,58 +568,24 @@ def check(
     }
 
 
-def main(argv: list[str]) -> None:
-    emit_receipt = "--emit-receipt" in argv
-    if emit_receipt:
-        argv = list(argv)
-        argv.remove("--emit-receipt")
-        if not argv or argv[0] != "--check-report":
-            raise ValueError("--emit-receipt 仅用于报告自检")
-    if len(argv) == 2 and argv[0] == "--schema" and argv[1] in PHASES:
-        print(json.dumps(schema(argv[1]), ensure_ascii=False, separators=(",", ":")))
-        return
-    if len(argv) == 2 and argv[0] == "--receipt-schema" and argv[1] in PHASES:
-        print(json.dumps(receipt_schema(argv[1]), ensure_ascii=False, separators=(",", ":")))
-        return
-    if len(argv) < 3 or argv[0] != "--check-report" or argv[1] not in PHASES:
-        raise ValueError(
-            "用法：--check-report <preflight|finalizer> <report> [receipt] [--expected dispatch]"
-        )
-    phase, report_path = argv[1:3]
-    tail = argv[3:]
-    expected_path = None
-    if "--expected" in tail:
-        position = tail.index("--expected")
-        if position + 1 >= len(tail) or position + 2 != len(tail):
-            raise ValueError("--expected 必须位于末尾")
-        expected_path = tail[position + 1]
-        tail = tail[:position]
-    if len(tail) > 1:
-        raise ValueError("receipt 参数过多")
+def execute(args):
+    """执行已经由统一 CLI 解析的 phase 报告校验。"""
+    if args.schema:
+        return schema(args.schema)
+    if args.receipt_schema:
+        return receipt_schema(args.receipt_schema)
+    phase, report_path = args.phase, args.check_report
     report = read_json(report_path)[0]
-    result = check(phase, report_path, expected_path, tail[0] if tail else None)
+    result = check(phase, report_path, args.expected, args.receipt)
     failures, digest = result.get("failures", []), result["report_sha256"]
-    if emit_receipt:
-        if tail or failures:
+    if args.emit_receipt:
+        if args.receipt or failures:
             raise ValueError(
                 json.dumps(failures or ["receipt 自检不接受已有 receipt"], ensure_ascii=False)
             )
-        print(
-            json.dumps(
-                {
-                    "status": report["status"],
-                    "report_path": os.path.abspath(report_path),
-                    "report_sha256": digest,
-                }
-            )
-        )
-        return
-    print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
-
-
-if __name__ == "__main__":
-    try:
-        main(sys.argv[1:])
-    except Exception as error:
-        sys.stderr.write(json.dumps({"error": str(error)}, ensure_ascii=False) + "\n")
-        sys.exit(1)
+        return {
+            "status": report["status"],
+            "report_path": os.path.abspath(report_path),
+            "report_sha256": digest,
+        }
+    return result

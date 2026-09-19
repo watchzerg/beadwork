@@ -15,7 +15,7 @@ import execution_plan
 import test_verify_phase as phase_fixture
 import test_verify_ticket as ticket_fixture
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/controller.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
 pytestmark = pytest.mark.integration
 
@@ -68,6 +68,7 @@ class ControllerTests(unittest.TestCase):
                         sys.executable,
                         "-B",
                         str(SCRIPT),
+                        "controller",
                         "prepare",
                         "preflight",
                         "--input",
@@ -84,7 +85,7 @@ class ControllerTests(unittest.TestCase):
                 )
 
     def call(self, *args, ok=True):
-        argv = [sys.executable, "-B", str(SCRIPT), *map(str, args)]
+        argv = [sys.executable, "-B", str(SCRIPT), "controller", *map(str, args)]
         if getattr(self, "utility_fixture", True) and args[:2] == ("prepare", "executor"):
             code = "import sys,json;sys.path[:0]=sys.argv[1:3];from fixture_support import prepare_utility_stage;\ntry: print(json.dumps(prepare_utility_stage(json.load(open(sys.argv[3])))))\nexcept Exception as e: print(json.dumps({'error':str(e)}),file=sys.stderr);sys.exit(1)"
             argv = [
@@ -431,7 +432,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
                 )
                 schemas = json.loads(raw)
                 self.assertEqual(len(schemas), 2)
-                script = "verify-ticket.py" if role == "executor" else "verify-phase.py"
                 for key, flag, schema in zip(
                     ("report_schema_path", "receipt_schema_path"),
                     ("--schema", "--receipt-schema"),
@@ -439,9 +439,13 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
                     strict=True,
                 ):
                     self.assertEqual(self.d[key], result[key])
+                    arguments = (
+                        ["verify", "ticket", flag]
+                        if role == "executor"
+                        else ["verify", "phase", flag, role]
+                    )
                     expected = subprocess.check_output(
-                        [sys.executable, "-B", str(SCRIPT.with_name(script)), flag]
-                        + ([] if role == "executor" else [role]),
+                        [sys.executable, "-B", str(SCRIPT), *arguments],
                         env=self.env,
                         text=True,
                     )
@@ -536,7 +540,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
 
     def test_removed_push_entrypoint_cannot_publish(self):
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "push", "--input", "unused.json"],
+            [sys.executable, "-B", str(SCRIPT), "controller", "push", "--input", "unused.json"],
             cwd=self.root,
             env=self.env,
             capture_output=True,

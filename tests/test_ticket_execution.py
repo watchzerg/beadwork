@@ -59,7 +59,13 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 
     def cli(self, command, *args, ok=True, env=None):
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPTS / command), *map(str, args)],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPTS / "beadwork.py"),
+                command,
+                *map(str, args),
+            ],
             cwd=self.h.root,
             env=env or self.h.env,
             capture_output=True,
@@ -76,7 +82,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 
     def stage(self, continuation="resume", ok=True, **facts):
         result = self.cli(
-            "executor-operations.py",
+            "executor",
             "ticket-stage",
             "--dispatch",
             self.root_dispatch,
@@ -97,11 +103,17 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.h.h.git(self.h.wt, "commit", "-m", f"test-1 实现 {self.serial}")
 
     def gate(self, recipe="gate-core", fail=False, delivery=True):
-        argv = ["run-verification.py", "--dispatch", self.wd, "--recipe", recipe]
+        argv = ["--dispatch", self.wd, "--recipe", recipe]
         if delivery:
             argv.append("--delivery")
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPTS / argv[0]), *map(str, argv[1:])],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPTS / "beadwork.py"),
+                "run-verification",
+                *map(str, argv),
+            ],
             cwd=self.h.root,
             env={**self.h.env, "FAIL_GATE": recipe if fail else ""},
             capture_output=True,
@@ -137,7 +149,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         output = self.file("unused", {}, self.wd.parent)
         output.unlink()
         receipt = self.cli(
-            "executor-operations.py",
+            "executor",
             "implementer-assemble",
             "--dispatch",
             self.wd,
@@ -152,7 +164,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             if accept:
                 cp = closure_source(self.wd, output)
                 self.cli(
-                    "executor-operations.py",
+                    "executor",
                     "implementer-accept",
                     "--dispatch",
                     self.sd,
@@ -192,7 +204,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             "--output",
             output,
         ]
-        result = self.cli("executor-operations.py", *argv, ok=ok)
+        result = self.cli("executor", *argv, ok=ok)
         if ok:
             self.stage_report = output
         return result
@@ -201,7 +213,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         output = self.file("unused", {}, self.root_dispatch.parent)
         output.unlink()
         receipt = self.cli(
-            "executor-operations.py",
+            "executor",
             "ticket-deliver",
             "--dispatch",
             self.root_dispatch,
@@ -215,7 +227,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             self.acceptance = output.parent / ("accepted-" + str(self.serial) + ".json")
             cp = closure_source(self.root_dispatch, output)
             self.cli(
-                "controller.py",
+                "controller",
                 "accept",
                 "--dispatch",
                 self.root_dispatch,
@@ -334,7 +346,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         cp = closure_source(self.wd, self.writer_report)
         self.h.put(cp, {"closure_source": json.loads(cp.read_text())})
         result = self.cli(
-            "executor-operations.py",
+            "executor",
             "implementer-accept",
             "--dispatch",
             self.sd,
@@ -389,7 +401,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.deliver(ok=False)
         self.assemble(ok=False)
         self.cli(
-            "controller.py",
+            "controller",
             "accept",
             "--dispatch",
             self.root_dispatch,
@@ -415,14 +427,14 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 
     def test_review_requires_accepted_implementation_and_one_round(self):
         self.commit()
-        self.cli("executor-operations.py", "review-prepare", "--dispatch", self.sd, ok=False)
+        self.cli("executor", "review-prepare", "--dispatch", self.sd, ok=False)
         self.gate()
         self.gate("gate-demo")
         self.implement()
         self.review()
-        self.cli("executor-operations.py", "review-prepare", "--dispatch", self.sd, ok=False)
+        self.cli("executor", "review-prepare", "--dispatch", self.sd, ok=False)
         self.cli(
-            "run-verification.py",
+            "run-verification",
             "--dispatch",
             self.wd,
             "--recipe",
@@ -461,7 +473,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.implement("code_failure", ok=False)
         for number in range(3):
             result = self.cli(
-                "executor-operations.py",
+                "executor",
                 "begin-gate-repair",
                 "--dispatch",
                 self.wd,
@@ -479,7 +491,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assertEqual(self.stage_info["stage"], 1)
         failure = self.gate(fail=True)
         result = self.cli(
-            "executor-operations.py",
+            "executor",
             "begin-gate-repair",
             "--dispatch",
             self.wd,
@@ -492,7 +504,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.commit()
         failure = self.gate(fail=True)
         self.cli(
-            "executor-operations.py",
+            "executor",
             "begin-gate-repair",
             "--dispatch",
             self.wd,
@@ -566,7 +578,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.commit()
         failure = self.gate(fail=True)
         self.cli(
-            "executor-operations.py",
+            "executor",
             "begin-gate-repair",
             "--dispatch",
             self.wd,
@@ -590,7 +602,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.deliver()
         d = json.loads(self.root_dispatch.read_text())
         d.update(mode="resume", previous_dispatch=str(self.root_dispatch))
-        result = self.cli("controller.py", "prepare", "executor", "--input", self.file("resume", d))
+        result = self.cli("controller", "prepare", "executor", "--input", self.file("resume", d))
         self.assertEqual(result["dispatch_path"], str(self.root_dispatch))
         old = self.wd
         self.stage()
@@ -609,7 +621,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
     def test_tampered_writer_source_rejected(self):
         self.ready_writer()
         self.writer_report.write_text(self.writer_report.read_text() + "\n")
-        self.cli("executor-operations.py", "review-prepare", "--dispatch", self.sd, ok=False)
+        self.cli("executor", "review-prepare", "--dispatch", self.sd, ok=False)
 
     def test_checkpoint_chain_tamper_rejected(self):
         first = self.root_dispatch.parent / "checkpoint-000001.json"
@@ -632,7 +644,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.gate("test", delivery=False)
         original = self.wd
         result = self.cli(
-            "executor-operations.py",
+            "executor",
             "ticket-adapt-plan",
             "--dispatch",
             self.sd,
@@ -702,7 +714,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             review.parent,
         )
         self.cli(
-            "executor-operations.py",
+            "executor",
             "review-collect",
             "--round",
             alternate,
@@ -715,7 +727,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assemble([review], "code_failure")
         self.stage("repair")
         self.cli(
-            "executor-operations.py",
+            "executor",
             "review-collect",
             "--round",
             collection["round"]["path"],
@@ -766,7 +778,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         output = self.wd.parent / "injected-report.json"
         before = set(self.root_dispatch.parent.glob("checkpoint-*"))
         error = self.cli(
-            "executor-operations.py",
+            "executor",
             "implementer-assemble",
             "--dispatch",
             self.wd,
@@ -862,9 +874,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("模拟 round 写出前中断", failed.stderr)
         before = set(self.sd.parent.glob("review-*"))
-        resumed = self.cli(
-            "executor-operations.py", "review-prepare", "--dispatch", self.sd, "--resume"
-        )
+        resumed = self.cli("executor", "review-prepare", "--dispatch", self.sd, "--resume")
         self.assertEqual(set(self.sd.parent.glob("review-*")), before)
         self.assertEqual(Path(resumed["round_path"]).parent, next(iter(before)))
 
@@ -947,7 +957,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         selected = self.file("selection", selection)
         target = first.parent / "collection-corrected.json"
         self.cli(
-            "executor-operations.py",
+            "executor",
             "review-collect",
             "--round",
             collection["round"]["path"],
@@ -994,7 +1004,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         (self.h.wt / "unfinished.txt").write_text("保留")
         self.implement("interrupted")
         self.assemble(outcome="interrupted")
-        result = self.cli("executor-operations.py", "inspect", "--dispatch", self.root_dispatch)
+        result = self.cli("executor", "inspect", "--dispatch", self.root_dispatch)
         self.assertIn("unfinished.txt", result["workspace"]["untracked"])
 
     def test_old_writer_cannot_prepare_commit_after_review(self):
@@ -1003,7 +1013,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         (self.h.wt / "after.txt").write_text("禁止提交")
         self.h.h.git(self.h.wt, "add", "after.txt")
         self.cli(
-            "executor-operations.py",
+            "executor",
             "check-layer",
             "--dispatch",
             self.wd,
@@ -1017,7 +1027,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         failure = self.gate(fail=True)
         for _ in range(3):
             self.cli(
-                "executor-operations.py",
+                "executor",
                 "begin-gate-repair",
                 "--dispatch",
                 self.wd,
@@ -1029,7 +1039,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assemble(outcome="code_failure")
         self.implement("interrupted", accept=False)
         self.cli(
-            "executor-operations.py",
+            "executor",
             "implementer-accept",
             "--dispatch",
             self.sd,
@@ -1049,7 +1059,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.deliver()
         path = self.root_dispatch.parent / "completion.md"
         self.cli(
-            "controller.py",
+            "controller",
             "comment",
             "--acceptance",
             self.acceptance,
@@ -1070,7 +1080,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
             failure = self.gate(fail=True)
             for _ in range(3):
                 self.cli(
-                    "executor-operations.py",
+                    "executor",
                     "begin-gate-repair",
                     "--dispatch",
                     self.wd,
@@ -1200,7 +1210,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
 
         def adapt(mode):
             result = self.cli(
-                "executor-operations.py",
+                "executor",
                 "ticket-adapt-plan",
                 "--dispatch",
                 self.sd,
@@ -1253,7 +1263,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
             },
         )
         self.cli(
-            "controller.py",
+            "controller",
             "adapt-plan",
             "--dispatch",
             self.root_dispatch,
