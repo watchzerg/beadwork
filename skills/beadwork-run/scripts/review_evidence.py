@@ -1,6 +1,5 @@
 """双轴报告与 collection 的只读来源重验，不更新工作流选择。"""
 
-from pathlib import Path
 
 import dispatch_contract
 import evidence
@@ -18,7 +17,7 @@ def require_axis_sources(sources):
             raise ValueError("每轴需要 report/receipt 及可选 closure")
 
 
-def pair_from_sources(round_path, sources):
+def pair_from_sources(round_path, sources, *, verified=None):
     record = evidence.read(round_path)
     d = dispatch_contract.dispatch(evidence.bound(record["dispatch"]))
     base = d["base_commit"] if d["role"] == "executor" else d["reviewed_main"]
@@ -42,20 +41,25 @@ def pair_from_sources(round_path, sources):
                   "报告和回执必须位于该轴证据目录")
         handoff.check_close(str(identity_path), str(report), evidence.binding(sources[axis]['closure']) if sources[axis].get('closure') else None,
                             required=identity.get('handoff_required', False))
-        checked = report_io.reviewer("--check-report", report, receipt, "--expected", identity_path)
-        repository.require(checked["status"] == "COMPLETED", "reviewer 未完成，保留失败证据并返回 BLOCKED")
+        # 每次仍检查内容与 closure；只复用相同内容已通过的 reviewer 校验。
+        key = tuple((str(path), evidence.digest(path)) for path in (identity_path, report, receipt))
+        if verified is None or key not in verified:
+            checked = report_io.reviewer("--check-report", report, receipt, "--expected", identity_path)
+            repository.require(checked["status"] == "COMPLETED", "reviewer 未完成，保留失败证据并返回 BLOCKED")
+            repository.require(evidence.digest(report) == checked["report_sha256"], "验收期间报告发生变化")
+            if verified is not None:
+                verified.add(key)
         pair[axis] = evidence.read(report)
-        repository.require(evidence.digest(report) == checked["report_sha256"], "验收期间报告发生变化")
     gate = "BLOCKED" if any(f["blocking"] for r in pair.values() for f in r["findings"]) else "PASS"
     return record, d, pair, gate
 
 
-def collection(path, dispatch_path):
+def collection(path, dispatch_path, *, verified=None):
     item = evidence.read(evidence.absolute(path))
     round_path = evidence.bound(item["round"])
     sources = {axis: {key: str(evidence.bound(value)) for key, value in entries.items()}
                for axis, entries in item["sources"].items()}
-    record, previous, pair, gate = pair_from_sources(round_path, sources)
+    record, previous, pair, gate = pair_from_sources(round_path, sources, verified=verified)
     current = dispatch_contract.dispatch(dispatch_path)
     # 接替显式选择旧证据时，保留同票、同 BASE 的已完成轮次。
     keys = ("role", "repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")

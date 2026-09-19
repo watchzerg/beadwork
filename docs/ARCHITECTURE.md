@@ -71,6 +71,10 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 
 `handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排。`test_module_boundaries.py` 检查 import 回路、依赖方向、schema 冷启动和安装 symlink 入口。
 
+验证来源由 `verification_records.py` 统一发现和读取；ticket 的固定快照逐条解析一次，同时供报告摘要和 gate 覆盖判断使用。缺失 started 也有明确的目录身份，只能形成部分阻塞交付。新报告检查当前来源完整性，历史报告不重新扫描新增运行。具体快照契约见[验证采集](../skills/beadwork-run/references/verification.md)。
+
+单次 stage 验收显式传递已核验的 checkpoint 状态，并按 reviewer dispatch/report/receipt 的内容复用成功校验；跨命令不保留缓存，closure 和当前调用方身份仍逐次检查。checkpoint 直接保存累计 gate 状态，读取时不再从旧报告补字段。fixer 的固定验证来源由 worker verifier 检查一次，调用方继续检查当前来源完整性、Git 现场与收尾证据。
+
 源码拆分的范围与验证结果见[实施方案](script-modularization-plan.md)及[验收记录](script-modularization-acceptance.md)。正常流程的历史精简见[改造计划](normal-flow-simplification-plan.md)。当前初始化由 `batch_initialize.py` 完整执行；清理直接校验本地 merge checkpoint 与现场；角色只填写生成的 draft 输入契约。
 
 串行顺序由 parent 的 `ticket_order` 区块声明；`execution_plan.py` 负责解析、依赖与状态校验、批次计划来源链，`plan-operations.py` 提供发布和显式接纳入口。`expected_children` 仍表示成员集合。详见[串行规划契约](../skills/beadwork-run/references/serial-planning.md)。

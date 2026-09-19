@@ -55,25 +55,26 @@ def implementer_errors(report, d):
     if report['test_plan'] and {k: report['test_plan'][k] for k in ('mode', 'approved_seams')} != evidence.read(d['expected_plan_path']):
         errors.append('test plan 与执行计划不符')
     required = set(d.get('required_boundary_gates', []))
-    try:
-        state, _, _ = ticket_state.checkpoints(d)
-        stage = evidence.read(evidence.bound(state['stage_dispatch'])) if state['stage_dispatch'] else None
-        if stage and stage.get('implementer_dispatch') == evidence.binding(d['dispatch_path']):
-            required.update(state['required_boundary_gates'])
-    except (OSError, ValueError, KeyError, TypeError):
-        pass  # 完整验收会返回原始 checkpoint 错误；结构校验仍保留 dispatch 下限。
     if not required.issubset(report['required_boundary_gates']):
         errors.append('丢失 boundary gate 下限')
     return errors
 
 
-def check_implementation(d, report, live=False):
+def check_implementation(d, report, live=False, *, state=None):
     dispatch_contract.validate_plan(d)
     snapshot = report.get('verification_sources')
     if live and snapshot is not None:
         repository.require(snapshot == ticket_verification.verification_snapshot(d), '实现交付须包含当前全部验证来源')
     repository.require(isinstance(snapshot, list), '实现交付缺少验证来源快照')
-    rows, issues = ticket_verification.collect_verification(d, snapshot, report['verification_notes'], report['status'])
+    records, issues = ticket_verification.inspect(d, snapshot, report['verification_notes'], report['status'])
+    rows = [row[3] for row in records]
+    runs = [(start, end, path) for start, end, path, _, _ in records if end is not None]
+    state = ticket_state.checkpoints(d)[0] if state is None else state
+    required = set(d['required_boundary_gates'])
+    stage = evidence.read(evidence.bound(state['stage_dispatch'])) if state['stage_dispatch'] else None
+    if stage and stage['implementer_dispatch'] == evidence.binding(d['dispatch_path']):
+        required.update(state['required_boundary_gates'])
+    repository.require(required <= set(report['required_boundary_gates']), '丢失 boundary gate 下限')
     repository.require(report.get('verification_issues') == issues, '实现验证问题与原始来源不符')
     repository.require(not issues or (report['status'] == 'BLOCKED' and report['outcome'] in ('blocked', 'interrupted')),
               '损坏验证来源只能交付 blocked/interrupted')
@@ -94,7 +95,7 @@ def check_implementation(d, report, live=False):
     if report['status'] == 'DONE':
         required = {'gate-core', *report['required_boundary_gates']}
         latest = {}
-        for start, end, _ in sorted(ticket_verification.runs(d), key=lambda row: row[0]['started_ns']):
+        for start, end, _ in runs:
             if start.get('delivery_attempt') is not None and start['before']['head'] == head:
                 latest[start['argv'][3]] = (start, end)
         passed = {recipe for recipe, (start, end) in latest.items()
@@ -111,7 +112,7 @@ def check_implementation(d, report, live=False):
         repository.require(any(start.get('delivery_attempt') == 3 and start['before'] == end['after']
                       and start['before'] == {'head': head, 'status': ''} and end['outcome'] == 'exited'
                       and type(end['exit_code']) is int and end['exit_code'] > 0 and end['process_group_gone'] is True
-                      for start, end, _ in ticket_verification.runs(d)), '缺少第三次修复后候选失败证据')
+                      for start, end, _ in runs), '缺少第三次修复后候选失败证据')
 
 
 def implementer_check(dispatch_path, report_path):

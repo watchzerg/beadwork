@@ -26,15 +26,14 @@ def read_fixer(source, current, tolerate_verification=False):
         repository.require(Path(paths[key]).parent == Path(paths["dispatch"]).parent, "fixer 报告不在派发目录")
     checked = report_io.load_command([sys.executable, "-B", report_io.SCRIPTS / "verify-worker.py", "--check-report", "fixer",
                              paths["report"], paths["receipt"], "--expected", paths["dispatch"]])
-    verification_failed = not checked['ok']
     repository.require(checked['ok'] or (tolerate_verification and checked.get('failures')
         and all(f.startswith('fixer_verification: ') for f in checked['failures'])), 'fixer 验收失败')
+    repository.require(checked['report_sha256'] == source['report']['sha256'] == evidence.digest(paths['report']),
+                       '验收期间 fixer 报告发生变化')
     if r['status'] == 'DONE' or r.get('outcome') == 'code_failure':
         repository.require(r["stopped_tasks"], "fixer 交付必须确认任务停止")
     if fs.strict(current):
         repository.require(fs.strict(d), '严格阶段不能复用未校验运行来源的 fixer')
-        if not verification_failed:
-            fv.check(d, r)
         _, selection = fs.selected(stage_dispatch, current=False)
         handoff.check_close(paths['dispatch'], paths['report'], selection['closures'].get(source['report']['sha256']))
     head = r["head_commit"]
@@ -56,8 +55,10 @@ def fixer_check(dispatch_path, report_path, receipt_path=None, live=True):
         argv.append(receipt_path)
     checked = report_io.load_command(argv + ['--expected', dispatch_path])
     repository.require(checked['ok'], 'fixer 报告校验失败：' + str(checked.get('failures')))
-    r = evidence.read(report_path)
-    fv.check(d, r, live)
+    r, digest = evidence.read_with_digest(report_path)
+    repository.require(digest == checked['report_sha256'], '验收期间 fixer 报告发生变化')
+    if live:
+        fv.check_snapshot(d, r)
     actual = repository.git(d['worktree'], 'rev-list', '--reverse', d['base_commit'] + '..' + r['head_commit']).splitlines()
     repository.require(actual == r['fix_commits'], 'fixer 提交列表不完整')
     repository.check_batch_beads(d['worktree'], d['base_commit'], r['head_commit'])
@@ -65,7 +66,7 @@ def fixer_check(dispatch_path, report_path, receipt_path=None, live=True):
         repository.topology(d)
         repository.require(repository.sha(d['worktree'], 'HEAD') == r['head_commit'], 'fixer 交付 HEAD 已变化')
         repository.require(r['status'] != 'DONE' or not repository.status(d['worktree']), 'fixer 成功需要干净现场')
-    return {'status': r['status'], 'report_path': str(report_path), 'report_sha256': evidence.digest(report_path)}
+    return {'status': r['status'], 'report_path': str(report_path), 'report_sha256': digest}
 
 
 def fixer_assemble(dispatch_path, draft_path, output):

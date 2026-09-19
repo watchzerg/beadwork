@@ -352,6 +352,17 @@ class HandoffTests(unittest.TestCase):
         result = self.f.call('final-deliver', '--dispatch', self.f.root, '--output', self.f.root.parent / 'blocked.json')
         self.assertEqual(result['status'], 'BLOCKED')
 
+    def test_missing_started_can_deliver_partial_blocked(self):
+        stage = self.f.stage()
+        run = self.run_gate(stage)
+        (run / 'started.json').unlink()
+        report, _ = self.f.assemble(stage, outcome='blocked')
+        value = json.loads(report.read_text())
+        self.assertIsNone(value['verification_issues'][0]['verification_sources'][0]['started'])
+        result = self.f.call('final-deliver', '--dispatch', self.f.root,
+                             '--output', self.f.root.parent / 'missing-started.json')
+        self.assertEqual(result['status'], 'BLOCKED')
+
     def test_accepted_fixer_log_damage_can_deliver_partial_blocked(self):
         stage = self.f.stage()
         _, receipt = self.f.assemble(stage, outcome='code_failure', failed_gate='gate-full')

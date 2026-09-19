@@ -241,7 +241,6 @@ def prepare_stage(root_path, facts):
 require_writer = ticket_state.require_writer
 implementer_schema = implementer_reports.implementer_schema
 implementer_errors = implementer_reports.implementer_errors
-runs = ticket_verification.runs
 verification_snapshot = ticket_verification.verification_snapshot
 collect_verification = ticket_verification.collect_verification
 check_implementation = implementer_reports.check_implementation
@@ -290,7 +289,7 @@ def review_ready(d):
     w, report = resolve_source(state['implementer_sources'][-1])
     worker('--check-report', state['implementer_sources'][-1]['report']['path'],
            state['implementer_sources'][-1]['receipt']['path'], '--expected', w['dispatch_path'])
-    check_implementation(w, report, live=True)
+    check_implementation(w, report, live=True, state=state)
     repository.require(report['status'] == 'DONE' and report['stopped_tasks'], '实现未通过，不能 review')
     repository.require(state['review_round'] is None, '每 stage 只准备一轮 review；恢复使用原 round')
 

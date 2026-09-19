@@ -37,32 +37,16 @@ def checkpoints(d):
     previous = None
     state = {'stage_dispatch': None, 'implementer_sources': [], 'stage_sources': [],
              'selected_stage': None, 'selected_review': None,
-             'review_round_path': None, 'review_round': None}
+             'review_round_path': None, 'review_round': None,
+             'required_boundary_gates': list(r['required_boundary_gates']), 'gate_sources': []}
+    root_binding = evidence.binding(r['dispatch_path'])
     for i, path in enumerate(files, 1):
         repository.require(path.name == f'checkpoint-{i:06d}.json', '单票检查点不连续')
         entry = evidence.read(path)
-        repository.require(entry['previous'] == previous and entry['root'] == evidence.binding(r['dispatch_path']), '检查点链路或 root 已变化')
+        repository.require(entry['previous'] == previous and entry['root'] == root_binding, '检查点链路或 root 已变化')
         repository.require(entry['state_sha256'] == state_digest(entry['state']), '检查点状态已变化')
         state = entry['state']
         previous = evidence.binding(str(path))
-    # v1 早期 checkpoint 没有累计 gate 字段；从已绑定来源确定性补齐，
-    # 下一次追加 checkpoint 时写入新状态，不改写历史文件。
-    state = dict(state)
-    gates = list(state.get('required_boundary_gates', r.get('required_boundary_gates', [])))
-    gate_sources = list(state.get('gate_sources', []))
-    sources = list(state.get('stage_sources', [])) + list(state.get('implementer_sources', []))
-    for source_item in sources:
-        _, report = resolve_source(source_item)
-        for gate in report.get('required_boundary_gates', report.get('boundary_gates', [])):
-            if gate not in gates:
-                gates.append(gate)
-            marker = {'gate': gate, 'report': source_item['report']}
-            if marker not in gate_sources:
-                gate_sources.append(marker)
-    state['required_boundary_gates'] = gates
-    state['gate_sources'] = gate_sources
-    state.setdefault('review_round_path', None)
-    state.setdefault('review_round', None)
     return state, previous, len(files)
 
 
@@ -139,9 +123,9 @@ def select_review(d, collection_path):
         checkpoint(d, state)
 
 
-def check_selected_review(d, sources):
+def check_selected_review(d, sources, *, state=None):
     """只约束当前交付；历史阶段仍按各自绑定的原始证据校验。"""
-    state, _, _ = checkpoints(d)
+    state = checkpoints(d)[0] if state is None else state
     if state['stage_dispatch'] == evidence.binding(d['dispatch_path']):
         expected = d['prior_reviews'] + ([state['selected_review']] if state['selected_review'] else [])
         repository.require(sources == expected, '阶段报告必须保留检查点选中的完整 review；更正后需重新组装')

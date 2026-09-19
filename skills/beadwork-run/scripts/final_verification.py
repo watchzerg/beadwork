@@ -57,28 +57,33 @@ def allowed(d, report):
     return report['stage_sources'] + [s['dispatch'] for s in report['fix_sources']]
 
 
+def check_snapshot(d, report):
+    """实时完整性单独检查；结构和固定来源验收不重复执行。"""
+    damaged = [issue for issue in report['verification_issues']
+               if issue['dispatch']['path'] == d['dispatch_path']]
+    own = [s for s in report['verification_sources']
+           if verification_records.directory(s).parent == Path(d['dispatch_path']).parent]
+    captured = damaged[0]['verification_sources'] if damaged else own
+    repository.require(captured == snapshot(d), '交付遗漏当前运行来源')
+
+
 def check(d, report, live=False):
     sources = report.get('verification_sources')
     repository.require(isinstance(sources, list), '缺少验证来源快照')
     issues = report.get('verification_issues', [])
     repository.require(not issues or (report['status'] == 'BLOCKED' and report.get('outcome') in ('blocked', 'interrupted')),
               '验证来源损坏只能交付部分 BLOCKED')
-    damaged = set()
     for issue in issues:
-        origin_path = evidence.bound(issue['dispatch'])
+        evidence.bound(issue['dispatch'])
         repository.require(issue['dispatch'] in allowed(d, report), '损坏证据不属于本次交付')
-        origin = evidence.read(origin_path)
         try:
-            damaged_sources = issue.get('verification_sources')
-            records(d, snapshot(origin) if damaged_sources is None else damaged_sources, [issue['dispatch']], {}, False)
+            records(d, issue['verification_sources'], [issue['dispatch']], {}, False)
         except (OSError, ValueError, KeyError, TypeError) as error:
             repository.require(issue['reason'] == str(error), '验证损坏原因已变化，需更正报告')
         else:
             repository.require(False, '不能将有效验证声明为损坏')
-        damaged.add(str(origin_path))
     if live:
-        own = [s for s in sources if evidence.read(evidence.bound(s['started']))['dispatch_path'] == d['dispatch_path']]
-        repository.require(d['dispatch_path'] in damaged or own == snapshot(d), '交付遗漏当前运行来源')
+        check_snapshot(d, report)
     passed = report['status'] in ('DONE', 'READY_TO_MERGE')
     rows = records(d, sources, allowed(d, report), report.get('verification_notes', {}), passed)
     repository.require(report['verification'] == [row[-1] for row in rows], '验证报告与原始运行不符')
@@ -107,11 +112,10 @@ def populate(d, report, inherited=()):
     for binding in allowed(d, report):
         origin = evidence.read(evidence.bound(binding))
         # 历史交付使用固定快照；只有当前执行者收集新增运行。
-        selected = [s for s in inherited if Path(s['started']['path']).parent.parent == Path(origin['dispatch_path']).parent]
+        selected = [s for s in inherited if verification_records.directory(s).parent == Path(origin['dispatch_path']).parent]
         captured = selected
         try:
             if origin['dispatch_path'] == d['dispatch_path']:
-                captured = None
                 selected = snapshot(d)
                 captured = selected
             records(d, selected, [binding], {}, False)

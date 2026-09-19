@@ -161,7 +161,8 @@ def prepare_stage(dispatch_path, facts):
 read_fixer = fixer_reports.read_fixer
 
 
-def check_report(expected, report):
+def check_report(expected, report, *, review_checks=None):
+    review_checks = set() if review_checks is None else review_checks
     if expected.get("finalization_version") not in (1, 2):
         return
     repository.require(report.get("attempt_id") == expected["attempt_id"] and report.get("stage_sources"), "缺少最终阶段身份或来源")
@@ -184,7 +185,7 @@ def check_report(expected, report):
         historical_verification = [v for v in historical_verification if Path(v['log_path']).parent.parent not in unavailable_dirs]
     repository.require(report['verification'][:len(historical_verification)] == historical_verification, '丢失历史验证')
     repository.require(all(g in report["gate_sources"] for g in d["prior_gate_sources"]), "丢失 gate 来源")
-    check_review_history(d, report, reviews)
+    check_review_history(d, report, reviews, review_checks=review_checks)
     code_failure_evidence = any(not item["passed"] and item["head_commit"] == report["head_commit"]
                                 for item in report["verification"][len(d["prior_verification"]):])
     if len(reviews) > len(d["prior_reviews"]):
@@ -232,13 +233,14 @@ def assemble(dispatch_path, draft_path, output_path):
     reviews = [str(evidence.bound(item)) for item in selected_reviews]
     fixes = selected['fixes']
     r = draft_contracts.read(d, draft_path, 'finalizer')
+    review_checks = set()
     r['verification_notes'] = {**selected_verification_notes(d), **r.get('verification_notes', {})}
     head = repository.sha(d["worktree"], "HEAD")
     r.update(parent_id=d["parent_id"], expected_children=d["expected_children"], reviewed_main=d["reviewed_main"],
              start_head=d["start_head"], head_commit=head, required_gates=d["required_boundary_gates"],
              stage=d["stage"], attempt_id=d["attempt_id"], stage_sources=d["previous_stages"] + [evidence.binding(dispatch_path)],
              review_sources=[evidence.binding(path) for path in reviews], fix_sources=fixes,
-             review_rounds=[review_evidence.collection(path, dispatch_path)[0] for path in reviews],
+             review_rounds=[review_evidence.collection(path, dispatch_path, verified=review_checks)[0] for path in reviews],
              workspace={"branch": d["branch"], "observed_head": head, "clean": not repository.status(d["worktree"])})
     fs.gates(d, r['boundary_gates'], r['gate_sources'])
     _, chosen = fs.selected(d)
@@ -273,7 +275,7 @@ def assemble(dispatch_path, draft_path, output_path):
         inherited = prior['verification_sources'] + [s for s in inherited if s not in prior['verification_sources']]
         r.setdefault('verification_notes', {}).update(prior.get('verification_notes', {}))
     fv.populate(d, r, inherited)
-    check_report(d, r)
+    check_report(d, r, review_checks=review_checks)
     output = dispatch_contract.output_path(output_path, Path(dispatch_path).parent)
     evidence.write(output, r)
     checked = report_io.verifier("finalizer", "--check-report", output, "--expected", dispatch_path)
@@ -480,13 +482,13 @@ def check_stage_history(expected, report, d, stages):
             repository.require(b["stage_base"] == a["stage_base"], "同阶段恢复改变 BASE")
 
 
-def check_review_history(d, report, reviews):
+def check_review_history(d, report, reviews, *, review_checks=None):
     repository.require(len(reviews) == len(report["review_rounds"]) <= len(workflow_policy.FINAL_STAGE_MODELS), "review 历史数量不符")
     repository.require(len(reviews) <= len(d["prior_reviews"]) + 1, "每阶段最多新增一轮 review")
     previous_head = d["reviewed_main"]
     previous_review_stage = -1
     for index, (source, pair) in enumerate(zip(reviews, report["review_rounds"])):
-        actual, gate = review_evidence.collection(str(evidence.bound(source)), d["dispatch_path"])
+        actual, gate = review_evidence.collection(str(evidence.bound(source)), d["dispatch_path"], verified=review_checks)
         repository.require(actual == pair, "review 与原始来源不符")
         head = pair["spec"]["reviewed_head"]
         repository.git(d["worktree"], "merge-base", "--is-ancestor", previous_head, head)

@@ -37,11 +37,7 @@ def digest(path):
     return evidence.digest(path)
 
 
-def write(path, value):
-    with open(path, "x", encoding="utf-8") as stream:
-        json.dump(value, stream, ensure_ascii=False, indent=2)
-        stream.write("\n")
-
+write = evidence.write
 
 dispatch = dispatch_contract.verification_dispatch
 

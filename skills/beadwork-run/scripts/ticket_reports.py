@@ -18,7 +18,7 @@ import review_evidence
 import ticket_state
 import workflow_policy
 
-def check_stage_report_core(d, report):
+def check_stage_report_core(d, report, *, review_checks=None):
     if d.get("execution_contract") != 2:
         repository.require("delivery_kind" not in report, "旧 dispatch 不接受新交付分支")
     elif report["status"] == "DONE":
@@ -38,7 +38,7 @@ def check_stage_report_core(d, report):
         repository.require("rounds" in review and len(sources) == len(review["rounds"]), "需要完整 review rounds 和来源")
         for source, pair in zip(sources, review["rounds"]):
             path = evidence.bound(source)
-            actual, _ = review_evidence.collection(str(path), d["dispatch_path"])
+            actual, _ = review_evidence.collection(str(path), d["dispatch_path"], verified=review_checks)
             repository.require(actual == pair, "报告轮次与原始 collection 不符")
         if len(sources) > len(prior):
             item = evidence.read(sources[-1]["path"])
@@ -125,11 +125,14 @@ def check_report(dispatch_path, report_path):
     return {"status": report["status"], "report_path": str(p), "report_sha256": checked["report_sha256"]}
 
 
-def check_stage(d, report):
-    _check_stage(d, report, set())
+def check_stage(d, report, *, state=None):
+    state = ticket_state.checkpoints(d)[0] if state is None else state
+    _check_stage(d, report, set(), state=state, review_checks=set())
 
 
-def _check_stage(d, report, verified):
+def _check_stage(d, report, verified, *, state=None, review_checks=None):
+    state = ticket_state.checkpoints(d)[0] if state is None else state
+    review_checks = set() if review_checks is None else review_checks
     repository.require(d.get('ticket_scope') == 'stage', '需要阶段 dispatch')
     execution = report.get('execution')
     repository.require(execution and execution['stage_dispatch'] == evidence.binding(d['dispatch_path'])
@@ -159,15 +162,16 @@ def _check_stage(d, report, verified):
                   and stage_limit == default_limit + additional
                   and isinstance(extension.get('reason'), str) and extension['reason'].strip(),
                   '追加 stage 缺少匹配的用户授权证据')
-    ticket_state.check_selected_review(d, (report.get('review') or {}).get('sources', []))
+    ticket_state.check_selected_review(d, (report.get('review') or {}).get('sources', []), state=state)
     recovery = evidence.read(evidence.bound(d['stage_recovery'])) if d.get('stage_recovery') else None
     recovered_stage = False
     previous = None
     for item in d['prior_stages']:
         old, prior = ticket_state.resolve_source(item)
         dispatch_contract.same_ticket(d, old)
+        repository.require(old['ticket_root'] == d['ticket_root'], '历史 stage 属于其他 ticket root')
         repository.require(old['stage'] == (0 if previous is None else previous + 1), '历史 stage 不连续')
-        _check_stage(old, prior, verified)
+        _check_stage(old, prior, verified, state=state, review_checks=review_checks)
         if prior['outcome'] != 'code_failure':
             repository.require(recovery and not recovered_stage and prior['outcome'] == 'blocked'
                       and recovery['kind'] == 'unregistered-gate-repair'
@@ -184,11 +188,11 @@ def _check_stage(d, report, verified):
     for item in sources:
         w, implementation = ticket_state.resolve_source(item)
         dispatch_contract.same_ticket(d, w)
+        repository.require(w['ticket_root'] == d['ticket_root'], '实现来源属于其他 ticket root')
         repository.require(w['stage'] == d['stage'] and w['gate_repair_root'] == d['gate_repair_root'], '实现来源不属于本阶段')
         report_io.implementer('--check-report', item['report']['path'], item['receipt']['path'], '--expected', w['dispatch_path'])
-        implementer_reports.check_implementation(w, implementation)
-        all_states = ticket_state.checkpoints(d)[0]
-        closure = all_states.get('closures', {}).get(item['report']['sha256'])
+        implementer_reports.check_implementation(w, implementation, state=state)
+        closure = state.get('closures', {}).get(item['report']['sha256'])
         handoff.check_close(w['dispatch_path'], item['report']['path'], closure, required=bool(w.get('preflight_acceptance')))
     if sources:
         repository.require(implementation['head_commit'] == report['head_commit'], '阶段 HEAD 与最后实现交付不符')
@@ -204,7 +208,7 @@ def _check_stage(d, report, verified):
         repository.require(sources and implementation['outcome'] == 'code_failure', '缺少 implementer gate 失败交付')
     if report['status'] == 'DONE' or report['outcome'] == 'code_failure':
         repository.require(execution['stopped_tasks'], '成功或阶段推进必须确认任务结束')
-    check_stage_report_core(d, report)
+    check_stage_report_core(d, report, review_checks=review_checks)
     verified.add(key)
 
 
@@ -216,7 +220,7 @@ def check_ticket(d, report):
     repository.require(selected == report, 'root 报告必须原样引用选中的阶段报告')
     repository.require(state['stage_dispatch'] == evidence.binding(stage['dispatch_path']), '选中阶段不是当前阶段')
     repository.require(report['execution']['implementers'] == state['implementer_sources'], '实现来源不完整')
-    check_stage(stage, report)
+    check_stage(stage, report, state=state)
     if report['outcome'] == 'code_failure':
         repository.require(stage['stage'] == stage.get('stage_limit', len(workflow_policy.STAGE_MODELS) - 1),
                   '未耗尽 stage 的代码失败由 executor 内部处理')
@@ -229,7 +233,7 @@ def assemble_stage(args):
     repository.require(state['stage_dispatch'] == evidence.binding(args.dispatch), '不是当前 stage')
     selected_reviews = d['prior_reviews'] + ([state['selected_review']] if state['selected_review'] else [])
     review_paths = [str(evidence.bound(item)) for item in selected_reviews]
-    ticket_state.check_selected_review(d, selected_reviews)
+    ticket_state.check_selected_review(d, selected_reviews, state=state)
     report = draft_contracts.read(d, args.draft, 'executor')
     stopped = report.pop('stopped_tasks')
     repository.require(type(stopped) is bool, 'stopped_tasks 必须为布尔值')

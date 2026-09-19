@@ -146,11 +146,17 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.ready_writer(); self.assemble([self.review()])
         dispatch, report = evidence.read(self.sd), evidence.read(self.stage_report)
         with patch.dict(os.environ, self.h.env), patch.object(
-                ticket_reports.report_io, 'implementer', wraps=ticket_reports.report_io.implementer) as checks:
+                ticket_reports.report_io, 'implementer', wraps=ticket_reports.report_io.implementer) as checks, patch.object(
+                ticket_reports.report_io, 'reviewer', wraps=ticket_reports.report_io.reviewer) as reviews, patch.object(
+                ticket_reports.ticket_state, 'checkpoints', wraps=ticket_reports.ticket_state.checkpoints) as checkpoints:
             ticket_reports.check_stage(dispatch, report)
             self.assertEqual(checks.call_count, 3)
+            self.assertEqual(reviews.call_count, 6)
+            self.assertEqual(checkpoints.call_count, 1)
             ticket_reports.check_stage(dispatch, report)
             self.assertEqual(checks.call_count, 6)
+            self.assertEqual(reviews.call_count, 12)
+            self.assertEqual(checkpoints.call_count, 2)
             historical = Path(dispatch['prior_stages'][0]['report']['path'])
             original = historical.read_bytes()
             historical.write_bytes(original + b'\n')
@@ -542,6 +548,35 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertEqual(report['outcome'], 'blocked')
         self.assertTrue(report['verification_issues'])
         self.assemble(outcome='blocked'); self.deliver()
+
+    def test_missing_started_can_deliver_partial_blocked_through_controller(self):
+        self.commit(); self.gate()
+        next(self.wd.parent.glob('verification-*/started.json')).unlink()
+        self.implement('blocked')
+        report = evidence.read(self.writer_report)
+        self.assertIsNone(report['verification_issues'][0]['source']['started'])
+        self.assemble(outcome='blocked'); self.deliver()
+
+    def test_truncated_started_cannot_deliver_done_or_code_failure(self):
+        self.commit(); self.gate(); self.gate('gate-demo')
+        next(self.wd.parent.glob('verification-*/started.json')).write_text('{')
+        for outcome in ('passed', 'code_failure'):
+            self.implement(outcome, ok=False)
+        self.implement('blocked')
+        self.assemble(outcome='blocked'); self.deliver()
+
+    def test_historical_implementation_coverage_uses_bound_snapshot(self):
+        import implementer_reports
+        self.commit(); self.gate(); self.gate('gate-demo')
+        self.implement(accept=False)
+        # 同 HEAD 后续失败只进入新报告；原报告的固定来源仍可独立验收。
+        original = evidence.read(self.writer_report)
+        self.gate(fail=True)
+        d = evidence.read(self.wd)
+        with patch.dict(os.environ, self.h.env):
+            implementer_reports.check_implementation(d, original)
+            with self.assertRaisesRegex(ValueError, '全部验证来源'):
+                implementer_reports.check_implementation(d, original, live=True)
 
     def test_same_head_review_correction_keeps_stage_and_original(self):
         self.ready_writer()
