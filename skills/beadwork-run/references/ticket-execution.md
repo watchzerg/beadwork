@@ -12,7 +12,7 @@ python3 <skill-dir>/scripts/executor-operations.py ticket-stage --dispatch <root
 
 - `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
 - `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到当前授权上限（dispatch.stage_limit，未设置时为默认 stage 5）。
-- `continuation: recover`：仅恢复已按 `blocked` 封存的未登记 gate 修正。旧阶段必须已有已绑定候选、review 尚未开始、当前干净 HEAD 是该候选的不同后继并与阶段报告一致，且旧任务已结束；同时提供非空 `recovery_reason`。脚本在旧阶段目录追加 `unregistered-gate-repair-recovery.json`，再建立下一阶段并消耗一个 stage。普通环境、spec、seam 或证据阻塞不能使用该入口。
+- `continuation: recover`：仅恢复已按 `blocked` 封存的未登记 gate 修正。review 尚未开始、当前干净 HEAD 必须与阶段报告一致并且是修正前候选的不同后继，旧任务必须结束，同时提供非空 `recovery_reason`。已有已绑定 repair 候选时直接引用；首次修正在 `begin-gate-repair` 前提交、尚无候选时必须另传 `recovery_failure`，绑定修正前原始 delivery gate 失败的 `result.json`。脚本验证失败的 stage identity、日志哈希、干净 HEAD、退出状态和 ancestry，在旧阶段目录追加 `unregistered-gate-repair-recovery.json`，再建立下一阶段并消耗一个 stage。普通环境、spec、seam 或证据阻塞不能使用该入口。
 - `continuation: extend`：每张 ticket 仅可追加一次，仅在默认 stage 5 交付 `code_failure` 且旧任务已停止后使用。controller 交接用户明确追加的额度与授权说明，executor 传入 `additional_stages`（整数 1–5）和非空 `extension_reason`；普通“继续”、自动重试或接替会话不构成追加授权。脚本在检查通过后追加授权证据并建立下一 stage，上限为默认上限加追加数量。新增 stage 沿用最高模型档；repair/resume 继承授权及计数，扩展上限耗尽后停止，不能再次 extend。
 - 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
 

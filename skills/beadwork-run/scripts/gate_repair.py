@@ -73,6 +73,39 @@ def delivery(d, before):
     return used
 
 
+def failure_source(d, failure):
+    """校验并返回属于当前逻辑阶段的原始 delivery gate 失败。"""
+    p = root(d)
+    result_path = Path(failure).resolve()
+    repository.require(result_path.name == 'result.json', '需要原始 result.json')
+    result = evidence.read(result_path)
+    start_path = result_path.parent / 'started.json'
+    start = evidence.read(start_path)
+    origin_path = Path(start['dispatch_path'])
+    origin = evidence.read(origin_path)
+    same_role = d.get('role') == origin.get('role')
+    ticket_recovery = (d.get('ticket_scope') == 'stage' and d.get('role') == 'executor'
+                       and origin.get('role') == 'implementer')
+    repository.require(same_role or ticket_recovery, '失败 writer 与当前逻辑阶段不符')
+    keys = ('repository_root', 'worktree', 'branch', 'parent_id', 'ticket_id', 'base_commit', 'stage', 'attempt_id')
+    repository.require(all(d.get(k) == origin.get(k) for k in keys) and root(origin) == p,
+              '失败不属于当前逻辑阶段')
+    repository.require(result_path.parent.parent == origin_path.parent and result_path.parent.name.startswith('verification-'),
+              '失败证据目录不符')
+    log = result_path.parent / 'output.log'
+    repository.require(start['dispatch_sha256'] == evidence.digest(origin_path)
+              and result['started_sha256'] == evidence.digest(start_path)
+              and result['log_sha256'] == evidence.digest(log) and result['log_bytes'] == log.stat().st_size,
+              '失败来源或日志已变化')
+    attempt = start.get('delivery_attempt')
+    repository.require(type(attempt) is int and 0 <= attempt <= MAX_REPAIRS and result['outcome'] == 'exited'
+              and type(result['exit_code']) is int and result['exit_code'] > 0
+              and result['process_group_gone'] is True and start['before'] == result['after']
+              and not start['before']['status'], '仅交付候选的正常代码失败可申请修正；不接受开发 red 或中断')
+    repository.git(d['worktree'], 'merge-base', '--is-ancestor', start['before']['head'], 'HEAD')
+    return p, result_path, start, attempt
+
+
 def begin(args):
     source = Path(args.dispatch).resolve()
     d = evidence.read(source)
@@ -86,25 +119,7 @@ def begin(args):
     repository.topology(d)
     p = root(d)
     repository.require(not (p / 'gate-review-started.json').exists() and not any(x.is_dir() for x in p.glob('review-*')), 'review 已开始，不能就地修正')
-    result_path = Path(args.failure).resolve()
-    repository.require(result_path.name == 'result.json', '需要原始 result.json')
-    result = evidence.read(result_path)
-    start_path = result_path.parent / 'started.json'
-    start = evidence.read(start_path)
-    origin_path = Path(start['dispatch_path'])
-    origin = evidence.read(origin_path)
-    keys = ('role', 'repository_root', 'worktree', 'branch', 'parent_id', 'ticket_id', 'base_commit', 'stage', 'attempt_id')
-    repository.require(all(d.get(k) == origin.get(k) for k in keys) and root(origin) == p, '失败不属于当前逻辑阶段')
-    repository.require(result_path.parent.parent == origin_path.parent and result_path.parent.name.startswith('verification-'), '失败证据目录不符')
-    log = result_path.parent / 'output.log'
-    repository.require(start['dispatch_sha256'] == evidence.digest(origin_path) and result['started_sha256'] == evidence.digest(start_path)
-              and result['log_sha256'] == evidence.digest(log) and result['log_bytes'] == log.stat().st_size, '失败来源或日志已变化')
-    attempt = start.get('delivery_attempt')
-    repository.require(type(attempt) is int and 0 <= attempt <= MAX_REPAIRS and result['outcome'] == 'exited'
-              and type(result['exit_code']) is int and result['exit_code'] > 0
-              and result['process_group_gone'] is True and start['before'] == result['after']
-              and not start['before']['status'], '仅交付候选的正常代码失败可申请修正；不接受开发 red 或中断')
-    repository.git(d['worktree'], 'merge-base', '--is-ancestor', start['before']['head'], 'HEAD')
+    _, result_path, start, attempt = failure_source(d, args.failure)
     entry = {'failure': {'path': str(result_path), 'sha256': evidence.digest(result_path)}, 'stage': d['stage']}
     repository.require(attempt < MAX_REPAIRS, '本阶段三次 gate 修正已用尽')
     used = used_repairs(p)

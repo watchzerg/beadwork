@@ -299,6 +299,26 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assertEqual(self.stage_info['stage'], 2)
         self.ready_writer(); self.assemble([self.review()]); self.deliver()
 
+    def test_unregistered_first_gate_repair_recovers_from_bound_failure(self):
+        self.commit()
+        failure = self.gate(fail=True)
+        failed_head = self.h.h.git(self.h.wt, 'rev-parse', 'HEAD')
+        self.commit()
+        recovered = self.h.h.git(self.h.wt, 'rev-parse', 'HEAD')
+        self.implement('blocked')
+        self.assemble(outcome='blocked')
+
+        result = self.stage('recover', recovery_reason='修正提交早于首次 begin-gate-repair 登记',
+                            recovery_failure=str(failure))
+
+        self.assertEqual(result['stage'], 1)
+        dispatch = json.loads(self.sd.read_text())
+        self.assertEqual(dispatch['stage_base'], recovered)
+        recovery = json.loads(Path(dispatch['stage_recovery']['path']).read_text())
+        self.assertEqual(recovery['failure']['path'], str(Path(failure).resolve()))
+        self.assertEqual(recovery['previous_head'], failed_head)
+        self.assertEqual(recovery['recovered_head'], recovered)
+
     def test_unregistered_gate_repair_recovery_rejects_generic_block(self):
         self.commit()
         self.implement('blocked')

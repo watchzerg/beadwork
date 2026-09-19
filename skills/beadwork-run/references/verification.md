@@ -34,7 +34,7 @@ python3 <skill-dir>/scripts/executor-operations.py begin-gate-repair --dispatch 
 
 writer 确认交付失败由代码导致后，在修改前调用上述入口申请修正，每逻辑阶段最多三次，全程由当前 writer 处理。脚本核对失败来源、正常非零退出、日志、候选和逻辑阶段，返回本次编号与授予时的剩余额度；同一申请幂等重试不重复计数，新申请必须来自当前候选。环境/工具阻塞不申请；脚本不从退出码推断代码根因。
 
-如果 writer 已经提交修正才发现遗漏了 `begin-gate-repair`，不要覆盖 repair/candidate 记录、重置分支或把当前 HEAD 冒充旧候选。停止 writer，将阶段按 `blocked` 完整交付；controller 解除流程阻塞后，executor 使用 `ticket-stage` 的 `continuation: recover` 和具体 `recovery_reason`。该入口只接受旧候选的干净后继并追加恢复记录，然后在下一 stage 重新执行完整交付 gates 和双轴 review。
+如果 writer 已经提交修正才发现遗漏了 `begin-gate-repair`，不要覆盖 repair/candidate 记录、重置分支或把当前 HEAD 冒充旧候选。停止 writer，将阶段按 `blocked` 完整交付；controller 解除流程阻塞后，executor 使用 `ticket-stage` 的 `continuation: recover` 和具体 `recovery_reason`。已有 repair 候选时该入口只接受其干净后继；首次修正尚无候选时另传修正前原始 delivery gate 失败 `result.json` 的绝对路径作为 `recovery_failure`。脚本追加恢复记录，然后在下一 stage 重新执行完整交付 gates 和双轴 review。
 
 当前 writer 集中修正，可运行必要的定向验证；提交后以 `--delivery` 重跑受影响的交付 gates。每次修正后的第一次重跑绑定该次候选 HEAD，其余交付 gates 必须使用同一 HEAD。该候选再有代码失败时，有余额则申请下一次修正；三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，不按 recipe 或失败类型增加；环境修复可在同 HEAD 重跑。review 开始后不能申请修正。
 
