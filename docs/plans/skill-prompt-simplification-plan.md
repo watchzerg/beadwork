@@ -2,7 +2,7 @@
 
 日期：2026-09-16。
 
-状态：提示词精简已实施并同步到安装源码；P06 自动初始化替代仍保留为未完成项。实施与验证详情见 [验收记录](skill-prompt-simplification-acceptance.md)。本文下述内容保留原计划目标与完成标准；未修改生产脚本或消费项目，未启动真实 ticket graph。
+状态：提示词精简已实施并同步到安装源码；P06 自动初始化替代仍保留为未完成项。实施与验证详情见 [验收记录](../acceptance/skill-prompt-simplification-acceptance.md)。本文下述内容保留原计划目标与完成标准；未修改生产脚本或消费项目，未启动真实 ticket graph。
 
 ## 1. 目标与分析基线
 
@@ -18,7 +18,7 @@
 - 模型组合、阶段推进、gate-fix 和恢复约束在同一角色会读取的多份文件中重复。
 - 部分角色同时读取职责说明、操作协议和恢复协议，正常路径也会加载当前不适用的细节。
 
-这些是静态发现，不是精简后成功率或 token 收益的实测结果。原有 [脚本化计划](script-automation-refactoring-plan.md) 与 [验收记录](script-automation-refactoring-acceptance.md) 保留，不重写其历史状态；本计划以实施时源码为准核对残留。
+这些是静态发现，不是精简后成功率或 token 收益的实测结果。原有 [脚本化计划](script-automation-refactoring-plan.md) 与 [验收记录](../acceptance/script-automation-refactoring-acceptance.md) 保留，不重写其历史状态；本计划以实施时源码为准核对残留。
 
 ## 2. 范围与不可削弱的约束
 
@@ -81,7 +81,7 @@ P06 的差异核对可以提前进行；不得因它尚未完成而阻止其他�
 
 ### P01：移除 finalizer 的过期来源搬运
 
-修改 [最终执行协议](../skills/beadwork-run/references/final-execution.md)、[finalizer](../skills/beadwork-run/agents/finalizer.md) 和 [review 协议](../skills/beadwork-run/references/review.md)。依据 [finalization.py](../skills/beadwork-run/scripts/finalization.py) 与 CLI 核对当前 v2 和 legacy 的差别。
+修改 [最终执行协议](../../skills/beadwork-run/references/final-execution.md)、[finalizer](../../skills/beadwork-run/agents/finalizer.md) 和 [review 协议](../../skills/beadwork-run/references/review.md)。依据 [finalization.py](../../skills/beadwork-run/scripts/finalization.py) 与 CLI 核对当前 v2 和 legacy 的差别。
 
 1. v2 正常 `final-assemble` 示例仅提供 dispatch、draft、output；明确已选 review/fixer 来源由检查点生成。
 2. 删除正常路径手工拼接 `review_rounds`、`collection.pair`、完整 fixer binding 数组的要求。
@@ -93,7 +93,7 @@ P06 的差异核对可以提前进行；不得因它尚未完成而阻止其他�
 
 ### P02：统一报告交付的正常入口
 
-修改 [交付契约](../skills/beadwork-run/references/report-delivery.md) 及直接调用它的角色文件。
+修改 [交付契约](../../skills/beadwork-run/references/report-delivery.md) 及直接调用它的角色文件。
 
 1. 将“派发者手工建目录、生成 schema、写 dispatch”替换为使用对应 prepare/stage/review-prepare 返回的产物。
 2. 保留绝对路径、固定身份、读取 schema、原样短回执和独立验收的要求。
@@ -105,7 +105,7 @@ P06 的差异核对可以提前进行；不得因它尚未完成而阻止其他�
 
 ### P03：收敛模型与阶段说明
 
-依据 [workflow_policy.py](../skills/beadwork-run/scripts/workflow_policy.py) 核对模型与额度。
+依据 [workflow_policy.py](../../skills/beadwork-run/scripts/workflow_policy.py) 核对模型与额度。
 
 1. 删除 finalizer、review、controller-operations 中重复的逐阶段模型表，执行时使用生成 dispatch 的 model/reasoning_effort。
 2. controller 直接选择的 preflight/finalizer 模型保留一个明确配置位置，不误删没有脚本生成来源的选择规则。
@@ -128,7 +128,7 @@ P06 的差异核对可以提前进行；不得因它尚未完成而阻止其他�
 
 ### P05：精简 writer 指令
 
-修改 [implementer](../skills/beadwork-run/agents/implementer.md)、[fixer](../skills/beadwork-run/agents/fixer.md)、[executor operations](../skills/beadwork-run/references/executor-operations.md) 及相关交付段落。
+修改 [implementer](../../skills/beadwork-run/agents/implementer.md)、[fixer](../../skills/beadwork-run/agents/fixer.md)、[executor operations](../../skills/beadwork-run/references/executor-operations.md) 及相关交付段落。
 
 1. 将 fmt、diff、验证、暂存、check-layer、commit 的机械顺序保留在一个操作参考中；implementer 保留分层原则、范围判断、进度和阻塞条件。
 2. 只在必要位置说明 `.beads`/无关改动不得提交、commit 身份要求及验证后改动须重跑，避免重复完整提交清单。
@@ -140,7 +140,7 @@ P06 的差异核对可以提前进行；不得因它尚未完成而阻止其他�
 
 ### P06：统一 controller 正常入口
 
-本项先核对行为，再修改默认路线。主要涉及 [SKILL.md](../skills/beadwork-run/SKILL.md)、[controller operations](../skills/beadwork-run/references/controller-operations.md)、[batch_initialize.py](../skills/beadwork-run/scripts/batch_initialize.py)、[tracker_operations.py](../skills/beadwork-run/scripts/tracker_operations.py) 和 [batch_evidence.py](../skills/beadwork-run/scripts/batch_evidence.py)。
+本项先核对行为，再修改默认路线。主要涉及 [SKILL.md](../../skills/beadwork-run/SKILL.md)、[controller operations](../../skills/beadwork-run/references/controller-operations.md)、[batch_initialize.py](../../skills/beadwork-run/scripts/batch_initialize.py)、[tracker_operations.py](../../skills/beadwork-run/scripts/tracker_operations.py) 和 [batch_evidence.py](../../skills/beadwork-run/scripts/batch_evidence.py)。
 
 逐项核对：
 
@@ -178,7 +178,7 @@ P06 的差异核对可以提前进行；不得因它尚未完成而阻止其他�
 
 ### 5.1 文档与行为验证分开
 
-按 [测试计划契约](../skills/beadwork-run/references/testing-plan.md)，纯文档精简采用 direct verification：核对命令、链接、角色加载和协议保持，不为文字改动制造 TDD red，也不写只匹配措辞或标题的测试。
+按 [测试计划契约](../../skills/beadwork-run/references/testing-plan.md)，纯文档精简采用 direct verification：核对命令、链接、角色加载和协议保持，不为文字改动制造 TDD red，也不写只匹配措辞或标题的测试。
 
 如果 P06 修改可观察行为，使用现有临时 Git/worktree 与受控 bd/just fixtures，先建立有意义的失败或差异场景，再实现和验证。新 seam 或授权变化不由本计划自动批准；不把消费项目 just recipes 强加给本仓库。
 

@@ -1,6 +1,6 @@
 # 提示词精简实施与验证记录
 
-日期：2026-09-16。对应 [实施计划](skill-prompt-simplification-plan.md)。
+日期：2026-09-16。对应 [实施计划](../plans/skill-prompt-simplification-plan.md)。
 
 规则更新：本次实施曾按当时要求等待用户确认运行停止。该维护前置条件现已从 AGENTS.md 和实施计划移除，历史确认记录不构成后续修改的要求；相关注意事项仅保留在 README，供维护者自行判断。
 

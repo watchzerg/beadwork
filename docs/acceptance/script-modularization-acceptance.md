@@ -1,6 +1,6 @@
 # Beadwork 脚本职责拆分验收记录
 
-对应[实施方案](script-modularization-plan.md)。本记录随步骤更新，未验证的步骤不标记完成。
+对应[实施方案](../plans/script-modularization-plan.md)。本记录随步骤更新，未验证的步骤不标记完成。
 
 ## 执行基线
 

@@ -1,8 +1,8 @@
 # 正常流程精简与脚本化验收记录
 
-日期：2026-09-17。范围见 [改造计划](normal-flow-simplification-plan.md)。本轮采用 clean cutover，保留原有未提交修改与历史证据，不提供旧批次续跑迁移。
+日期：2026-09-17。范围见 [改造计划](../plans/normal-flow-simplification-plan.md)。本轮采用 clean cutover，保留原有未提交修改与历史证据，不提供旧批次续跑迁移。
 
-本文记录当时的验收结果。2026-09-19 已移除最终 Git/Beads push，cleanup 改为直接检查本地 merge checkpoint 与现场；现行入口见 [controller-operations.md](../skills/beadwork-run/references/controller-operations.md)，下文推送部分仅作历史记录。
+本文记录当时的验收结果。2026-09-19 已移除最终 Git/Beads push，cleanup 改为直接检查本地 merge checkpoint 与现场；现行入口见 [controller-operations.md](../../skills/beadwork-run/references/controller-operations.md)，下文推送部分仅作历史记录。
 
 ## 实施结果
 

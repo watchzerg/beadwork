@@ -14,7 +14,7 @@
 - 未执行真实消费项目 ticket graph，未验证真实 Codex 嵌套派发生命周期。
 - 本文只定义源码仓库的改进，不修改消费项目的 Beads 数据、业务代码、工具链或验证契约。
 
-已有交接修复及验收以 [原修复方案](agent-handoff-repair-plan.md) 和 [原验收记录](agent-handoff-repair-acceptance.md) 为准。本文补充后续工作，不重写原验收结论。
+已有交接修复及验收以 [原修复方案](agent-handoff-repair-plan.md) 和 [原验收记录](../acceptance/agent-handoff-repair-acceptance.md) 为准。本文补充后续工作，不重写原验收结论。
 
 ### 1.1 问题可信度
 
@@ -82,7 +82,7 @@
 
 **目标与问题。** implementer 已被验收的部分报告新增 `gate-extra` 后，同 stage 后续报告可以删除该 gate，未运行它仍通过整票 controller 验收。必须让已确认 gate 成为后续交付不可遗漏的累计下限。
 
-**修改范围。** [ticket_execution.py](../skills/beadwork-run/scripts/ticket_execution.py)、[handoff.py](../skills/beadwork-run/scripts/handoff.py)、相关 schema、[ticket 执行契约](../skills/beadwork-run/references/ticket-execution.md) 与 executor 指令。
+**修改范围。** [ticket_execution.py](../../skills/beadwork-run/scripts/ticket_execution.py)、[handoff.py](../../skills/beadwork-run/scripts/handoff.py)、相关 schema、[ticket 执行契约](../../skills/beadwork-run/references/ticket-execution.md) 与 executor 指令。
 
 **实施步骤。**
 
@@ -100,7 +100,7 @@
 
 **目标与问题。** 在 `round.json` 写出前中断后，ticket 的 `review-prepare --resume` 会新建目录；finalization 已能复用预留目录。
 
-**修改范围。** `executor-operations.py`（历史入口；当前实现为 [executor_operations.py](../skills/beadwork-run/scripts/executor_operations.py)）、ticket checkpoint 和 review 恢复说明。
+**修改范围。** `executor-operations.py`（历史入口；当前实现为 [executor_operations.py](../../skills/beadwork-run/scripts/executor_operations.py)）、ticket checkpoint 和 review 恢复说明。
 
 **实施步骤。**
 
@@ -117,7 +117,7 @@
 
 **目标与问题。** 验证日志缺失时，implementer 组装器直接失败；共享契约要求保留问题来源并能交付部分阻塞。finalization 已有对应机制。
 
-**修改范围。** ticket 的组装、自检、验收和阶段/root 交付；[验证采集](../skills/beadwork-run/references/verification.md)、报告 schema。参考 [final_verification.py](../skills/beadwork-run/scripts/final_verification.py) 的现有行为。
+**修改范围。** ticket 的组装、自检、验收和阶段/root 交付；[验证采集](../../skills/beadwork-run/references/verification.md)、报告 schema。参考 [final_verification.py](../../skills/beadwork-run/scripts/final_verification.py) 的现有行为。
 
 **实施步骤。**
 
@@ -135,7 +135,7 @@
 
 **目标与问题。** `controller.read()` 接受重复 key/非有限数值；schema 引擎未执行对象形式的 `additionalProperties`。
 
-**修改范围。** 所有输入/证据 JSON loader、`verify-ticket.py`（历史入口；当前实现为 [verify_ticket.py](../skills/beadwork-run/scripts/verify_ticket.py)）的 schema 引擎及三个 verifier 调用入口。
+**修改范围。** 所有输入/证据 JSON loader、`verify-ticket.py`（历史入口；当前实现为 [verify_ticket.py](../../skills/beadwork-run/scripts/verify_ticket.py)）的 schema 引擎及三个 verifier 调用入口。
 
 **实施步骤。**
 
@@ -168,7 +168,7 @@
 
 ### G06：提取共用命令记录器
 
-**目标。** `run-verification.py`（历史入口；当前实现为 [run_verification.py](../skills/beadwork-run/scripts/run_verification.py)）与 [main_sync.py](../skills/beadwork-run/scripts/main_sync.py) 共用进程组、取消、日志和执行终态采集。
+**目标。** `run-verification.py`（历史入口；当前实现为 [run_verification.py](../../skills/beadwork-run/scripts/run_verification.py)）与 [main_sync.py](../../skills/beadwork-run/scripts/main_sync.py) 共用进程组、取消、日志和执行终态采集。
 
 **实施步骤。**
 
@@ -263,7 +263,7 @@
 
 **目标。** 将 worktree/Beads workspace 核对、install、env-facts、BASE smoke、parent 领取及批次记录组织成可恢复流程。
 
-**修改范围。** controller 专用批次入口、[初始化流程](../skills/beadwork-run/SKILL.md)、[批次恢复](../skills/beadwork-run/references/recovery-batch.md)。
+**修改范围。** controller 专用批次入口、[初始化流程](../../skills/beadwork-run/SKILL.md)、[批次恢复](../../skills/beadwork-run/references/recovery-batch.md)。
 
 **实施步骤。**
 
@@ -412,13 +412,13 @@
 
 ### 5.1 测试模式与观察边界
 
-按 [测试计划契约](../skills/beadwork-run/references/testing-plan.md) 区分行为修复与纯重构。本计划不是 Beads ticket graph，也没有新增或宣称批准任何 spec seam；后续若转为 TDD tickets，按 [seam 契约](../skills/beadwork-run/references/testing-seams.md) 明确引用已批准的观察接口。
+按 [测试计划契约](../../skills/beadwork-run/references/testing-plan.md) 区分行为修复与纯重构。本计划不是 Beads ticket graph，也没有新增或宣称批准任何 spec seam；后续若转为 TDD tickets，按 [seam 契约](../../skills/beadwork-run/references/testing-seams.md) 明确引用已批准的观察接口。
 
 - G01–G04 的负例先在修改前实测失败，记录失败断言和输入；这里的失败是“应拒绝却通过”或“合法阻塞/恢复应成功却失败”，不是任意非零退出。
 - G05 和新增脚本命令补充真实可观察的中断/错误行为测试；先确认现场与预期，再实现。
 - G06–G11 的纯提取部分采用 direct verification，复用既有行为 oracle；若同时修复新行为，单独列出该行为及回归，不制造空的 red。
 - G12–G17 的可观察接口是 CLI JSON/退出结果、实际 Git/Beads fixture 状态及落盘证据；不可用生产内部函数的返回值代替完整操作结果。
-- 本仓库使用 Python unittest；[目标项目 gate 契约](../skills/beadwork-run/references/testing-gates.md) 不意味着需要给本仓库虚构消费项目的 just recipes。
+- 本仓库使用 Python unittest；[目标项目 gate 契约](../../skills/beadwork-run/references/testing-gates.md) 不意味着需要给本仓库虚构消费项目的 just recipes。
 
 ### 5.2 必测恢复矩阵
 

@@ -35,7 +35,7 @@ Python 3.14 是长期兼容下限，不是必须永远停留的开发版本。�
 可用于新 session 的请求：
 
 ```text
-请执行 docs/project-modernization-plan.md 的阶段 N。
+请执行 docs/plans/project-modernization-plan.md 的阶段 N。
 先读取计划和 AGENTS.md，核实前序阶段记录，按顺序实现并验证小任务，
 逐项标记完成状态，最后更新阶段记录；不要自动进入下一大阶段。
 ```

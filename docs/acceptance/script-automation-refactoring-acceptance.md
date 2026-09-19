@@ -1,6 +1,6 @@
 # Beadwork 脚本化与重构验收记录
 
-对应 [实施计划](script-automation-refactoring-plan.md)。本文按目标追加实际结果；未列为完成的目标仍为待实施。测试数量和耗时只代表记录时的源码基线。
+对应 [实施计划](../plans/script-automation-refactoring-plan.md)。本文按目标追加实际结果；未列为完成的目标仍为待实施。测试数量和耗时只代表记录时的源码基线。
 
 ## 批次 A：明确缺陷
 
@@ -82,7 +82,7 @@
 | 目标 | 实施结果 | 验收证据 |
 | --- | --- | --- |
 | G18：维护检查入口 | `maintenance_check.py` 提供 docs/scripts/full 档位，检查本地链接、`git diff --check`、语法、unittest 和可用 validator，并输出命令、耗时、失败/跳过和限制 | 链接 checker 单元测试通过；真实仓库 docs 档位通过 |
-| G20：按证据优化 | 记录完整套件与 ticket/final 热点墙钟；普通 import 清理后未增加跨命令缓存 | [测量记录](script-performance-measurement.md) 显示单次完整套件约降 2.6%，证据不足以宣称稳定加速，因此不做风险更高的缓存 |
+| G20：按证据优化 | 记录完整套件与 ticket/final 热点墙钟；普通 import 清理后未增加跨命令缓存 | [测量记录](../testing/script-performance-measurement.md) 显示单次完整套件约降 2.6%，证据不足以宣称稳定加速，因此不做风险更高的缓存 |
 
 ### 批次 E 验证
 

@@ -2,7 +2,7 @@
 
 日期：2026-09-16。
 
-状态：已实施并验收（2026-09-17）。A0–A9 均完成，A8 按触发条件局部实施；逐步检查、修正记录和验证边界见[验收记录](script-modularization-acceptance.md)。
+状态：已实施并验收（2026-09-17）。A0–A9 均完成，A8 按触发条件局部实施；逐步检查、修正记录和验证边界见[验收记录](../acceptance/script-modularization-acceptance.md)。
 
 ## 1. 目标、基线与范围
 
@@ -20,7 +20,7 @@
 | 最大生产文件 | `ticket_execution.py`，640 行 |
 | 其他较大生产文件 | `controller.py` 628 行；`finalization.py` 578 行；`verify_ticket.py` 564 行；`executor_operations.py` 470 行 |
 
-方案编写时的证据来自源码、AST import/函数统计、CLI 路由与协议读取，以及 `verify_ticket` 导出函数的运行时归属检查。当时尚未运行完整回归；实施期间的实际回归与完成状态见[验收记录](script-modularization-acceptance.md)，不把更早的历史测试数量或耗时作为本轮验收结果。包含函数内延迟 import 的静态图中，以下 10 个模块处于同一强连通分量：
+方案编写时的证据来自源码、AST import/函数统计、CLI 路由与协议读取，以及 `verify_ticket` 导出函数的运行时归属检查。当时尚未运行完整回归；实施期间的实际回归与完成状态见[验收记录](../acceptance/script-modularization-acceptance.md)，不把更早的历史测试数量或耗时作为本轮验收结果。包含函数内延迟 import 的静态图中，以下 10 个模块处于同一强连通分量：
 
 ```text
 controller, executor_operations, ticket_execution, finalization,
@@ -32,11 +32,11 @@ main_sync, run_verification
 
 ### 1.1 与已有方案的关系
 
-- [脚本化与重构实施计划](script-automation-refactoring-plan.md)及[验收记录](script-automation-refactoring-acceptance.md)已经覆盖证据、进程、schema、策略等基础模块抽取。本轮继续使用这些模块，不重新实现 G01–G20，也不重新打开已经完成的行为修复。
+- [脚本化与重构实施计划](script-automation-refactoring-plan.md)及[验收记录](../acceptance/script-automation-refactoring-acceptance.md)已经覆盖证据、进程、schema、策略等基础模块抽取。本轮继续使用这些模块，不重新实现 G01–G20，也不重新打开已经完成的行为修复。
 - 原方案 G10 已完成可普通 import 的实现模块和兼容 CLI 包装。本轮进一步收敛这些实现模块内部的职责和依赖。
 - 原验收记录已取消普通 fixture 的全量迁移。本轮将 fixture 整理限定在受影响测试，不把所有测试类改写成普通 helper 作为完成条件。
-- [性能测量记录](script-performance-measurement.md)没有证明需要跨命令缓存。本轮不增加缓存，不承诺测试提速。
-- 角色权限以[架构概览](ARCHITECTURE.md)和 skill 现行协议为准，结构调整不改变角色职责。
+- [性能测量记录](../testing/script-performance-measurement.md)没有证明需要跨命令缓存。本轮不增加缓存，不承诺测试提速。
+- 角色权限以[架构概览](../ARCHITECTURE.md)和 skill 现行协议为准，结构调整不改变角色职责。
 
 ### 1.2 方案选择
 
