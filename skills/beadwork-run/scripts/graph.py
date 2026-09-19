@@ -9,7 +9,7 @@ stdout 成功时只输出一行紧凑 JSON；业务不满足时输出带 reason 
 运行/输入/schema 错误时向 stderr 输出 {"error":...} 并 exit 1。
 所有 bd 调用均为只读（--readonly --json），无任何 Git/Beads 写操作。
 
-运行要求：Python >= 3.9，仅标准库。
+运行要求：Python >= 3.14，仅标准库和 skill 自带模块。
 """
 
 from __future__ import annotations

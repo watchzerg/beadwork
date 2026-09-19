@@ -1,20 +1,25 @@
 [project]
 name = "beadwork-dev"
 version = "0.0.0"
-requires-python = ">=3.9"
+requires-python = ">=3.14"
 dependencies = []
+
+[tool.uv]
+prerelease = "disallow"
 
 [dependency-groups]
 dev = [
-  "pytest>=8.4,<9",
-  "pytest-xdist>=3.8,<4",
-  "pyyaml>=6,<7",
+  "pytest>=9.1.1",
+  "pytest-xdist>=3.8.0",
+  "pyyaml>=6.0.3",
+  "ruff>=0.16.6",
+  "ty>=0.0.79",
 ]
 
 [tool.pytest.ini_options]
-minversion = "8.4"
+minversion = "9.1"
 testpaths = ["tests"]
-pythonpath = ["skills/beadwork-run/scripts", "tests"]
+pythonpath = ["scripts", "skills/beadwork-run/scripts", "tests"]
 addopts = ["--import-mode=importlib", "-ra", "--strict-config", "--strict-markers"]
 markers = [
   "unit: pure rules without Git or subprocesses",

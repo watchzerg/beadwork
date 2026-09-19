@@ -30,7 +30,7 @@ Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和
 
 当前流程使用预设模型组合；宿主能力见 [SKILL.md](skills/beadwork-run/SKILL.md)，ticket 与最终阶段模型配置见 [workflow_policy.py](skills/beadwork-run/scripts/workflow_policy.py) 的 `STAGE_MODELS` / `FINAL_STAGE_MODELS`。这些要求不等于任意 Codex 环境均可运行；缺少所需能力时，流程会停止。
 
-内置脚本按当前 skill 声明使用 Python 3.9 或更高版本，仅依赖标准库。目标项目使用自己的语言与工具链，通过 just recipes 提供统一命令接口。
+内置脚本最低使用 Python 3.14，仅依赖标准库和 skill 自带模块。目标项目使用自己的语言与工具链，通过 just recipes 提供统一命令接口。接口改造不保留被替代入口、参数或历史 flow 的兼容层。
 
 ## 使用前提
 
@@ -100,25 +100,39 @@ ln -s ~/projects/beadwork/skills/beadwork-run ~/projects/grok-image-saver/.agent
 
 维护者注意：正在运行的 agent 可能已经读取旧指令，后续读取又可能取得修改后的内容。是否避开正在进行的运行，由维护者自行判断；这不是 AI 修改源码前需要核实或请求确认的条件。
 
-开发依赖由 `uv.lock` 固定，首次运行：
+开发环境要求宿主已有 mise 和 just。mise 只管理项目 uv；uv 管理 `.python-version` 固定的 Python 3.14 补丁版本、`.venv` 和开发依赖。`mise.lock` 固定 uv 的实际版本，`uv.lock` 固定 Ruff、ty、pytest、pytest-xdist 和 PyYAML；稳定版本解析明确排除 prerelease。
+
+用户级 `~/.codex/skills/.system/skill-creator/scripts/quick_validate.py` 是开发前置依赖。仓库不会下载、复制或改写它；缺失时 validator 和完整门禁会明确失败。
+
+新机器先确认宿主工具，再按项目声明安装 uv、Python 和 locked 依赖：
 
 ```sh
-uv sync --locked --group dev
+command -v mise
+command -v just
+just install
+just check-toolchain
 ```
 
-日常修改先运行秒级纯规则测试；涉及文件系统、Git、CLI 或跨阶段状态时再扩大范围：
+`just install` 依次执行 locked mise 安装、项目 Python 准备和 `uv sync --locked`，不会升级宿主 mise/just 或修改全局默认版本。
+
+当前开发命令可用 `just --list` 查看。日常修改先运行最小 suite；额外 pytest 参数放在 `just --` 之后以保持 argv 边界：
 
 ```sh
-uv run pytest -m unit -q
-uv run pytest -m integration -n 4 --dist=worksteal
-uv run pytest -m workflow -n 4 --dist=worksteal
+just test unit
+just test integration
+just test workflow
+just -- test integration tests/test_controller.py -k 'prepare or accept'
 ```
 
-交付前运行统一门禁，它会执行链接检查、`git diff --check`、无 bytecode 的 Python 语法检查、全部 pytest suite 和 skill validator：
+`unit` 默认串行，其余 suite 默认使用 4 个 xdist workers；设置 `BEADWORK_TEST_JOBS=0` 可串行诊断。未知 suite、零匹配、额外 `-m` 和子命令失败都会非零退出。阶段 2 完成前，现有 marker 仍有已知历史误分类，当前 `unit` 不能视为纯内存边界；`distribution` suite 要到阶段 5 才建立真实测试。
+
+文档、结构和 Python 语法检查使用 `just check-docs`，skill validator 使用 `just validate-skill`。格式化指定路径使用 `just fmt <path>...`；它会修改文件，不属于门禁。交付前运行阶段 1 过渡门禁：
 
 ```sh
-uv run python skills/beadwork-run/scripts/maintenance_check.py full --jobs 4
+just gate-full
 ```
+
+当前 `gate-full` 依次检查工具链、根/skill 文档链接、仓库结构、explicit-only invocation policy、Python 语法、`git diff --check`、全部 pytest 和真实 validator。Ruff lint 与 ty typecheck 在现代化阶段 3 正式进入门禁；阶段 1 不提前宣称静态门禁已建立。
 
 测试位于 `tests/`。integration 和 workflow 使用临时 Git 仓库与 Beads fixtures，需要可用的 Git，并需要允许创建临时 worktree。它们不会运行真实项目的 ticket graph，也不能证明当前 Codex 宿主的完整 agent 派发链可用。
 

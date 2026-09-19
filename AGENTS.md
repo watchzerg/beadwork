@@ -12,30 +12,40 @@
 - 读取和验证路径时解析真实路径；修改源码会影响下一次调用。
 - 共用契约保留在 `skills/beadwork-run/references/`；按调用场景读取，避免在 README 或接入文档复制完整协议。
 - 修改只处理当前需求；保留既有协议字段、branch/worktree 布局和 append-only 证据语义，除非任务明确要求改变。
+- skill 运行源码最低支持 Python 3.14，只依赖标准库和 skill 自带模块。开发环境的具体 Python 补丁版本由 `.python-version` 固定；提高最低版本须作为单独兼容性变更。
+- 不维护被替代入口、参数或历史 flow 的兼容层。接口迁移按已批准范围直接更新当前调用者和文档。
 - 真实项目的 Beads 数据、执行证据和本机备份不进入本仓库。
 
-## 验证
+## 开发环境与验证
 
-开发依赖由 `uv.lock` 固定。首次准备环境运行：
+mise 只管理项目 uv，uv 管理开发 Python、`.venv` 和 Python 开发依赖；mise/just 自身是宿主前置工具。`mise.lock` 固定 uv，`.python-version` 固定 Python 补丁版本，`uv.lock` 固定开发依赖。不要升级用户级工具或修改相邻项目。
 
-```sh
-uv sync --locked --group dev
-```
-
-按改动边界选择最小 suite：
+新环境先确认宿主已有 mise/just，再运行：
 
 ```sh
-uv run pytest -m unit -q
-uv run pytest -m integration -n 4 --dist=worksteal
-uv run pytest -m workflow -n 4 --dist=worksteal
+just install
+just check-toolchain
 ```
 
-纯规则和数据转换运行 `unit`；文件系统、Git 或 CLI 边界运行 `integration`；跨阶段状态机和真实临时 worktree 运行 `workflow`。目录迁移、跨脚本协议或交付前运行完整门禁：
+用户级 `~/.codex/skills/.system/skill-creator/scripts/quick_validate.py` 是开发前置依赖；缺失时 `just validate-skill` 必须失败，不下载或复制 validator。
+
+按改动边界选择最小 suite；额外 pytest 参数放在 `just --` 之后，`BEADWORK_TEST_JOBS=0` 可切换为串行诊断：
 
 ```sh
-uv run python skills/beadwork-run/scripts/maintenance_check.py full --jobs 4
+just test unit
+just test integration
+just test workflow
+just -- test integration tests/test_controller.py -k 'prepare or accept'
 ```
 
-测试位于 `tests/`。integration 和 workflow 会在临时目录创建 Git 仓库与 worktrees，需要对应执行权限。只修改文档时检查链接、命名与 `git diff --check`，不运行 workflow。
+目标分层仍是：纯规则和数据转换使用 `unit`；文件系统、Git 或 CLI 边界使用 `integration`；跨阶段状态机和真实临时 worktree 使用 `workflow`。阶段 2 完成前，现有 marker 仍包含已知的历史误分类，不能把当前 `unit` 通过描述为纯内存边界。
 
-`full` 会运行 skill validator，并核对相对资源引用、`agents/openai.yaml` 策略和实际运行路径。脚本测试通过不等于真实 Codex 嵌套派发已验证，交付时区分两者。
+只修改文档时运行 `just check-docs`。目录迁移、跨脚本协议或交付前运行当前过渡完整门禁：
+
+```sh
+just gate-full
+```
+
+阶段 1 的 `gate-full` 顺序执行工具链检查、文档/结构/Python 语法检查、全部 pytest 和真实 skill validator；Ruff/ty 静态门禁在阶段 3 启用。`fmt` 是修改型命令，不属于 gate。`distribution` suite 在阶段 5 建立测试前允许因零匹配非零失败，不添加占位用例。
+
+测试位于 `tests/`。integration 和 workflow 会在临时目录创建 Git 仓库与 worktrees，需要对应执行权限。脚本测试通过不等于真实 Codex 嵌套派发已验证，交付时区分两者。

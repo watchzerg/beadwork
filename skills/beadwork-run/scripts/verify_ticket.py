@@ -10,7 +10,7 @@
 校验结果为紧凑 JSON：ok、原始报告的 report_sha256，以及失败时的 failures；--schema 输出报告 schema，--receipt-schema 输出返回回执 schema。
 仅对 Git 只读（symbolic-ref/rev-parse/rev-list/cat-file/merge-base/log/status），无任何写操作。
 
-运行要求：Python >= 3.9，仅标准库。
+运行要求：Python >= 3.14，仅标准库和 skill 自带模块。
 """
 
 from __future__ import annotations

@@ -28,7 +28,7 @@ worktree: .worktrees/<full-parent-id>
 
 - controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；运行 BASE `gate-full` 或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
 - Beads 读取结构化结果使用 `--json`；未列出的命令语法按需查询 CLI 帮助。
-- controller 将 `<skill-dir>` 解析为本 skill 的绝对目录。内置脚本使用 python3 ≥ 3.9（仅标准库），在待检查 repository/worktree 中运行；正常调用无需读取源码。stdout 为 JSON，非零退出按停止处理，不能当作空结果。executor 的命令采集入口另按 `references/verification.md` 区分验证失败（可核对 TDD red）、记录器异常和中断。
+- controller 将 `<skill-dir>` 解析为本 skill 的绝对目录。内置脚本使用 python3 ≥ 3.14（仅标准库和 skill 自带模块），在待检查 repository/worktree 中运行；正常调用无需读取源码。stdout 为 JSON，非零退出按停止处理，不能当作空结果。executor 的命令采集入口另按 `references/verification.md` 区分验证失败（可核对 TDD red）、记录器异常和中断。
 - 项目安装与验证经目标仓库的 `just` recipes 执行，recipe 检查由 preflight 负责。Beads 的 claim/comment/close 统一使用 controller-operations.md 的 tracker intent/读回入口。
 - controller 派发前读取 `references/report-delivery.md` 与 `references/controller-operations.md`；后者定义准备、机械验收、comment 生成、合入和清理命令。
 
