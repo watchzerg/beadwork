@@ -123,10 +123,11 @@ just check-toolchain
 just test unit
 just test integration
 just test workflow
+just test distribution
 just -- test integration tests/test_controller.py -k 'prepare or accept'
 ```
 
-`unit` 默认串行，其余 suite 默认使用 4 个 xdist workers；设置 `BEADWORK_TEST_JOBS=0` 可串行诊断。未知 suite、零匹配、额外 `-m` 和子命令失败都会非零退出。每项测试都显式且唯一归入 unit、integration 或 workflow；`distribution` suite 要到阶段 5 才建立真实测试。
+`unit` 默认串行，其余 suite 默认使用 4 个 xdist workers；设置 `BEADWORK_TEST_JOBS=0` 可串行诊断。未知 suite、零匹配、额外 `-m` 和子命令失败都会非零退出。每项测试都显式且唯一归入 unit、integration 或 workflow；`distribution` 是同时属于 integration 的专题 marker。分发验收必须使用项目准备的 Python 3.14，复制 `skills/beadwork-run/` 后从无关 cwd 以 `-S -B` 运行；解释器缺失或版本不是 3.14 时失败，不会在测试期间下载或 skip。
 
 文档、结构和 Python 语法检查使用 `just check-docs`，Ruff 检查使用 `just lint`，ty 检查使用 `just typecheck`，skill validator 使用 `just validate-skill`。格式化指定路径使用 `just fmt <path>...`；它会修改文件，不属于门禁。交付前运行完整门禁：
 
@@ -136,7 +137,7 @@ just gate-full
 
 当前 `gate-full` 依次检查工具链、根/skill 文档链接、仓库结构、explicit-only invocation policy、Python 语法、`git diff --check`、Ruff lint/format、ty、全部 pytest 和真实 validator。
 
-测试位于 `tests/`。integration 和 workflow 使用临时 Git 仓库与 Beads fixtures，需要可用的 Git，并需要允许创建临时 worktree。它们不会运行真实项目的 ticket graph，也不能证明当前 Codex 宿主的完整 agent 派发链可用。
+测试位于 `tests/`。integration、workflow 和 distribution 使用临时文件或 Git 仓库与 Beads fixtures，需要可用的 Git，并需要允许创建临时 worktree。它们不会运行真实项目的 ticket graph，也不能证明当前 Codex 宿主的完整 agent 派发链可用。当前 distribution 验收只覆盖实际运行它的宿主平台，不代表其他操作系统矩阵。
 
 共享参考文件继续与 skill 同目录分发。
 

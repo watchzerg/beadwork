@@ -49,6 +49,6 @@ just -- test integration tests/test_controller.py -k 'prepare or accept'
 just gate-full
 ```
 
-`gate-full` 顺序执行工具链检查、文档/结构/Python 语法检查、Ruff lint/format check、ty、全部 pytest 和真实 skill validator。`distribution` suite 在阶段 5 建立测试前允许因零匹配非零失败，不添加占位用例。
+`distribution` suite 必须使用 `.python-version` 准备的 Python 3.14；解释器缺失或版本不是 3.14 时失败，不 skip。它从无关 cwd 以 `-S -B` 运行复制后的 skill，检查独立分发和标准库依赖边界。`gate-full` 顺序执行工具链检查、文档/结构/Python 语法检查、Ruff lint/format check、ty、包含 distribution 的全部 pytest 和真实 skill validator。
 
 测试位于 `tests/`。integration 和 workflow 会在临时目录创建 Git 仓库与 worktrees，需要对应执行权限。脚本测试通过不等于真实 Codex 嵌套派发已验证，交付时区分两者。
