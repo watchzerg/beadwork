@@ -705,7 +705,7 @@ class HandoffTests(unittest.TestCase):
         stage = self.f.stage()
         source = stage.parent / "facts.txt"
         source.write_text("补充的可查询事实")
-        request = stage.parent / "context-request.json"
+        request = self.f.root.parent / "context-add-input-000003.json"
         self.f.put(request, {"sources": [self.f.bind(source)], "reason": "补齐现有需求事实"})
         answer = self.f.call("context-add", "--dispatch", stage, "--input", request)
         facts = stage.parent / "resume.json"

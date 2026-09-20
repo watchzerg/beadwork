@@ -90,7 +90,7 @@ def contexts(d):
     root = context_root(d)
     previous = None
     sources = []
-    for number, path in enumerate(sorted(root.glob("context-add-*.json")), 1):
+    for number, path in enumerate(sorted(root.glob("context-add-" + "[0-9]" * 6 + ".json")), 1):
         value = evidence.read(path)
         repository.require(
             path.name == f"context-add-{number:06d}.json" and value["previous"] == previous,
