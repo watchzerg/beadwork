@@ -10,7 +10,7 @@
 
 ## 阶段循环
 
-1. 按 final-execution 的 final-stage 创建或恢复阶段，使用返回的 dispatch、模型和明确选择的历史来源。首次 stage 0 要求干净现场；恢复保留原 BASE、commits、dirty 现场与额度。
+1. 按 final-execution 的 final-stage 创建或恢复阶段，使用返回的 dispatch、模型和明确选择的历史来源。派发 fixer 或 reviewers 时必须照抄 prepare 返回的 launch context，显式使用 `fork_turns: "none"`，不得省略或改用 `all`；首次 stage 0 要求干净现场，恢复保留原 BASE、commits、dirty 现场与额度。
 2. stage 0 由你读取 verification.md，以 `--delivery` 采集一次无参数 `gate-full`；stage 1..5 派发独立上下文 fixer，交接其 dispatch、规则与失败来源，要求先读 agents/fixer.md。fixer 的 gate-fix 由其自行管理。
 3. 验证不与 writer 并行。相同 HEAD 的完整有效结果可复用；更晚失败使旧成功失效，失败后从 `gate-full` 入口重跑。新增边界立即调用 final-gates 持久化其原因与票据义务；最终覆盖按 final-execution 判定。
 4. fixer 交付后按共享契约保存回执和收尾观察，执行 fixer-accept；语义核对处置是否消除本批阻塞、是否越界，以及实际验证覆盖。
@@ -18,6 +18,8 @@
 6. 按 final-execution 的 final-assemble 组装阶段报告。模型填写语义判断和实际收尾，脚本从检查点生成完整来源与运行事实，不手工搬运 review/fixer 数组。
 
 ## 推进与交付
+
+除已完成并自检 `final-deliver`，或按本节生成可恢复的 `BLOCKED / blocked|interrupted` root 交付外，不得以最终回复结束或交还 controller；fixer `DONE`、reviewer `COMPLETED`、单 stage report 和剩余机械收尾都不是最终集成终态。
 
 - gates 与最后两轴 PASS 覆盖交付 HEAD，现场干净、任务结束且无 blockers/remaining work：READY_TO_MERGE。
 - stage 0 实测代码失败、修复阶段 fixer 用尽 gate-fix 后的 code_failure，或完整双轴代码类 blocking：组装 BLOCKED/code_failure；stage < 5 时以 continuation: repair 进入下一阶段，stage 5 停止。验证失败不派 reviewer。

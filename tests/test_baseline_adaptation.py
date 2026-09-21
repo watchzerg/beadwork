@@ -196,7 +196,13 @@ class ReceiptOutputTests(unittest.TestCase):
             ("reviewer", h.axis(True)),
             (
                 "reviewer",
-                {**h.expected("reviewer"), "status": "BLOCKED", "blockers": ["缺少 spec"]},
+                {
+                    "axis": "spec",
+                    "reviewed_base": worker_fixture.A,
+                    "reviewed_head": worker_fixture.B,
+                    "status": "BLOCKED",
+                    "blockers": ["缺少 spec"],
+                },
             ),
             ("fixer", h.fixer()),
         ]:

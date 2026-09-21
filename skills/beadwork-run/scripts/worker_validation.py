@@ -23,6 +23,7 @@ import implementer_reports
 import review_schema
 import schema_validation
 import verify_ticket as v
+import workflow_contract
 import workflow_policy
 
 TEXT, SHA, TEXTS, obj = (
@@ -144,6 +145,10 @@ def dispatch_schema(role):
 
 
 def validate(role, report, axis_schema, expected):
+    try:
+        workflow_contract.require_current(expected)
+    except ValueError as error:
+        return ["dispatch_contract: " + str(error)]
     if role == "implementer":
         return implementer_reports.implementer_errors(report, expected)
     problems = v.schema_errors(expected, dispatch_schema(role))

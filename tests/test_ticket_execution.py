@@ -95,6 +95,9 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             self.sd = Path(result["stage_dispatch"])
             self.wd = Path(result["implementer_dispatch"])
             self.stage_info = result
+            launch = {"fork_turns": "none", "required": True}
+            self.assertEqual(result["implementer_launch_context"], launch)
+            self.assertEqual(json.loads(self.wd.read_text())["launch_context"], launch)
         return result
 
     def commit(self):

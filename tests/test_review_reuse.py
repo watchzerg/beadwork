@@ -13,6 +13,7 @@ import evidence
 import handoff
 import report_io
 import review_evidence
+import workflow_contract
 
 pytestmark = pytest.mark.integration
 
@@ -23,16 +24,14 @@ class ReviewReuseTests(TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         dispatch = self.root / "dispatch.json"
-        evidence.write(
-            dispatch,
-            dict(
-                role="executor",
-                workflow_contract_version=2,
-                dispatch_path=str(dispatch),
-                report_path=str(self.root / "report.json"),
-                base_commit="a" * 40,
-            ),
+        value = dict(
+            role="executor",
+            dispatch_path=str(dispatch),
+            report_path=str(self.root / "report.json"),
+            base_commit="a" * 40,
         )
+        workflow_contract.stamp(value)
+        evidence.write(dispatch, value)
         folder = self.root / "review"
         folder.mkdir()
         self.round = folder / "round.json"
@@ -48,12 +47,11 @@ class ReviewReuseTests(TestCase):
             directory.mkdir()
             identity = directory / "dispatch.json"
             report = directory / "report.json"
-            evidence.write(
-                identity,
-                dict(
-                    axis=axis, reviewed_base="a" * 40, reviewed_head="b" * 40, handoff_required=True
-                ),
+            identity_value = dict(
+                axis=axis, reviewed_base="a" * 40, reviewed_head="b" * 40, handoff_required=True
             )
+            workflow_contract.stamp(identity_value)
+            evidence.write(identity, identity_value)
             evidence.write(
                 report,
                 dict(

@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+import workflow_contract
+
 VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 A, B = "a" * 40, "b" * 40
 
@@ -27,13 +29,15 @@ class WorkerDeliveryTests(unittest.TestCase):
 
     def expected(self, role):
         if role == "reviewer":
-            return {"axis": "spec", "reviewed_base": A, "reviewed_head": B}
-        return {
-            "parent_id": "demo-1",
-            "branch": "implement/demo-1",
-            "base_commit": A,
-            "required_boundary_gates": ["gate-browser"],
-        }
+            return workflow_contract.stamp({"axis": "spec", "reviewed_base": A, "reviewed_head": B})
+        return workflow_contract.stamp(
+            {
+                "parent_id": "demo-1",
+                "branch": "implement/demo-1",
+                "base_commit": A,
+                "required_boundary_gates": ["gate-browser"],
+            }
+        )
 
     def axis(self, blocking=False):
         return {
@@ -132,7 +136,13 @@ class WorkerDeliveryTests(unittest.TestCase):
             self.assertEqual(result["status"], "COMPLETED")
 
     def test_review_unavailable_has_explicit_blocked_report(self):
-        report = {**self.expected("reviewer"), "status": "BLOCKED", "blockers": ["无法读取 spec"]}
+        report = {
+            "axis": "spec",
+            "reviewed_base": A,
+            "reviewed_head": B,
+            "status": "BLOCKED",
+            "blockers": ["无法读取 spec"],
+        }
         self.assertTrue(self.invoke("reviewer", report)["ok"])
         report["blockers"] = []
         self.assertFalse(self.invoke("reviewer", report)["ok"])
@@ -156,7 +166,14 @@ class WorkerDeliveryTests(unittest.TestCase):
 
     def test_bad_review_structure_and_invalid_dispatch_fail(self):
         self.assertFalse(self.invoke("reviewer", {"findings": []})["ok"])
-        self.assertFalse(self.invoke("reviewer", self.axis(), expected={})["ok"])
+        result = self.invoke("reviewer", self.axis(), expected={})
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["failures"][0].startswith("dispatch_contract: "), result)
+        invalid_launch = self.expected("reviewer")
+        invalid_launch["launch_context"] = {"fork_turns": "all", "required": True}
+        result = self.invoke("reviewer", self.axis(), expected=invalid_launch)
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["failures"][0].startswith("dispatch_contract: "), result)
         report = self.axis(True)
         report["findings"][0]["blocking"] = False
         self.assertFalse(self.invoke("reviewer", report)["ok"])

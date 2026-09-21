@@ -276,6 +276,9 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         result = self.call("prepare", role, "--input", self.put(self.root / "input.json", d))
         self.dispatch = Path(result["dispatch_path"])
         self.d = json.loads(self.dispatch.read_text())
+        launch = {"fork_turns": "none", "required": True}
+        self.assertEqual(result["launch_context"], launch)
+        self.assertEqual(self.d["launch_context"], launch)
         return result
 
     def final_report(self):
@@ -316,7 +319,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.acceptance = self.dispatch.parent / f"acceptance-{self.counter}.json"
         extra = []
         if (
-            self.d.get("workflow_contract_version") == 2
+            self.d.get("workflow_contract_version") == 3
             and self.d.get("role") == "finalizer"
             and self.d.get("attempt_id")
         ) or self.d.get("preflight_acceptance"):

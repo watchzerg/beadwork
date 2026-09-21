@@ -253,6 +253,7 @@ def prepare(args):
         "base_commit": d.get("base_commit"),
         "start_head": d.get("start_head"),
         "reviewed_main": d.get("reviewed_main"),
+        "launch_context": workflow_contract.launch_context(d),
         **({"coordinator_model": d["coordinator_model"]} if args.role == "executor" else {}),
         **({"draft_schema_path": d["draft_schema_path"]} if args.role == "preflight" else {}),
     }
@@ -265,6 +266,7 @@ check_batch_beads = repository.check_batch_beads
 
 def inspect(dispatch_path, report_path, receipt_path):
     d = read(dispatch_path)
+    workflow_contract.require_current(d)
     if d["role"] == "finalizer":
         return finalization.inspect_delivery(dispatch_path, report_path, receipt_path)
     directory = Path(dispatch_path).resolve().parent

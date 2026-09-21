@@ -46,9 +46,12 @@ class ExecutorOperationsTests(unittest.TestCase):
             self.dispatch,
             *(["--evidence", evidence] if evidence else []),
         )
+        launch = {"fork_turns": "none", "required": True}
+        self.assertEqual(prepared["reviewer_launch_context"], launch)
         sources = {}
         for axis, path in prepared["axes"].items():
             d = json.loads(Path(path).read_text())
+            self.assertEqual(d["launch_context"], launch)
             report = {
                 "axis": axis,
                 "reviewed_base": d["reviewed_base"],

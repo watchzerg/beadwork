@@ -189,11 +189,16 @@ def result(d):
         current_fix and (current_fix["status"] == "DONE" or not current_fix["stopped_tasks"])
     ):
         writer = None
+    fixer_dispatch = str(evidence.bound(writer)) if writer else None
+    fixer_launch_context = None
+    if fixer_dispatch:
+        fixer_launch_context = workflow_contract.launch_context(evidence.read(fixer_dispatch))
     return {
         "stage_path": d["dispatch_path"],
         "stage": d["stage"],
         "models": d["models"],
-        "fixer_dispatch": str(evidence.bound(writer)) if writer else None,
+        "fixer_dispatch": fixer_dispatch,
+        "fixer_launch_context": fixer_launch_context,
         "selected_fixer": item["fixes"][-1] if item["fixes"] else None,
         "review_round": item["round_path"],
         "selected_review": item["review"],

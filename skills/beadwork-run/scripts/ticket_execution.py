@@ -15,6 +15,7 @@ import stage_policy
 import ticket_reports
 import ticket_state
 import ticket_verification
+import workflow_contract
 import workflow_policy
 from command_argv import beadwork_argv
 
@@ -108,6 +109,7 @@ def stage_result(d, state):
         "stage": d["stage"],
         "stage_dispatch": d["dispatch_path"],
         "implementer_dispatch": writer["dispatch_path"],
+        "implementer_launch_context": workflow_contract.launch_context(writer),
         "models": d["models"],
         "prior_implementer": selected,
         "selected_stage": state["selected_stage"],

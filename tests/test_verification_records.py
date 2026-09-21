@@ -11,6 +11,7 @@ import pytest
 import evidence
 import ticket_verification
 import verification_records
+import workflow_contract
 
 pytestmark = pytest.mark.integration
 
@@ -23,13 +24,13 @@ class VerificationRecordTests(TestCase):
         self.dispatch = self.root / "dispatch.json"
         self.d = dict(
             role="implementer",
-            workflow_contract_version=2,
             ticket_scope="implementer",
             dispatch_path=str(self.dispatch),
             report_path=str(self.root / "report.json"),
             worktree=str(self.root),
             verification_dispatches=[],
         )
+        workflow_contract.stamp(self.d)
         evidence.write(self.dispatch, self.d)
 
     def run_record(self, number):

@@ -15,6 +15,7 @@ import repository
 import review_evidence
 import ticket_execution
 import ticket_state
+import workflow_contract
 from command_argv import beadwork_argv
 
 AXES = review_evidence.AXES
@@ -185,6 +186,7 @@ def prepare_review(args):
             identity["dispatch_path"],
             "--emit-receipt",
         )
+        workflow_contract.stamp(identity)
         publish_or_match(identity["report_schema_path"], report_io.reviewer("--schema"))
         publish_or_match(identity["receipt_schema_path"], report_io.reviewer("--receipt-schema"))
         publish_or_match(identity["dispatch_path"], identity)
@@ -198,6 +200,7 @@ def prepare_review(args):
     return {
         "round_path": str(path),
         "axes": {axis: item["path"] for axis, item in record["axes"].items()},
+        "reviewer_launch_context": workflow_contract.launch_context(identity),
     }
 
 

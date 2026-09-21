@@ -59,7 +59,18 @@ class FinalizationTests(unittest.TestCase):
         source = self.h.root / f"final-stage-{self.serial}.json"
         self.put(source, facts)
         result = self.call("final-stage", "--dispatch", self.root, "--input", source, ok=ok)
-        return Path(result["stage_path"]) if ok else result
+        if not ok:
+            return result
+        self.stage_info = result
+        launch = {"fork_turns": "none", "required": True}
+        if result["fixer_dispatch"]:
+            self.assertEqual(result["fixer_launch_context"], launch)
+            self.assertEqual(
+                json.loads(Path(result["fixer_dispatch"]).read_text())["launch_context"], launch
+            )
+        else:
+            self.assertIsNone(result["fixer_launch_context"])
+        return Path(result["stage_path"])
 
     def review(self, dispatch, blocking=False, evidence=None):
         prepared = self.call(
@@ -68,9 +79,12 @@ class FinalizationTests(unittest.TestCase):
             dispatch,
             *(["--evidence", evidence] if evidence else []),
         )
+        launch = {"fork_turns": "none", "required": True}
+        self.assertEqual(prepared["reviewer_launch_context"], launch)
         sources = {}
         for axis, raw in prepared["axes"].items():
             identity = json.loads(Path(raw).read_text())
+            self.assertEqual(identity["launch_context"], launch)
             report = {
                 "axis": axis,
                 "reviewed_base": identity["reviewed_base"],

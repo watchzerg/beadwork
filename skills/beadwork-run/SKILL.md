@@ -38,7 +38,7 @@ worktree: .worktrees/<full-parent-id>
 
 写入前确认当前宿主能创建独立 executor、执行内置双轴审查的两个并行只读 reviewers、接收完整报告并确认任务结束。需要支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → reviewers/fixer 的嵌套派发。能力不足时报告并停止。
 
-controller 派发的 preflight、executor 和 finalizer 使用独立上下文（`fork_turns: "none"` 或宿主等价设置）；显式交接仓库规则入口、任务事实和证据路径。恢复时补充已有 commits、未提交现场、剩余工作与未解决 findings。
+controller 派发 preflight、executor 和 finalizer 时必须照抄 prepare 返回的 `launch_context`，显式使用独立上下文；不得省略 `fork_turns: "none"` 或改用 `all`，宿主无法满足时返回阻塞。显式交接仓库规则入口、任务事实和证据路径；恢复时补充已有 commits、未提交现场、剩余工作与未解决 findings。
 
 ## 不变量
 

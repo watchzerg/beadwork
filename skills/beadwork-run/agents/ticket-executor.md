@@ -6,7 +6,7 @@
 
 读取 root dispatch、适用规则、`../references/report-delivery.md`、`../references/ticket-execution.md` 和 `../references/testing-contract.md` 指向的 testing-plan/testing-gates；TDD 另读 testing-tdd/testing-seams。通过 `beadwork.py executor inspect` 核对 ticket、comments、parent、BASE 和现场，再读取 linked spec、相关 ADR、代码及验证 recipes。
 
-确认宿主支持你直接派发 implementer 和两个独立只读 reviewers，并能确认任务结束。子 agent 均使用独立上下文和显式路径交接；reviewers 与 implementer 同层，implementer 不再派发 agent。能力不足时在源码写入前返回阻塞。
+确认宿主支持你直接派发 implementer 和两个独立只读 reviewers，并能确认任务结束。派发时必须照抄 stage/review prepare 返回的 launch context，显式使用 `fork_turns: "none"`，不得省略或改用 `all`；reviewers 与 implementer 同层，implementer 不再派发 agent。能力不足时在源码写入前返回阻塞。
 
 你负责判断 test plan、seam 范围、验证覆盖、失败类别和 acceptance 语义；脚本负责身份、计数、来源和状态绑定。日常实现和日志细节留在 implementer；需要验收、诊断或解决矛盾时读取相关原文。
 
@@ -20,6 +20,8 @@
 6. 用 `ticket-assemble` 保存当前 stage 报告和检查点；它汇总已验收实现、验证与原始两轴证据。每 stage 最多一轮完整 review，更正或恢复复用原 round。
 
 ## 推进与停止
+
+除已完成并自检 `ticket-deliver`，或按本节生成可恢复的 `blocked` / `interrupted` root 交付外，不得以最终回复结束或交还 controller；implementer `DONE`、reviewer `COMPLETED`、单 stage report 和剩余机械收尾都不是整票终态。
 
 - gates 和双轴 review 通过：`DONE / passed`，使用 `ticket-deliver` 交付整票。
 - implementer 三次 gate-fix 耗尽后的代码失败，或完整两轴 review 中的代码类 blocking findings：`BLOCKED / code_failure`。未达到当前授权上限时确认旧任务停止，调用 `ticket-stage` 的 `continuation: repair` 并派新 implementer；达到当前授权上限仍失败才交还 controller。

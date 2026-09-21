@@ -40,11 +40,11 @@ def prepare_utility_stage(data):
     d.update(
         repository_root=root,
         branch="implement/" + d["parent_id"],
-        workflow_contract_version=workflow_contract.VERSION,
         worktree=str(Path(root) / ".worktrees" / d["parent_id"]),
         skill_dir=str(SCRIPT.parent.parent),
         role="executor",
     )
+    workflow_contract.stamp(d)
     repository.topology(d)
     head = repository.sha(d["worktree"], "HEAD")
     if d["mode"] == "new":
