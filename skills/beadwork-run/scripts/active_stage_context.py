@@ -35,7 +35,20 @@ def _blocking_findings(report):
     ]
 
 
-def _sources(dispatch):
+def _check_review_source(source):
+    collection = evidence.read(evidence.bound(source))
+    round_record = evidence.read(evidence.bound(collection["round"]))
+    evidence.bound(round_record["dispatch"])
+    if round_record.get("acceptance_evidence"):
+        evidence.bound(round_record["acceptance_evidence"])
+    for axis_dispatch in round_record["axes"].values():
+        evidence.bound(axis_dispatch)
+    for axis_sources in collection["sources"].values():
+        for item in axis_sources.values():
+            evidence.bound(item)
+
+
+def _sources(dispatch, *, validate_sources=False):
     previous_source = dispatch.get("previous_stage")
     repository.require(previous_source, "后续 stage 缺少前阶段来源")
     previous, report = ticket_state.resolve_source(previous_source)
@@ -43,6 +56,11 @@ def _sources(dispatch):
     writer_source = implementers[-1] if implementers else None
     review_sources = (report.get("review") or {}).get("sources", [])
     review_source = review_sources[-1] if review_sources else None
+    if validate_sources:
+        if writer_source:
+            ticket_state.resolve_source(writer_source)
+        if review_source:
+            _check_review_source(review_source)
     return previous, report, writer_source, review_source
 
 
@@ -102,7 +120,7 @@ def build(dispatch, verification_view_source):
 
 
 def publish(directory, dispatch):
-    _, report, writer_source, _ = _sources(dispatch)
+    _, report, writer_source, _ = _sources(dispatch, validate_sources=True)
     verification_view_source = _verification(directory, report, writer_source)
     path = Path(directory) / "active-stage-context.json"
     evidence.write(path, build(dispatch, verification_view_source))
@@ -111,7 +129,7 @@ def publish(directory, dispatch):
     return source
 
 
-def check(dispatch):
+def check(dispatch, *, validate_sources=False):
     source = dispatch.get("active_stage_context_source")
     if dispatch.get("stage") == 0:
         repository.require(source is None, "stage 0 不应包含 active stage context")
@@ -122,7 +140,7 @@ def check(dispatch):
     view_source = context.get("verification_view_source")
     view = evidence.read(evidence.bound(view_source))
     manifest = evidence.read(evidence.bound(view["source_manifest"]))
-    _, report, writer_source, _ = _sources(dispatch)
+    _, report, writer_source, _ = _sources(dispatch, validate_sources=validate_sources)
     sources = []
     notes = {}
     expected_context = report["execution"]["stage_dispatch"]

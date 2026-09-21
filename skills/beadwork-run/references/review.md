@@ -30,10 +30,10 @@ python3 <skill-dir>/scripts/beadwork.py executor review-collect --round <round.j
 
 脚本复用 reviewer verifier 校验两轴身份、报告和回执，复查真实 HEAD 与干净状态，保存原始 JSON 值组成的 `pair`、派生 `gate` 和来源文件的 hash 绑定。输出文件已存在时换新文件名。派发者仍核对报告与原始证据的语义一致性。
 
-ticket 和 v2 finalizer 的 collect 都会将当前 collection 绑定到 stage 检查点；阶段报告必须保留该选择。ticket 恢复见 ticket-execution.md，finalizer 恢复见 recovery-finalizer.md；同 round 更正清除旧阶段选择，重新组装后才能交付或推进。
+ticket 和 finalizer 的 collect 都会将当前 collection 绑定到 stage 检查点；阶段报告必须保留该选择。ticket 恢复见 ticket-execution.md，finalizer 恢复见 recovery-finalizer.md；同 round 更正清除旧阶段选择，重新组装后才能交付或推进。
 
 - 任一轴未完成、校验失败或现场变化：保留全部已有证据，向调用方报告阻塞。失败报告不嵌入 AxisReport，不伪造完整轮次。
-- 两轴 `COMPLETED` 且验收通过：executor 将 collection 路径交给报告组装入口；v2 finalizer 由 final-assemble 从检查点读取 collection 并生成 review_rounds 与来源。gate 由 final findings 的 blocking 派生。`COMPLETED` 表示审查完成，不表示无缺陷。
+- 两轴 `COMPLETED` 且验收通过：executor 将 collection 路径交给报告组装入口；finalizer 由 final-assemble 从检查点读取 collection 并生成 review_rounds 与来源。gate 由 final findings 的 blocking 派生。`COMPLETED` 表示审查完成，不表示无缺陷。
 - 保持两轴原始 findings，不跨轴合并、重排或以摘要替代。分类争议交原 reviewer 核实，按共享契约写更正文件；汇总者不改写分类。smells 非阻塞，其详情交调用方保留。
 
 ## 复审

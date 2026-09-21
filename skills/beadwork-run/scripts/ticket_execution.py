@@ -105,7 +105,7 @@ worker = report_io.implementer
 def stage_result(d, state):
     selected = state["implementer_sources"][-1] if state["implementer_sources"] else None
     writer = evidence.read(evidence.bound(d["implementer_dispatch"]))
-    active_stage_context.check(writer)
+    active_stage_context.check(writer, validate_sources=True)
     return {
         "context_sources": handoff.contexts(d),
         "stage": d["stage"],
@@ -370,7 +370,7 @@ check_implementation = implementer_reports.check_implementation
 def implementer_check(dispatch_path, report_path):
     d = dispatch_contract.dispatch(dispatch_path)
     repository.require(d["role"] == "implementer", "需要 implementer dispatch")
-    active_stage_context.check(d)
+    active_stage_context.check(d, validate_sources=True)
     repository.require(Path(report_path).parent == Path(dispatch_path).parent, "实现报告目录不符")
     checked = report_io.implementer("--check-report", report_path, "--expected", dispatch_path)
     report = evidence.read(report_path)

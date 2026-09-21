@@ -1,6 +1,6 @@
 # 验证采集
 
-implementer/fixer 的 `typecheck`、`test` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe。只有 `test` 接受定向参数；`typecheck` 与完整 gate 拒绝参数。v2 finalizer 只采集带 `--delivery` 的无参数 `gate-full`，其他调用在创建运行记录前拒绝。`fmt` 和 controller 的 `install` 沿用原入口。
+implementer/fixer 的 `typecheck`、`test` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe。只有 `test` 接受定向参数；`typecheck` 与完整 gate 拒绝参数。finalizer 只采集带 `--delivery` 的无参数 `gate-full`，其他调用在创建运行记录前拒绝。`fmt` 和 controller 的 `install` 沿用原入口。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>

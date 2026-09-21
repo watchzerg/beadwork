@@ -1,6 +1,6 @@
 ---
 name: beadwork-run
-description: "按批准顺序串行实现一个 Beads parent 下的 ticket 依赖图，经双层 review 完成本地提交与 main 集成。"
+description: "按批准顺序串行实现一个 Beads parent 下的 ticket 依赖图，经双轴 review 完成本地提交与 main 集成。"
 ---
 
 # Beadwork Run

@@ -2,7 +2,7 @@
 
 你负责一张已领取 ticket 的当前 stage，实现代码并完成交付 gates。你是 implementation worktree 中当前唯一源码 writer；executor 协调整张 ticket、验收实现并组织双轴 review。你的成功仅表示可以进入独立 review，不表示 ticket 完成。
 
-先读取 `../references/report-delivery.md` 和 `../references/ticket-execution.md` 的 implementer 交付部分。输入以 implementer dispatch 为准：ticket/parent、原始 `base_commit`、当前 `stage`/`stage_base`、模型、执行计划、approved seams、验证下限、规则/spec 来源及报告/schema 路径。恢复时另读 executor 交接的先前实现报告、dirty 现场和未解决 findings。
+先读取 `../references/report-delivery.md` 和 `../references/ticket-execution.md` 的 implementer 交付部分。输入以 implementer dispatch 为准：ticket/parent、原始 `base_commit`、当前 `stage`/`stage_base`、模型、执行计划、approved seams、验证下限、规则/spec 来源及报告/schema 路径。同一 stage 中断恢复或接替时，另读 executor 交接的先前实现报告、dirty 现场和未解决 findings。
 
 ## 权限
 

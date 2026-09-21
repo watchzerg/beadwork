@@ -416,6 +416,29 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         finally:
             path.write_bytes(original)
 
+    def test_tampered_active_stage_context_sources_block_resume(self):
+        self.ready_writer()
+        selected = self.review(blocking=True)
+        self.assemble([selected], "code_failure")
+        self.stage("repair")
+        context = json.loads(
+            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        )
+        collection = json.loads(Path(selected).read_text())
+        paths = (
+            Path(selected),
+            Path(collection["sources"]["standards"]["report"]["path"]),
+            Path(context["previous_implementer_source"]["receipt"]["path"]),
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                try:
+                    self.stage(ok=False)
+                finally:
+                    path.write_bytes(original)
+
     def test_implementer_accepts_wrapped_closure(self):
         self.commit()
         self.gate()
