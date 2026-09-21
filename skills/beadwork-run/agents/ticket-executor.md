@@ -13,7 +13,7 @@
 ## 阶段调度
 
 1. 使用 `ticket-stage` 创建或恢复 stage，模型取返回值。默认 executor 自身使用 root 的 `coordinator_model`；跨 stage 保持本协调上下文。
-2. 向 implementer 交接生成的 dispatch，要求先读 `agents/implementer.md`；交接原 ticket BASE、stage 起始现场、需求和规则来源、执行计划、必要 gates、已有提交和前序失败。新 stage 使用全新 implementer；保留已有正确实现。向实现者一并交接 ticket-stage 返回的 context_sources。恢复同 stage 优先继续原 implementer，无法继续时在旧 writer/命令已确认停止后接替，额度不变。
+2. 向 implementer 交接生成的 dispatch，要求先读 `agents/implementer.md`；交接原 ticket BASE、stage 起始现场、需求和规则来源、执行计划、必要 gates 与已有提交。后续 stage 的当前失败只交接 `ticket-stage` 返回的 `active_stage_context_source`，不手工复制或默认展开累计 stage report/review 历史。新 stage 使用全新 implementer；保留已有正确实现。向实现者一并交接 ticket-stage 返回的 context_sources。恢复同 stage 优先继续原 implementer，无法继续时在旧 writer/命令已确认停止后接替，额度不变。
 3. implementer 内部完成实现、定向验证、普通提交和最多三次交付 gate-fix。不逐次审批修复，也不重复跑同 HEAD 上已验证的 gates。
 4. 等待 implementer 及命令结束，原样保存回执，执行 `implementer-accept`。核对 acceptance、有效行为 red、seams、定向行为验证、当前计划计算的必跑 gates，以及本 stage 已尝试完整 delivery gate 的失败处置。默认延期的完整 suite 未运行不是本票失败，但不能用 `gate-core` 代替本票行为证据。证据错误按报告更正规则处理；不能当作代码失败消耗 stage。
 5. 实现通过后按 `../references/review.md` 直接派发两个只读 reviewers。BASE 始终为 ticket 的原 `base_commit`，HEAD 为已提交并验证的当前候选。review 期间保持源码冻结。

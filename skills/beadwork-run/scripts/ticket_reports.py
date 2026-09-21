@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
+import active_stage_context
 import dispatch_contract
 import draft_contracts
 import evidence
@@ -308,6 +309,7 @@ def _check_stage(d, report, verified, *, state=None, review_checks=None):
         ),
         "stage 起始 HEAD 与前序交付不符",
     )
+    active_stage_context.check(d)
     sources = execution["implementers"]
     for item in sources:
         w, implementation = ticket_state.resolve_source(item)

@@ -25,7 +25,7 @@
 - repository 的 `CONTEXT.md` 和相关 ADR
 - ticket 涉及区域的现有实现、测试和项目约定
 
-修复阶段先读取前阶段报告和 `prior_reviews`，归纳 blocking findings 破坏的不变量并修复共同根因；检查同一状态或资源交接涉及的调用方与直接相关分支。验证原失败被排除，同时保留正常完成或恢复能力。范围限于本票及修复直接影响的路径；复用已有覆盖，缺覆盖时才补测试，新增回归未实测 red 时注明构造依据。
+修复阶段先读取 dispatch 绑定的 `active_stage_context_source`，归纳当前 blocking findings 破坏的不变量并修复共同根因；只在其中的 finding 或 verification view 指向具体原始证据时定向读取，不默认展开累计前阶段报告、`prior_stages` 或全部 `prior_reviews`。检查同一状态或资源交接涉及的调用方与直接相关分支。验证原失败被排除，同时保留正常完成或恢复能力。范围限于本票及修复直接影响的路径；复用已有覆盖，缺覆盖时才补测试，新增回归未实测 red 时注明构造依据。
 
 如果是恢复执行，先检查现有未提交改动和 `base_commit..HEAD`，把它们视为本 ticket 的既有工作；executor 提供了已完成层清单时，先核对 `git log --oneline <base_commit>..HEAD` 与清单一致，不一致即报告。不要重做已经正确完成的部分。
 

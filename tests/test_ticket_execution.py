@@ -95,6 +95,10 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
             self.sd = Path(result["stage_dispatch"])
             self.wd = Path(result["implementer_dispatch"])
             self.stage_info = result
+            self.assertEqual(
+                result["active_stage_context_source"],
+                json.loads(self.wd.read_text())["active_stage_context_source"],
+            )
             launch = {"fork_turns": "none", "required": True}
             self.assertEqual(result["implementer_launch_context"], launch)
             self.assertEqual(json.loads(self.wd.read_text())["launch_context"], launch)
@@ -345,6 +349,72 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.assemble([self.review()])
         self.deliver()
         self.stage(ok=False)
+
+    def test_repair_uses_compact_active_stage_context_and_resume_reuses_it(self):
+        self.assertIsNone(self.stage_info["active_stage_context_source"])
+        self.ready_writer()
+        selected = self.review(blocking=True)
+        self.assemble([selected], "code_failure")
+        self.stage("repair")
+
+        source = self.stage_info["active_stage_context_source"]
+        context = json.loads(Path(source["path"]).read_text())
+        self.assertEqual(context["continuation"], "repair")
+        self.assertEqual(context["from_stage"], 0)
+        self.assertEqual(context["stage"], 1)
+        self.assertEqual(context["selected_review_source"], evidence.binding(selected))
+        self.assertEqual(
+            context["blocking_findings"],
+            [
+                {
+                    "axis": "standards",
+                    "kind": "defect",
+                    "blocking": True,
+                    "title": "需处理",
+                    "evidence": "原始证据，不改写",
+                }
+            ],
+        )
+        self.assertNotIn("review", context)
+        self.assertNotIn("verification", context)
+        self.assertNotIn("prior_stages", context)
+        resumed = self.stage()
+        self.assertEqual(resumed["active_stage_context_source"], source)
+
+    def test_active_stage_context_uses_only_direct_previous_stage(self):
+        self.ready_writer()
+        first = self.review(blocking=True)
+        self.assemble([first], "code_failure")
+        self.stage("repair")
+        self.ready_writer()
+        second = self.review(blocking=True)
+        self.assemble([first, second], "code_failure")
+        self.stage("repair")
+
+        context = Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        self.assertNotIn(str(first), context)
+        current = json.loads(context)
+        self.assertEqual(current["selected_review_source"], evidence.binding(second))
+        view = json.loads(Path(current["verification_view_source"]["path"]).read_text())
+        writer = json.loads(
+            Path(current["previous_implementer_source"]["report"]["path"]).read_text()
+        )
+        manifest = json.loads(Path(view["source_manifest"]["path"]).read_text())
+        self.assertEqual(manifest, writer["verification_sources"])
+
+    def test_tampered_active_stage_context_blocks_resume_and_delivery_check(self):
+        self.ready_writer()
+        self.assemble([self.review(blocking=True)], "code_failure")
+        self.stage("repair")
+        source = self.stage_info["active_stage_context_source"]
+        path = Path(source["path"])
+        original = path.read_bytes()
+        path.write_bytes(original + b"\n")
+        try:
+            self.stage(ok=False)
+            self.implement(ok=False)
+        finally:
+            path.write_bytes(original)
 
     def test_implementer_accepts_wrapped_closure(self):
         self.commit()
@@ -618,6 +688,15 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         self.stage(ok=False)
         self.stage("repair")
         self.assertEqual(self.stage_info["stage"], 1)
+        context = json.loads(
+            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        )
+        self.assertEqual(context["continuation"], "repair")
+        self.assertEqual(context["blocking_findings"], [])
+        self.assertEqual(
+            context["previous_implementer_source"]["report"]["path"],
+            str(self.writer_report),
+        )
         failure = self.gate(fail=True)
         result = self.cli(
             "executor",
@@ -651,6 +730,9 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
 
         self.assertEqual(result["stage"], 1)
         dispatch = json.loads(self.sd.read_text())
+        context = json.loads(Path(result["active_stage_context_source"]["path"]).read_text())
+        self.assertEqual(context["continuation"], "recover")
+        self.assertEqual(context["transition_evidence"]["recovery"], dispatch["stage_recovery"])
         self.assertEqual(dispatch["stage_base"], recovered)
         recovery_path = Path(dispatch["stage_recovery"]["path"])
         recovery = json.loads(recovery_path.read_text())
@@ -1280,6 +1362,14 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
                 self.stage("extend", ok=False, **facts)
                 self.assertEqual(self.evidence_snapshot(), before)
         self.stage("extend", additional_stages=1, extension_reason="用户明确追加一个 stage")
+        context = json.loads(
+            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        )
+        self.assertEqual(context["continuation"], "extend")
+        self.assertEqual(
+            context["transition_evidence"]["extension"],
+            json.loads(self.sd.read_text())["stage_extension"],
+        )
         self.ready_writer()
         self.assemble([self.review(blocking=True)], "code_failure")
         self.deliver()

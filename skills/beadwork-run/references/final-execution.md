@@ -1,6 +1,6 @@
 # 最终阶段交接
 
-新派发使用 `workflow_contract_version: 4`。controller 管 root 与集成，finalizer 管 attempt 检查点；fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收 fixer、唯一 round、selected_review、selected_stage、累计 gates 和来源。
+新派发使用 `workflow_contract_version: 5`。controller 管 root 与集成，finalizer 管 attempt 检查点；fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收 fixer、唯一 round、selected_review、selected_stage、累计 gates 和来源。
 
 ## 准备与恢复
 

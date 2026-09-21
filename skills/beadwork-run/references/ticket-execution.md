@@ -8,13 +8,15 @@ controller 创建并交接 `ticket_scope: root` 的 executor dispatch。executor
 python3 <skill-dir>/scripts/beadwork.py executor ticket-stage --dispatch <root-dispatch.json> --input <facts.json>
 ```
 
-首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round`、`review_started`、`required_boundary_gates` 和 `gate_sources`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
+首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`active_stage_context_source`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round`、`review_started`、`required_boundary_gates` 和 `gate_sources`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
 
 - `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
 - `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到当前授权上限（dispatch.stage_limit，未设置时为默认 stage 5）。
 - `continuation: recover`：仅恢复已按 `blocked` 封存的未登记 gate 修正。review 尚未开始、当前干净 HEAD 必须与阶段报告一致并且是修正前候选的不同后继，旧任务必须结束，同时提供非空 `recovery_reason`。已有已绑定 repair 候选时直接引用；首次修正在 `begin-gate-repair` 前提交、尚无候选时必须另传 `recovery_failure`，绑定修正前原始 delivery gate 失败的 `result.json`。脚本验证失败的 stage identity、日志哈希、干净 HEAD、退出状态和 ancestry，在旧阶段目录追加 `unregistered-gate-repair-recovery.json`，再建立下一阶段并消耗一个 stage。普通环境、spec、seam 或证据阻塞不能使用该入口。
 - `continuation: extend`：每张 ticket 仅可追加一次，仅在默认 stage 5 交付 `code_failure` 且旧任务已停止后使用。controller 交接用户明确追加的额度与授权说明，executor 传入 `additional_stages`（整数 1–5）和非空 `extension_reason`；普通“继续”、自动重试或接替会话不构成追加授权。脚本在检查通过后追加授权证据并建立下一 stage，上限为默认上限加追加数量。新增 stage 沿用最高模型档；repair/resume 继承授权及计数，扩展上限耗尽后停止，不能再次 extend。
 - 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
+
+stage 0 的 `active_stage_context_source` 为 null。`repair`、`recover` 或 `extend` 建立后续 stage 时，脚本从 checkpoint 明确选中的前阶段生成内容绑定的紧凑上下文：保留当前 blockers、requested_context、concerns、最终 blocking findings、直接前阶段 implementer 的 verification view，以及前阶段、writer、review 和恢复/扩展证据绑定；不复制累计 verification、历史 review rounds、非阻塞 smells 或 reviewer notes。同 stage `resume` 原样复用该绑定。implementer 默认只读这份上下文，需要时沿其中的绑定定向读取原始证据；完整累计 stage report 继续用于脚本验收与审计。
 
 模型与矩阵以 `../scripts/workflow_policy.py` 为准。三档依次为 Terra-medium、Terra-high、Sol-medium；普通 implementer 六阶段各档两次。`complex_ticket` 保留 Sol-medium 的实现起点及 Terra-high 的 Standards 下限；提前升档后不要求再凑齐低档次数。
 

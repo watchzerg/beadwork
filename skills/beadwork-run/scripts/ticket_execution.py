@@ -3,6 +3,7 @@
 import uuid
 from pathlib import Path
 
+import active_stage_context
 import dispatch_contract
 import draft_contracts
 import evidence
@@ -104,12 +105,14 @@ worker = report_io.implementer
 def stage_result(d, state):
     selected = state["implementer_sources"][-1] if state["implementer_sources"] else None
     writer = evidence.read(evidence.bound(d["implementer_dispatch"]))
+    active_stage_context.check(writer)
     return {
         "context_sources": handoff.contexts(d),
         "stage": d["stage"],
         "stage_dispatch": d["dispatch_path"],
         "implementer_dispatch": writer["dispatch_path"],
         "implementer_launch_context": workflow_contract.launch_context(writer),
+        "active_stage_context_source": writer["active_stage_context_source"],
         "models": d["models"],
         "prior_implementer": selected,
         "selected_stage": state["selected_stage"],
@@ -322,6 +325,7 @@ def prepare_stage(root_path, facts):
         prior_stages=state["stage_sources"],
         previous_stage=state["selected_stage"],
         verification_dispatches=[],
+        active_stage_context_source=None,
     )
     if recovery:
         d["stage_recovery"] = recovery
@@ -335,6 +339,10 @@ def prepare_stage(root_path, facts):
     d["required_boundary_gates"] = list(state["required_boundary_gates"])
     d.pop("implementer_dispatch", None)
     folder.mkdir()
+    if previous:
+        d["active_stage_context_source"] = active_stage_context.publish(folder, d)
+    else:
+        active_stage_context.check(d)
     w = save_dispatch(dict(d, ticket_scope="implementer"), folder / "implementer", "implementer")
     d["implementer_dispatch"] = evidence.binding(w["dispatch_path"])
     d = save_dispatch(d, folder / "coordinator", "executor")
@@ -362,6 +370,7 @@ check_implementation = implementer_reports.check_implementation
 def implementer_check(dispatch_path, report_path):
     d = dispatch_contract.dispatch(dispatch_path)
     repository.require(d["role"] == "implementer", "需要 implementer dispatch")
+    active_stage_context.check(d)
     repository.require(Path(report_path).parent == Path(dispatch_path).parent, "实现报告目录不符")
     checked = report_io.implementer("--check-report", report_path, "--expected", dispatch_path)
     report = evidence.read(report_path)

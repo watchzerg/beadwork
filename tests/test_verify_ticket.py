@@ -403,7 +403,7 @@ class TicketAcceptanceTests(unittest.TestCase):
                 folder / "dispatch.json",
                 {
                     "role": "executor",
-                    "workflow_contract_version": 4,
+                    "workflow_contract_version": 5,
                     "launch_context": {"fork_turns": "none", "required": True},
                     "base_commit": self.head,
                     "test_mode": "direct_verification",
