@@ -119,7 +119,7 @@ controller 核对整票交付来源、最终状态、当前计划下的必跑 ga
 
 验收成功后：
 
-1. 执行 controller 脚本的 `comment` 生成中文 completion，提供交付摘要和补证路径；核对生成的 test mode、seams、commits、验证、review、原始 smells 与证据后写入 ticket。
+1. 执行 controller 脚本的 `comment` 生成中文 completion，提供交付摘要和补证路径；核对生成的 test mode、seams、commits、最终 gate 摘要、review、原始 smells 与证据 binding。将返回的 `comment_source` 直接作为 tracker comment 的 `body_source`，不读取或复制全文。
 2. 使用 tracker close 关闭 ticket，绑定成功 acceptance，reason 概括完成内容与验证；先确认 completion 已成功写入。
 
 3. 回到 3.1，重新计算 frontier。
@@ -160,7 +160,7 @@ finalizer 自行管理最终验证、修复和 review；controller 等待 final-
 
 最终 review 与语义验收通过后：
 
-1. 执行 controller 脚本的 `comment` 生成 integration-ready，补充必要的 fetch fallback 记录，核对证据后写入 parent；写入失败停止。
+1. 执行 controller 脚本的 `comment` 生成 integration-ready，补充必要的 fetch fallback 记录，核对证据 binding，并将返回的 `comment_source` 直接作为 tracker `body_source` 写入 parent；不读取或复制全文，写入失败停止。
 2. 使用实际 comment ID 执行 `merge`，checkpoint 留在本轮证据目录。脚本复查 BASE/HEAD、干净状态与 comment 身份，再 fast-forward；仅 primary dirty 时恢复干净后重试，复用原验收；main 已移动时重新执行第 4 节。命令中断或失败后恢复前，读取 `references/recovery-merge.md`。
 3. 仅 `merged: true` 后继续；`REVIEWED_HEAD` 使用脚本返回的 `reviewed_head`。
 

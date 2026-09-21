@@ -394,12 +394,20 @@ def ticket_gate_summary(implementation):
     pending = [
         gate for gate in gate_plan.deferred_for_ticket(plan, boundaries) if gate not in passed
     ]
-    behavior = [
-        row
-        for row in implementation["verification"]
-        if " test" in row["command"] or row["command"].endswith(" test")
-    ]
-    return measured, pending, behavior
+    behavior = {}
+    for row in implementation["verification"]:
+        if " test" in row["command"] or row["command"].endswith(" test"):
+            behavior[row["command"]] = row
+    return measured, pending, list(behavior.values())
+
+
+def final_gate_summary(report):
+    latest = {
+        item["gate"]: item
+        for item in report["verification"]
+        if item["head_commit"] == report["head_commit"]
+    }
+    return [latest[gate] for gate in sorted(latest)]
 
 
 def comment(args):
@@ -416,8 +424,9 @@ def comment(args):
         "parent_id": d["parent_id"],
         "reviewed_main": r["reviewed_main"] if final else r["base_commit"],
         "reviewed_head": r["head_commit"],
-        "acceptance_path": str(Path(args.acceptance).resolve()),
-        "report_sha256": a["report_sha256"],
+        "acceptance_source": evidence.binding(Path(args.acceptance).resolve()),
+        "report_source": {"path": a["report_path"], "sha256": a["report_sha256"]},
+        "receipt_source": {"path": a["receipt_path"], "sha256": a["receipt_sha256"]},
     }
     lines = [
         "## " + metadata["kind"],
@@ -446,7 +455,6 @@ def comment(args):
                 "定向行为验证来源："
                 + json.dumps(behavior or implementation["acceptance"], ensure_ascii=False),
                 "待 parent finalize 完整回归：" + json.dumps(pending, ensure_ascii=False),
-                "阶段与实现来源：" + json.dumps(r["execution"], ensure_ascii=False),
             ]
         if d.get("plan_adjustment"):
             adjustment = read(evidence.bound(d["plan_adjustment"]))
@@ -459,21 +467,15 @@ def comment(args):
                 "调整证据：" + json.dumps(d["plan_adjustment"], ensure_ascii=False),
             ]
         if "stage" in d:
-            lines += [
-                "交付阶段：" + str(d["stage"]) + "（0 为首次实现）",
-                "本阶段模型：" + json.dumps(d["models"], ensure_ascii=False),
-            ]
+            lines += ["交付阶段：" + str(d["stage"]) + "（0 为首次实现）"]
         lines += [
             "Test mode：" + r["test_plan"]["mode"],
             "Approved seams：" + json.dumps(r["test_plan"]["approved_seams"], ensure_ascii=False),
             "Commits：" + ", ".join(c["sha"] for c in r["implementation_commits"]),
         ]
+    if final:
+        lines += ["最终验证：" + json.dumps(final_gate_summary(r), ensure_ascii=False)]
     lines += [
-        "",
-        "验证记录：",
-        "```json",
-        json.dumps(r["verification"], ensure_ascii=False, indent=2),
-        "```",
         "",
         "残留非阻塞 smells：",
         "```json",
@@ -483,25 +485,18 @@ def comment(args):
             indent=2,
         ),
         "```",
-        "",
-        "证据：",
-        a["report_path"],
-        a["receipt_path"],
-        str(Path(args.acceptance).resolve()),
     ]
     if final:
         if "stage" in r:
-            lines += [
-                "交付阶段：" + str(r["stage"]),
-                "阶段证据：",
-                json.dumps(r["stage_sources"], ensure_ascii=False),
-            ]
-        lines.extend(r["sources"])
-    for evidence_path in args.evidence:
-        require(Path(evidence_path).is_file(), "补证文件不存在")
-        lines.append(str(Path(evidence_path).resolve()))
+            lines += ["交付阶段：" + str(r["stage"])]
+    supplemental = []
+    for source in args.evidence:
+        require(Path(source).is_file(), "补证文件不存在")
+        supplemental.append(evidence.binding(Path(source).resolve()))
+    if supplemental:
+        lines += ["", "补充证据：" + json.dumps(supplemental, ensure_ascii=False)]
     write(args.output, "\n".join(lines) + "\n")
-    return {"comment_path": str(Path(args.output).resolve()), "metadata": metadata}
+    return {"comment_source": evidence.binding(Path(args.output).resolve()), "metadata": metadata}
 
 
 def bd(root, *args):
@@ -547,8 +542,8 @@ def merge(args):
             and m.get("parent_id") == d["parent_id"]
             and m.get("reviewed_main") == r["reviewed_main"]
             and m.get("reviewed_head") == r["head_commit"]
-            and m.get("report_sha256") == a["report_sha256"]
-            and m.get("acceptance_path") == str(Path(args.acceptance).resolve())
+            and m.get("report_source") == {"path": a["report_path"], "sha256": a["report_sha256"]}
+            and m.get("acceptance_source") == evidence.binding(Path(args.acceptance).resolve())
             for m in metadata
         ),
         "integration-ready comment 未绑定本次证据",

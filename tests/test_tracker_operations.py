@@ -58,6 +58,10 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
         self.addCleanup(environment.stop)
 
     def intent(self, kind, **extra):
+        if kind == "comment" and "body" in extra:
+            body = self.root / (kind + "-body.md")
+            body.write_text(extra.pop("body"))
+            extra["body_source"] = evidence.binding(body)
         source = self.root / (kind + "-input.json")
         source.write_text(
             json.dumps(
@@ -79,7 +83,11 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
         first = tracker.execute(path)
         second = tracker.execute(path)
         self.assertEqual(first, second)
-        self.assertEqual(first["after"]["status"], "in_progress")
+        result = evidence.read(evidence.bound(first["result_source"]))
+        self.assertEqual(result["after_state"], {"status": "in_progress", "assignee": "fixture"})
+        self.assertNotIn("before", result)
+        self.assertNotIn("after", result)
+        self.assertEqual(set(first), {"kind", "issue_id", "already_applied", "result_source"})
 
     def test_existing_foreign_claim_is_not_adopted(self):
         state = json.loads(self.state.read_text())
@@ -90,7 +98,23 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
 
     def test_comment_marker_prevents_duplicate_after_lost_local_result(self):
         path = self.intent("comment", body="阶段完成")
+        intent = evidence.read(path)
+        self.assertEqual(intent["version"], 2)
+        self.assertIn("body_source", intent)
+        self.assertNotIn("body", intent)
         first = tracker.execute(path)
+        stored = evidence.read(evidence.bound(first["result_source"]))
+        self.assertEqual(
+            set(stored),
+            {
+                "intent_sha256",
+                "kind",
+                "issue_id",
+                "already_applied",
+                "write_exit_code",
+                "comment_id",
+            },
+        )
         self.assertEqual(first["comment_id"], "1")
         self.assertEqual(first, tracker.execute(path))
         path.with_name(path.stem + "-result.json").unlink()
@@ -98,6 +122,27 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
         self.assertTrue(result["already_applied"])
         self.assertEqual(result["comment_id"], first["comment_id"])
         self.assertEqual(len(json.loads(self.state.read_text())["comments"]), 1)
+
+    def test_comment_requires_unchanged_body_source(self):
+        path = self.intent("comment", body="发布")
+        intent = evidence.read(path)
+        Path(intent["body_source"]["path"]).write_text("变化")
+        with self.assertRaisesRegex(ValueError, "证据文件已变化"):
+            tracker.execute(path)
+        invalid = self.root / "invalid-input.json"
+        invalid.write_text(
+            json.dumps(
+                {
+                    "repository_root": str(self.root),
+                    "parent_id": "demo-1",
+                    "issue_id": "demo-1",
+                    "kind": "comment",
+                    "body": "旧格式",
+                }
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "输入字段无效"):
+            tracker.prepare(invalid, self.root / "invalid-intent.json")
 
     def test_duplicate_marker_and_missing_id_are_rejected(self):
         path = self.intent("comment", body="发布")
@@ -117,7 +162,9 @@ else: print(json.dumps({'bad':a})); sys.exit(2)
         report = self.root / "accepted.json"
         evidence.write(report, {"kind": "mechanical_acceptance"})
         path = self.intent("close", reason="完成", prerequisite=evidence.binding(report))
-        self.assertEqual(tracker.execute(path)["after"]["status"], "closed")
+        receipt = tracker.execute(path)
+        result = evidence.read(evidence.bound(receipt["result_source"]))
+        self.assertEqual(result["after_state"], {"status": "closed"})
         with self.assertRaises(ValueError):
             self.intent("close", reason="完成")
 

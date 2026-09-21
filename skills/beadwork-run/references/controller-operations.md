@@ -16,10 +16,10 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 | kind | 输入与 controller 前置核对 |
 | --- | --- |
 | claim | expected_assignee：实际领取身份；parent 需 install/env-facts/gate-plan/gate-core 快速基线通过，child 需刷新后的 claim frontier 与 sync_result |
-| comment | body：核对后的完整正文；completion/integration-ready 使用 controller comment 生成正文，保留其 JSON 身份块 |
+| comment | body_source：核对后正文文件的 path/sha256 binding；completion/integration-ready 直接使用 controller comment 返回的 comment_source，不读取或复制全文 |
 | close | reason、prerequisite（path/sha256）；child 绑定成功 acceptance，parent 绑定成功 merge checkpoint；controller 另核对对应 completion 已写入 |
 
-脚本保存 intent，写后读回 show/comments；它验证 prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。execute 成功返回 before/after、already_applied 和 write_exit_code；comment 结果直接包含唯一读回的字符串 `comment_id`，用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。
+脚本保存 V2 intent，写后读回 show/comments；它验证 body_source/prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。result 只保留操作所需的状态投影，execute 返回 result_source 短回执；comment 另含唯一读回的字符串 `comment_id`，用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。旧版内联 body intent 只读保留，不执行或迁移。
 
 未知结果使用原 intent 重试，先读回协调；不创建新 intent 盲目重发。claim 竞争失败重新计算 frontier；已由其他身份领取时不采用。
 
@@ -134,7 +134,7 @@ controller 完成交付验收后调用：
 python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
 ```
 
-只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、验证记录、review 次数、当前阶段及模型、原始非阻塞 smells 和证据路径。ticket completion 另从绑定计划与运行来源生成本票完整 gate 实测结果、定向行为证据和待 parent finalize 的边界；不让模型手写调度摘要。controller 用 `--evidence` 加入更正前的报告、补证或 fetch fallback 等额外证据，核对正文并补足本轮必要说明后，将全文作为 tracker comment 的 body 写入。integration-ready 中的 JSON 身份块保持原样。
+只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、最终 gate 摘要、review 次数、当前阶段、原始非阻塞 smells 和 report/receipt/acceptance bindings。ticket completion 另从绑定计划与运行来源生成本票 gate 实测、去重后的定向行为证据和待 parent finalize 边界；完整验证历史、执行来源树和模型矩阵只留在绑定报告，不复制进 tracker。controller 用 `--evidence` 加入更正前报告、补证或 fetch fallback 的 binding；命令返回 comment_source，直接作为 tracker comment 的 body_source，不读取或手工包装正文。integration-ready 中的 JSON 身份块保持原样。
 
 ## 合入本地 main
 

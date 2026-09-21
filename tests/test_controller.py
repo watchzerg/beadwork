@@ -492,17 +492,28 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             "evidence": "具体来源",
         }
         r["review"]["final"]["standards"]["findings"] = [smell]
+        r["verification"] += [
+            {"command": f"historic-command-{index}", "result": "已由后续结果覆盖"}
+            for index in range(60)
+        ]
         self.deliver(r)
         self.accept()
         output = self.dispatch.parent / "completion.md"
-        self.call(
+        result = self.call(
             "comment", "--acceptance", self.acceptance, "--summary", "功能完成", "--output", output
         )
+        self.assertEqual(result["comment_source"], evidence.binding(output))
         self.assertIn(
             json.dumps(smell, ensure_ascii=False, indent=2).splitlines()[1].strip(),
             output.read_text(),
         )
         self.assertIn(self.h.base + ".." + self.h.head, output.read_text())
+        self.assertNotIn("historic-command", output.read_text())
+        self.assertNotIn("验证记录：", output.read_text())
+        self.assertLess(output.stat().st_size, 10_000)
+        metadata = result["metadata"]
+        self.assertEqual(metadata["acceptance_source"], evidence.binding(self.acceptance))
+        self.assertEqual(metadata["report_source"], evidence.binding(self.report))
 
     def test_receipt_tamper_rejected(self):
         self.prepare()

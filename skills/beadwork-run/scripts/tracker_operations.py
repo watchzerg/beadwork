@@ -10,6 +10,7 @@ import execution_plan
 import graph
 
 KINDS = ("claim", "comment", "close")
+VERSION = 2
 
 
 def require(value, message):
@@ -86,7 +87,7 @@ def prepare(input_path, output):
             "parent_id",
             "issue_id",
             "kind",
-            "body",
+            "body_source",
             "reason",
             "expected_assignee",
             "prerequisite",
@@ -97,7 +98,8 @@ def prepare(input_path, output):
     for key in ("repository_root", "parent_id", "issue_id"):
         require(isinstance(value.get(key), str) and value[key], f"缺少 {key}")
     if value["kind"] == "comment":
-        require(isinstance(value.get("body"), str) and value["body"].strip(), "comment 需要正文")
+        body = evidence.bound(value.get("body_source"))
+        require(body.read_text(encoding="utf-8").strip(), "comment 需要非空正文来源")
     if value["kind"] == "close":
         require(isinstance(value.get("reason"), str) and value["reason"].strip(), "close 需要原因")
         require(value.get("prerequisite") is not None, "close 需要成功交付前置来源")
@@ -112,14 +114,31 @@ def prepare(input_path, output):
             "child claim 需要 expected_assignee",
         )
     target = evidence.absolute(output)
-    intent = {"version": 1, **value}
+    intent = {"version": VERSION, **value}
     evidence.write(target, intent)
     return {"intent_path": str(target), "intent_sha256": evidence.digest(target)}
+
+
+def state(value, *keys):
+    return {key: value.get(key) for key in keys}
+
+
+def receipt(result_path, result):
+    return {
+        "kind": result["kind"],
+        "issue_id": result["issue_id"],
+        "already_applied": result["already_applied"],
+        **({"comment_id": result["comment_id"]} if result["kind"] == "comment" else {}),
+        "result_source": evidence.binding(result_path),
+    }
 
 
 def execute(intent_path):
     path = evidence.absolute(intent_path)
     intent = evidence.read(path)
+    require(intent.get("version") == VERSION, "需要当前 tracker intent")
+    if intent["kind"] == "comment":
+        evidence.bound(intent["body_source"])
     result_path = path.with_name(path.stem + "-result.json")
     if intent["kind"] == "claim" and intent["issue_id"] != intent["parent_id"]:
         require(intent.get("execution_plan_source"), "child claim 缺少执行计划绑定")
@@ -174,9 +193,9 @@ def execute(intent_path):
                 "closed",
                 evidence.binding(path),
             )
-        return result
+        return receipt(result_path, result)
     root, issue_id, kind = intent["repository_root"], intent["issue_id"], intent["kind"]
-    before = issue(root, issue_id)
+    before = {} if kind == "comment" else issue(root, issue_id)
     marker = "beadwork-operation:" + evidence.digest(path)
     write_result = None
     already = False
@@ -198,7 +217,12 @@ def execute(intent_path):
         already = matching_comment(comments(root, issue_id), marker) is not None
         if not already:
             body_path = path.with_name(path.stem + "-body.txt")
-            body = intent["body"].rstrip() + "\n\n<!-- " + marker + " -->\n"
+            body = (
+                evidence.bound(intent["body_source"]).read_text(encoding="utf-8").rstrip()
+                + "\n\n<!-- "
+                + marker
+                + " -->\n"
+            )
             if body_path.exists():
                 require(body_path.read_text(encoding="utf-8") == body, "comment 正文证据已变化")
             else:
@@ -209,7 +233,7 @@ def execute(intent_path):
         already = before.get("status") == "closed"
         if not already:
             write_result = command(root, "close", issue_id, "--reason", intent["reason"])
-    after = issue(root, issue_id)
+    after = {} if kind == "comment" else issue(root, issue_id)
     if kind == "claim":
         require(after.get("status") == "in_progress" and after.get("assignee"), "claim 未读回")
         if intent.get("expected_assignee"):
@@ -224,12 +248,17 @@ def execute(intent_path):
         "kind": kind,
         "issue_id": issue_id,
         "already_applied": already,
-        "before": before,
-        "after": after,
         "write_exit_code": None if write_result is None else write_result["exit_code"],
     }
-    if kind == "comment":
+    if kind == "claim":
+        result.update(
+            before_state=state(before, "status", "assignee"),
+            after_state=state(after, "status", "assignee"),
+        )
+    elif kind == "comment":
         result["comment_id"] = comment_id
+    else:
+        result.update(before_state=state(before, "status"), after_state=state(after, "status"))
     evidence.write(result_path, result)
     if (
         kind == "close"
@@ -239,7 +268,7 @@ def execute(intent_path):
         execution_plan.record_progress(
             root, intent["parent_id"], issue_id, "closed", evidence.binding(path)
         )
-    return result
+    return receipt(result_path, result)
 
 
 def execute_command(args):

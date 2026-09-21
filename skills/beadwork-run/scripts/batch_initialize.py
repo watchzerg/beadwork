@@ -218,7 +218,12 @@ def tracker_step(folder, name, value):
             evidence.write(source, value)
         tracker.prepare(source, path)
     result = tracker.execute(path)
-    return result, evidence.binding(path.with_name(path.stem + "-result.json"))
+    source = result["result_source"]
+    require(
+        evidence.bound(source) == path.with_name(path.stem + "-result.json"),
+        "tracker 回执来源不属于当前 intent",
+    )
+    return result, source
 
 
 def execute(intent_path, recovery=None):
@@ -324,12 +329,12 @@ def execute(intent_path, recovery=None):
             *["命令证据：" + x["path"] for x in sources[-4:]],
         ]
     )
-    # 发布输入一经固定，恢复复用原正文；验证来源仍留在不可变记录中。
-    comment_input = folder / "comment-input.json"
-    if comment_input.exists():
-        body = evidence.read(comment_input)["body"]
+    # 正文来源一经固定，恢复复用原文件；验证来源仍留在不可变记录中。
+    body_path = folder / "comment.md"
+    if not body_path.exists():
+        evidence.write(body_path, body + "\n")
     comment, comment_source = tracker_step(
-        folder, "comment", dict(common, kind="comment", body=body)
+        folder, "comment", dict(common, kind="comment", body_source=evidence.binding(body_path))
     )
     result = dict(
         kind="batch_initialized",
