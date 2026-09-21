@@ -4,7 +4,7 @@
 
 ## 1. 一次采集
 
-读取 controller 交接的 `dispatch_path`、`draft_schema_path` 和 `rules_paths`；按 `../references/testing-contract.md` 定位 `testing-plan.md`、`testing-seams.md`、`testing-gates.md`。路径均为绝对路径。
+读取 controller 交接的 `dispatch_path`、`draft_schema_path` 和 `rules_paths`；按 `../references/testing-contract.md` 定位并固定读取 `testing-plan.md`、`testing-seams.md`、`testing-gates.md`，不读取 `testing-tdd.md`。路径均为绝对路径。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py preflight collect --dispatch <dispatch.json>
@@ -21,7 +21,12 @@ python3 <skill-dir>/scripts/beadwork.py preflight collect --dispatch <dispatch.j
 只填写以下两项检查，其他检查由采集器提供：
 
 - `spec_and_test_plans`：读取 linked spec 的 `## Testing Decisions`（parent 即 spec 时复用 parent）。核对每张票相对于前序成果的增量交付，明显吞票或漏依赖时报告冲突；逐张未关闭票按共享契约核对 Test mode、Expected red 或 direct verification 理由/命令、approved seam 来源、Boundary gates 及 Verification 中额外 gates。recipe 名称由脚本检查，实际验证能力需读取当前 checkout 的 `justfile` 和必要调用文件；占位 gate 不算通过。全部未关闭票均 direct verification 时允许无 TDD seam。缺项、冲突一次性报告，不补写计划。
-- `recovery`：结合采集的 Git 现场、parent comments、必要的 child start/completion 和证据判断路径。无 branch/worktree、无批次执行记录、parent 为 open、无 in_progress child 且至少一票未关闭才是 `new_batch`。已有 implementation 现场读取 `../references/recovery-batch.md`；有 in_progress child 另读 `../references/recovery-ticket.md`；parent 或全部 children 已关闭读取 `../references/recovery-post-merge.md`。parent 已关闭只按该恢复规则收尾；不存在可恢复批次时不能新建空批次。检查 branch/worktree 归属、领取身份、BASE 及恢复证据一致性，记录 `new_batch`、`resume_tickets`、`finalize` 或 `post_merge` 建议，不执行恢复写入。
+- `recovery`：先只用采集的 Git 现场、parent comments、必要的 child start/completion 和证据分类。分类完成前不读取任何 `recovery-*.md`，不得为比较候选路线而预读多份恢复文件。固定路由为：
+  - parent 或全部 children 已关闭：`post_merge`，只读 `../references/recovery-post-merge.md`。parent 已关闭只按该规则收尾。
+  - 已有 implementation 现场且有 in_progress child：`resume_tickets`，读 `../references/recovery-batch.md` 和 `../references/recovery-ticket.md`。
+  - 已有 implementation 现场但无 in_progress child：只读 `../references/recovery-batch.md`，再判断继续批次或 `finalize`。
+  - 无 branch/worktree、无批次执行记录、parent 为 open、无 in_progress child 且至少一票未关闭：`new_batch`，不读恢复文件。
+  不存在可恢复批次时不能新建空批次。检查 branch/worktree 归属、领取身份、BASE 及恢复证据一致性，记录路线建议，不执行恢复写入。
 
 基础事实缺失时，依赖它的语义检查记为 false，说明未检查部分；仍可核对独立事项。图不平铺时报告 grandchildren 并要求先扁平化。READY 需要全部检查成立，尚未 install、安装后 `gate-plan` / `gate-core` 快速基线或 claim。
 

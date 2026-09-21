@@ -8,7 +8,13 @@
 
 从 dispatch 的 writer_source、verification_view_source、stage_source、required_boundary_gates/gate_sources 和 context_sources 读取实现与覆盖证据；先读 verification view，并默认只展开 selected_sources，存在矛盾或覆盖疑问时再从绑定的完整来源定点追查。复审的历史判断来源使用本轴 prior_axis_source。核对 Git 引用、BASE ancestry、当前 HEAD 与派发一致；change 使用固定 SHA 的 diff 和 commit 列表，existing_behavior 使用固定 HEAD 的实现与验收证据。为核实本轮范围可读取相关调用方、实现和测试，报告范围内的问题。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；最终审查才检查整个批次的完整性。真正的来源冲突须引用双方原文并报告阻塞。
 
-按 `../references/testing-contract.md` 定位共享测试契约与项目事实：检查测试模式或计划时读 `testing-plan.md`；检查测试观察接口及授权时读 `testing-seams.md`；核查 TDD red 证据时读 `testing-tdd.md`；检查命令、收集范围或验证覆盖时读 `testing-gates.md`。这些条件由本轮需求、diff 和证据触发，不以已有 finding 为前提；所需规则不可读取时报告 BLOCKED。
+按 `../references/testing-contract.md` 定位共享测试契约与项目事实，只选择一个固定组合：
+
+- 单票 review 先从 dispatch 绑定的 `plan_source` 读取 Test plan mode。`direct_verification` 的 Standards 轴只读 `testing-gates.md`，Spec 轴读 `testing-plan.md` 和 `testing-gates.md`。
+- `TDD` 单票 review 的两轴均读 `testing-plan.md`、`testing-seams.md`、`testing-tdd.md` 和 `testing-gates.md`。
+- 批次 review 没有单一 Test plan mode，两轴均读四份 testing 文件。
+
+不得因后续可能需要而预读其他组合；所需规则不可读取时报告 BLOCKED。
 
 单票审查按绑定 `gate-plan` 区分本票必跑完整 gates 与待 parent finalize 的 deferred 完整回归，但仍核对 deferred 边界的本票行为证据；不因完整慢 suite 按契约延期而报告缺失。
 

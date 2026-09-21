@@ -20,7 +20,7 @@
 
 然后读取：
 
-- `rules_paths`；按 `../references/testing-contract.md` 定位并读取 `testing-plan.md`、`testing-gates.md`，TDD 模式另读 `testing_seams_doc` 和 `testing-tdd.md`
+- `rules_paths`；按 `../references/testing-contract.md` 定位测试契约，只按 dispatch 的 `test_mode` 选择固定组合：`direct_verification` 读 `testing-plan.md` 和 `testing-gates.md`；`TDD` 读 `testing-plan.md`、`testing_seams_doc`、`testing-tdd.md` 和 `testing-gates.md`。不得预读另一模式的文件
 - linked spec（若提供）
 - repository 的 `CONTEXT.md` 和相关 ADR
 - ticket 涉及区域的现有实现、测试和项目约定
@@ -33,7 +33,7 @@
 
 输入模式使用原 Test plan 或 executor 明确交接的执行计划调整。Expected red 在开工 BASE 已满足、需要补覆盖或无提交完成时读取 `../references/baseline-adaptation.md`；部分已有的票对剩余行为保持 TDD。
 
-按 testing-plan.md 核对必填字段与引用；无效计划返回 BLOCKED，不自行改写 ticket。TDD 模式加载 tdd，交接 approved seam ID、定义及已有批准，按 testing-seams/testing-tdd 记录行为 red（包括必要骨架与运行基线）；其后续 review 由 executor 负责。Direct verification 不调用 tdd，执行声明验证与项目 gates。seam 授权变化交回上层。
+按 testing-plan.md 核对必填字段与引用；无效计划返回 BLOCKED，不自行改写 ticket。TDD 模式交接 approved seam ID、定义及已有批准，按 testing-seams/testing-tdd 记录行为 red（包括必要骨架与运行基线）；其后续 review 由 executor 负责。Direct verification 不调用 tdd，执行声明验证与项目 gates。seam 授权变化交回上层。
 
 ## 3. 分层实现与验证
 
