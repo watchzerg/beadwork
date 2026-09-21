@@ -6,7 +6,7 @@ executor 和 finalizer 在每轮审查前读取本文件，直接派发两个独
 
 1. 确认验证已通过、先前 writer 及其命令已结束。ticket 使用当前 stage dispatch，并先完成 implementer-accept；root 和 implementer 不派发 review。执行下列 `review-prepare`，使用返回的 `round_path` 和两轴 dispatch。脚本检查真实 branch、BASE/HEAD、ancestry、干净状态；普通 change 要求非空 diff，无提交分支按 `baseline-adaptation.md` 提供 `--evidence <acceptance.json>`，准备 existing_behavior 审查，记录 commit 列表；executor 的 BASE 取 dispatch.base_commit，finalizer 取 dispatch.reviewed_main。ticket 每阶段只 prepare 一次，恢复从已有 round/轴 dispatch 继续或更正。最终阶段使用 final-execution.md 的检查点；缺少真实验证或已验收 fixer 时不可准备 review。round 准备写入中断后，仅使用 review-prepare --resume 恢复原目录，已完成 round 从 final-stage 返回值继续。从派发到验收保持现场冻结；脚本不确认任务结束，也不锁住工作区。
 2. 明确本轮范围与来源。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；后续 children 的工作不算本票遗漏。最终审查覆盖 parent、linked spec 和全部 children。提供可读取的具体来源，必要需求或规范缺失/冲突时报告阻塞，不从分支名或 commit message 猜测替代需求。
-3. `review-prepare` 已在本次派发证据目录下创建独立轮次及两轴目录，保存 dispatch、报告/回执 schema 和指定 report_path。按共享交付契约交接这些路径及 reviewer 自检命令；无需手工复制 schema 或 Git 身份。
+3. `review-prepare` 已在本次派发证据目录下创建独立轮次及两轴目录，保存 dispatch、报告/回执 schema、指定 report_path，以及两轴共用的 verification view。reviewer 先读 view，并默认只展开其中 selected_sources；完整来源由 view 绑定，存在矛盾或覆盖疑问时再定点追查。按共享交付契约交接这些路径及 reviewer 自检命令；无需手工复制 schema 或 Git 身份。
 4. ticket 和 finalizer reviewer 都使用其 dispatch 的 `models.standards` / `models.spec`；`review-prepare` 将对应 `model` 和 `reasoning_effort` 写入轴 dispatch。派发时必须照抄返回的 `reviewer_launch_context`，显式使用 `fork_turns: "none"`，不得省略或改用 `all`；在任务指令中要求每名 reviewer 先读取 `<skill-dir>/agents/reviewer.md`。实际派发提供：
    - `skill_dir`、`worktree` 和适用仓库规则的绝对路径；项目测试契约由 reviewer 按自身指令读取，不依赖派发者上下文。
    - 本轴 `axis`、完整 `reviewed_base` / `reviewed_head`、固定 diff 命令与 commit 列表。
@@ -42,4 +42,4 @@ ticket 和 v2 finalizer 的 collect 都会将当前 collection 绑定到 stage �
 
 ticket 新阶段和 finalizer 每个新阶段的复审使用该阶段 dispatch 模型；同 HEAD 的报告更正沿用该轴模型组合且不新增轮次。复审仍使用原 BASE；普通仓库变更使用新 HEAD。ticket 的 direct_verification 若只修复 ignored 或仓库外本机状态，可在 BASE=HEAD 的新轮次复审；资格由各轮绑定的 `existing_behavior` 身份和 acceptance 证据确认，不取决于最终报告是否 DONE 或后续是否转回 TDD。同 HEAD 复审仍阻塞时照常封存失败并按阶段规则处理。每轴核实自己的原 findings 与处置；普通变更重点检查 fix diff，外部状态修复重点检查其 secret-safe 当前证据，同时检查完整范围的新问题和硬违例。未受影响的已处置 smells 不重复报告。使用新的证据目录，保留历史报告。
 
-reviewer dispatch 自动包含 writer_source、verification_sources、stage_source、required_boundary_gates/gate_sources、plan_source/plan_adjustment、context_sources、本轴 prior_axis_source 和最终审查的 expected_children。派发者只补充无法从来源生成的范围说明；不转交另一轴的前次 findings。
+reviewer dispatch 自动包含 writer_source、verification_view_source、stage_source、required_boundary_gates/gate_sources、plan_source/plan_adjustment、context_sources、本轴 prior_axis_source 和最终审查的 expected_children。派发者只补充无法从来源生成的范围说明；不转交另一轴的前次 findings。

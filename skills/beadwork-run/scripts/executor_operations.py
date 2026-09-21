@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -74,25 +75,36 @@ def inspect_context(args):
         ):
             raw = repository.run(["bd", command, identity, "--json"], d["worktree"])
             target = directory / (name + ".json")
-            evidence.write(target, raw)
-            result["sources"][name] = str(target)
-            value = load(target)
-            repository.require(isinstance(value, list), name + " 必须返回数组")
-            if command == "show":
-                repository.require(
-                    len(value) == 1 and value[0].get("id") == identity, name + " 身份不符"
-                )
-                if name == "ticket":
+            try:
+                value = evidence.loads(raw)
+                repository.require(isinstance(value, list), name + " 必须返回数组")
+                if command == "show":
                     repository.require(
-                        value[0].get("status") == "in_progress", "ticket 未处于 in_progress"
+                        len(value) == 1 and value[0].get("id") == identity, name + " 身份不符"
                     )
-                description = value[0].get("description")
-                repository.require(
-                    isinstance(description, str) and description.strip(), name + " description 缺失"
+                    if name == "ticket":
+                        repository.require(
+                            value[0].get("status") == "in_progress",
+                            "ticket 未处于 in_progress",
+                        )
+                    description = value[0].get("description")
+                    repository.require(
+                        isinstance(description, str) and description.strip(),
+                        name + " description 缺失",
+                    )
+            except Exception:
+                evidence.write(target, raw)
+                result["sources"][name] = evidence.binding(target)
+                raise
+            if command == "show":
+                evidence.write(target, without_descriptions(value))
+                result["sources"][name] = evidence.binding(target)
+                result["sources"][name + "_description"] = evidence.binding(
+                    description_source(d, description)
                 )
-                description_path = directory / (name + "-description.md")
-                evidence.write(description_path, description)
-                result["sources"][name + "_description"] = str(description_path)
+            else:
+                evidence.write(target, raw)
+                result["sources"][name] = evidence.binding(target)
         result["commits"] = repository.git(
             d["worktree"], "log", "--reverse", "--format=%H %s", d["base_commit"] + "..HEAD"
         ).splitlines()
@@ -103,6 +115,32 @@ def inspect_context(args):
         fail(json.dumps(result, ensure_ascii=False))
     evidence.write(directory / "inspection.json", result)
     return result
+
+
+def without_descriptions(value):
+    if isinstance(value, dict):
+        return {
+            key: without_descriptions(item) for key, item in value.items() if key != "description"
+        }
+    if isinstance(value, list):
+        return [without_descriptions(item) for item in value]
+    return value
+
+
+def description_source(d, description):
+    data = description.encode("utf-8")
+    digest = hashlib.sha256(data).hexdigest()
+    directory = handoff.context_root(d) / "context-content"
+    directory.mkdir(exist_ok=True)
+    target = directory / (digest + ".md")
+    if target.exists():
+        repository.require(target.read_bytes() == data, "上下文正文内容寻址冲突")
+    else:
+        try:
+            evidence.write(target, description)
+        except FileExistsError:
+            repository.require(target.read_bytes() == data, "上下文正文内容寻址冲突")
+    return target
 
 
 def check_layer(args):

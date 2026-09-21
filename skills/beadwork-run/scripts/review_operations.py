@@ -12,6 +12,7 @@ import gate_repair
 import handoff
 import report_io
 import repository
+import review_context
 import review_evidence
 import ticket_execution
 import ticket_state
@@ -141,6 +142,21 @@ def prepare_review(args):
         else evidence.absolute(args.dispatch).parent / ("review-" + uuid.uuid4().hex)
     )
     directory.mkdir(exist_ok=True)
+    inputs = {axis: review_inputs(d, axis) for axis in AXES}
+    verification = inputs[AXES[0]]["verification_sources"]
+    repository.require(
+        all(item["verification_sources"] == verification for item in inputs.values()),
+        "review axes 验证来源不一致",
+    )
+    writer = inputs[AXES[0]]["writer_source"]
+    notes = {}
+    context_source = evidence.binding(d["dispatch_path"])
+    if writer:
+        context_source = writer["report"]
+        notes = evidence.read(evidence.bound(writer["report"])).get("verification_notes", {})
+    verification_view = review_context.publish(
+        directory, verification, head, notes, context_source, publish_or_match
+    )
     record = {
         "dispatch": evidence.binding(args.dispatch),
         "reviewed_base": base,
@@ -172,7 +188,9 @@ def prepare_review(args):
             "commits": commits,
             "diff_argv": ["git", "-C", d["worktree"], "diff", base + "..." + head],
         }
-        identity.update(review_inputs(d, axis))
+        review_input = inputs[axis]
+        review_input.pop("verification_sources")
+        identity.update(review_input, verification_view_source=verification_view)
         identity["handoff_required"] = bool(d.get("preflight_acceptance")) or final_state.strict(d)
         if "stage" in d:
             identity.update(stage=d["stage"], **d["models"][axis])

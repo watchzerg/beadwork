@@ -214,6 +214,13 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.h.h.git(self.h.wt, "commit", "-m", "test-1 后续修改")
         self.assemble([fresh], ok=False)
 
+    def test_verification_view_tamper_blocks_review_collection(self):
+        data = self.round()
+        dispatch = json.loads(Path(data[0].parent / "standards/dispatch.json").read_text())
+        view = Path(dispatch["verification_view_source"]["path"])
+        view.write_text(view.read_text() + "\n")
+        self.collect(data, ok=False)
+
     def test_two_rounds_preserve_initial_and_cover_fix(self):
         initial = self.collect(self.round(blocking=True))
         (self.h.wt / "behavior.txt").write_text("完成修复")
@@ -374,7 +381,21 @@ class ExecutorOperationsTests(unittest.TestCase):
     def context_fixture(self):
         self.h.put(
             self.h.root / "ticket.json",
-            [{"id": "test-1", "status": "in_progress", "description": "完整需求\n" * 10000}],
+            [
+                {
+                    "id": "test-1",
+                    "status": "in_progress",
+                    "description": "完整需求\n" * 10000,
+                    "dependencies": [
+                        {
+                            "id": "test",
+                            "status": "open",
+                            "dependency_type": "parent-child",
+                            "description": "嵌套父票正文",
+                        }
+                    ],
+                }
+            ],
         )
         self.h.put(self.h.root / "parent.json", [{"id": "test", "description": "父票约束"}])
         (self.h.root / "bin/bd").write_text(
@@ -397,8 +418,26 @@ class ExecutorOperationsTests(unittest.TestCase):
         original = self.dispatch.read_bytes()
         result = self.call("inspect", "--dispatch", self.dispatch)
         self.assertIn(file.name, result["workspace"]["untracked"])
+        ticket = json.loads(Path(result["sources"]["ticket"]["path"]).read_text())
+        self.assertNotIn("description", ticket[0])
+        self.assertNotIn("description", ticket[0]["dependencies"][0])
+        self.assertEqual(ticket[0]["dependencies"][0]["id"], "test")
         self.assertEqual(
-            Path(result["sources"]["ticket_description"]).read_text(), "完整需求\n" * 10000
+            Path(result["sources"]["ticket_description"]["path"]).read_text(),
+            "完整需求\n" * 10000,
+        )
+        repeated = self.call("inspect", "--dispatch", self.dispatch)
+        self.assertEqual(
+            repeated["sources"]["ticket_description"],
+            result["sources"]["ticket_description"],
+        )
+        changed = json.loads((self.h.root / "ticket.json").read_text())
+        changed[0]["description"] = "更新后的需求"
+        self.h.put(self.h.root / "ticket.json", changed)
+        updated = self.call("inspect", "--dispatch", self.dispatch)
+        self.assertNotEqual(
+            updated["sources"]["ticket_description"],
+            result["sources"]["ticket_description"],
         )
         self.assertTrue(result["commits"])
         self.assertEqual(file.read_text(), "保留")
@@ -416,6 +455,14 @@ class ExecutorOperationsTests(unittest.TestCase):
         self.h.h.git(self.h.wt, "commit", "-m", "test-1 新提交")
         self.call("inspect", "--dispatch", self.dispatch, ok=False)
 
+    def test_inspect_rejects_tampered_content_addressed_description(self):
+        self.context_fixture()
+        result = self.call("inspect", "--dispatch", self.dispatch)
+        source = Path(result["sources"]["ticket_description"]["path"])
+        source.write_text("篡改")
+        error = self.call("inspect", "--dispatch", self.dispatch, ok=False)
+        self.assertIn("内容寻址冲突", error["error"])
+
     def test_inspect_failed_queries_preserve_sources(self):
         self.context_fixture()
         for value in (
@@ -428,7 +475,9 @@ class ExecutorOperationsTests(unittest.TestCase):
             error = self.call("inspect", "--dispatch", self.dispatch, ok=False)
             record = json.loads(error["error"])
             self.assertFalse(record["ok"])
-            self.assertEqual(json.loads(Path(record["sources"]["ticket"]).read_text()), value)
+            self.assertEqual(
+                json.loads(Path(record["sources"]["ticket"]["path"]).read_text()), value
+            )
         (self.h.root / "ticket.json").unlink()
         self.call("inspect", "--dispatch", self.dispatch, ok=False)
 

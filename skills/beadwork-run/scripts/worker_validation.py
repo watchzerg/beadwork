@@ -20,6 +20,7 @@ sys.dont_write_bytecode = True
 
 import final_verification
 import implementer_reports
+import review_context
 import review_schema
 import schema_validation
 import verify_ticket as v
@@ -164,6 +165,10 @@ def validate(role, report, axis_schema, expected):
     )
     failures = [key + "_matches_dispatch" for key in keys if report[key] != expected[key]]
     if role == "reviewer":
+        try:
+            review_context.check(expected)
+        except Exception as error:
+            failures.append("verification_view: " + str(error))
         if report.get("status") != "BLOCKED" and any(
             finding["axis"] != expected["axis"] for finding in report["findings"]
         ):

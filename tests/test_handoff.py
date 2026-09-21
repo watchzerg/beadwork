@@ -774,7 +774,9 @@ class HandoffTests(unittest.TestCase):
         for axis, path in prepared["axes"].items():
             d = json.loads(Path(path).read_text())
             self.assertEqual(d["writer_source"], fixer)
-            self.assertTrue(d["verification_sources"])
+            self.assertNotIn("verification_sources", d)
+            view = json.loads(Path(d["verification_view_source"]["path"]).read_text())
+            self.assertTrue(view["selected_sources"])
             self.assertEqual(d["prior_axis_source"], previous["sources"][axis])
 
     def test_no_change_batch_still_requires_gates_and_review(self):
@@ -828,14 +830,22 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertEqual(set(stage.parent.glob("review-*")), before)
         self.assertEqual(Path(resumed["round_path"]).parent, next(iter(before)))
 
-    def test_stage_zero_review_receives_verification_sources(self):
+    def test_stage_zero_review_receives_shared_verification_view(self):
         stage = self.f.stage()
         self.gates(stage)
         prepared = self.f.call("review-prepare", "--dispatch", stage)
+        sources = set()
         for path in prepared["axes"].values():
             d = json.loads(Path(path).read_text())
             self.assertIsNone(d["writer_source"])
-            self.assertEqual(len(d["verification_sources"]), 1)
+            self.assertNotIn("verification_sources", d)
+            sources.add(
+                (d["verification_view_source"]["path"], d["verification_view_source"]["sha256"])
+            )
+            view = json.loads(Path(d["verification_view_source"]["path"]).read_text())
+            self.assertEqual(len(view["entries"]), 1)
+            self.assertEqual(len(view["selected_sources"]), 1)
+        self.assertEqual(len(sources), 1)
 
     def test_same_round_correction_invalidates_old_stage(self):
         stage = self.f.stage()

@@ -10,7 +10,7 @@ python3 <skill-dir>/scripts/beadwork.py executor inspect --dispatch <dispatch.js
 
 核对 worktree 归属、branch、BASE ancestry 和 schema/expected-plan 文件。新票要求 HEAD 等于 BASE 且现场干净；恢复票允许已有 commits 和未提交工作。查询当前 ticket、comments 和 parent，核对 ID、ticket 的 `in_progress` 与正文存在性。
 
-每次创建独立 `context-*` 目录，保存查询 JSON、完整 description 和 `inspection.json`。stdout 返回路径、HEAD、staged/unstaged/untracked 路径与恢复 commit 列表；失败已取得的材料保留在错误中指向的目录。缺少可用 dispatch 时按共享报告交付契约返回部分报告。
+每次创建独立 `context-*` 目录，保存不含任何嵌套 description 的 tracker metadata 投影、完整 comments 和 `inspection.json`；ticket/parent description 作为 path/sha256 binding 存入 ticket root 的内容寻址目录，相同内容跨 stage 复用。stdout 返回这些 binding、HEAD、staged/unstaged/untracked 路径与恢复 commit 列表；失败已取得的材料保留在错误中指向的目录。缺少可用 dispatch 时按共享报告交付契约返回部分报告。
 
 executor 读取这些来源，再按 agent 指令读取规则、spec、ADR 和相关代码。保存正文不能修复上游缺失；脚本也不判断需求完整性、已完成层的正确性或 test plan 语义。
 

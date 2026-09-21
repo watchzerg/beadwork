@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+import evidence
+import review_context
 import workflow_contract
 
 VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
@@ -25,11 +27,33 @@ class WorkerDeliveryTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="worker-delivery-")
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
+        stage = self.root / "stage.json"
+        evidence.write(stage, {})
+        manifest = self.root / "verification-sources.json"
+        evidence.write(manifest, [])
+        view = self.root / "verification-view.json"
+        evidence.write(
+            view,
+            review_context.build([], B, {}, evidence.binding(stage), evidence.binding(manifest)),
+        )
+        self.review_context = {
+            "scope": "ticket",
+            "stage_source": evidence.binding(stage),
+            "writer_source": None,
+            "verification_view_source": evidence.binding(view),
+        }
 
     def expected(self, role):
         if role == "reviewer":
-            return workflow_contract.stamp({"axis": "spec", "reviewed_base": A, "reviewed_head": B})
+            return workflow_contract.stamp(
+                {
+                    "axis": "spec",
+                    "reviewed_base": A,
+                    "reviewed_head": B,
+                    **self.review_context,
+                }
+            )
         return workflow_contract.stamp(
             {
                 "parent_id": "demo-1",

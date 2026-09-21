@@ -2,7 +2,7 @@
 
 import repository
 
-VERSION = 3
+VERSION = 4
 LAUNCH_CONTEXT = {"fork_turns": "none", "required": True}
 
 

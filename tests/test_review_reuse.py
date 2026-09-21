@@ -12,6 +12,7 @@ import pytest
 import evidence
 import handoff
 import report_io
+import review_context
 import review_evidence
 import workflow_contract
 
@@ -34,6 +35,27 @@ class ReviewReuseTests(TestCase):
         evidence.write(dispatch, value)
         folder = self.root / "review"
         folder.mkdir()
+        stage = folder / "stage.json"
+        evidence.write(stage, {})
+        manifest = folder / "verification-sources.json"
+        evidence.write(manifest, [])
+        view = folder / "verification-view.json"
+        evidence.write(
+            view,
+            review_context.build(
+                [],
+                "b" * 40,
+                {},
+                evidence.binding(stage),
+                evidence.binding(manifest),
+            ),
+        )
+        review_context_fields = {
+            "scope": "ticket",
+            "stage_source": evidence.binding(stage),
+            "writer_source": None,
+            "verification_view_source": evidence.binding(view),
+        }
         self.round = folder / "round.json"
         record: dict[str, Any] = dict(
             dispatch=evidence.binding(dispatch),
@@ -48,7 +70,11 @@ class ReviewReuseTests(TestCase):
             identity = directory / "dispatch.json"
             report = directory / "report.json"
             identity_value = dict(
-                axis=axis, reviewed_base="a" * 40, reviewed_head="b" * 40, handoff_required=True
+                axis=axis,
+                reviewed_base="a" * 40,
+                reviewed_head="b" * 40,
+                handoff_required=True,
+                **review_context_fields,
             )
             workflow_contract.stamp(identity_value)
             evidence.write(identity, identity_value)
