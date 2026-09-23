@@ -595,7 +595,7 @@ class HandoffTests(unittest.TestCase):
             self.f.put(source, facts)
             return self.f.call("final-stage", "--dispatch", self.f.root, "--input", source, ok=ok)
 
-        sm = {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}
+        sm = {"model": "gpt-6-sol", "reasoning_effort": "high"}
         facts = {"continuation": "repair", "model_overrides": {"fixer": sm}}
         prepare(facts, ok=False)
         prepare(
@@ -622,7 +622,7 @@ class HandoffTests(unittest.TestCase):
         prepare(
             dict(
                 facts,
-                model_overrides={"fixer": {"model": "gpt-5.6-terra", "reasoning_effort": "high"}},
+                model_overrides={"fixer": {"model": "gpt-6-sol", "reasoning_effort": "medium"}},
                 model_override_reason="不应降档",
             ),
             ok=False,

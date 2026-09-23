@@ -271,7 +271,7 @@ class FinalizationTests(unittest.TestCase):
         data = json.loads(stage.read_text())
         self.assertEqual(data["stage"], 0)
         self.assertEqual(
-            data["models"]["fixer"], {"model": "gpt-5.6-terra", "reasoning_effort": "medium"}
+            data["models"]["fixer"], {"model": "gpt-6-sol", "reasoning_effort": "medium"}
         )
         self.assertEqual(self.stage(), stage)
 
@@ -348,16 +348,15 @@ class FinalizationTests(unittest.TestCase):
         self.assertEqual((self.h.primary / "manual.txt").read_text(), "手工修改")
 
     def six_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance(self):
-        tm = {"model": "gpt-5.6-terra", "reasoning_effort": "medium"}
-        th = {"model": "gpt-5.6-terra", "reasoning_effort": "high"}
-        sm = {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}
+        sm = {"model": "gpt-6-sol", "reasoning_effort": "medium"}
+        sh = {"model": "gpt-6-sol", "reasoning_effort": "high"}
         expected_models = [
-            {"fixer": tm, "standards": th, "spec": sm},
-            {"fixer": tm, "standards": th, "spec": sm},
-            {"fixer": tm, "standards": sm, "spec": sm},
-            {"fixer": th, "standards": sm, "spec": sm},
-            {"fixer": th, "standards": sm, "spec": sm},
-            {"fixer": sm, "standards": sm, "spec": sm},
+            {"fixer": sm, "standards": sm, "spec": sh},
+            {"fixer": sm, "standards": sh, "spec": sh},
+            {"fixer": sm, "standards": sh, "spec": sh},
+            {"fixer": sh, "standards": sh, "spec": sh},
+            {"fixer": sh, "standards": sh, "spec": sh},
+            {"fixer": sh, "standards": sh, "spec": sh},
         ]
         stage = self.stage()
         for number in range(6):

@@ -670,15 +670,23 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
         for number in range(6):
             self.assertEqual(self.stage_info["stage"], number)
             expected = [
-                ("gpt-5.6-terra", "medium"),
-                ("gpt-5.6-terra", "medium"),
-                ("gpt-5.6-terra", "high"),
-                ("gpt-5.6-terra", "high"),
-                ("gpt-5.6-sol", "medium"),
-                ("gpt-5.6-sol", "medium"),
+                ("gpt-6-luna", "high"),
+                ("gpt-6-luna", "high"),
+                ("gpt-6-sol", "medium"),
+                ("gpt-6-sol", "medium"),
+                ("gpt-6-sol", "high"),
+                ("gpt-6-sol", "high"),
             ][number]
             model = self.stage_info["models"]["implementer"]
             self.assertEqual((model["model"], model["reasoning_effort"]), expected)
+            for axis, effort in (
+                ("standards", "medium" if number < 3 else "high"),
+                ("spec", "medium" if number == 0 else "high"),
+            ):
+                self.assertEqual(
+                    self.stage_info["models"][axis],
+                    {"model": "gpt-6-sol", "reasoning_effort": effort},
+                )
             self.ready_writer()
             reviews.append(self.review(blocking=number < 5))
             self.assemble(reviews, "code_failure" if number < 5 else "passed")
@@ -687,7 +695,7 @@ sys.exit(7 if os.environ.get('FAIL_GATE') == sys.argv[3] else 0)
                 self.stage("repair")
         self.deliver()
         self.stage("repair", ok=False)
-        self.assertEqual(self.stage_info["models"]["implementer"]["model"], "gpt-5.6-sol")
+        self.assertEqual(self.stage_info["models"]["implementer"]["model"], "gpt-6-sol")
 
     def test_gate_exhaustion_advances_only_after_three_repairs(self):
         self.commit()
@@ -1216,7 +1224,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
     def test_model_upgrade_inherits_and_downgrade_is_rejected(self):
         self.ready_writer()
         self.assemble([self.review(blocking=True)], "code_failure")
-        upgraded = {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}
+        upgraded = {"model": "gpt-6-sol", "reasoning_effort": "high"}
         self.stage(
             "repair", model_overrides={"implementer": upgraded}, model_override_reason="契约分歧"
         )
@@ -1227,9 +1235,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.stage(
             "repair",
             ok=False,
-            model_overrides={
-                "implementer": {"model": "gpt-5.6-terra", "reasoning_effort": "medium"}
-            },
+            model_overrides={"implementer": {"model": "gpt-6-luna", "reasoning_effort": "high"}},
             model_override_reason="不应降档",
         )
         self.stage("repair")
@@ -1347,10 +1353,15 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertEqual(dispatch["stage_limit"], 10)
         self.assertEqual(
             dispatch["models"]["implementer"],
-            {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
+            {"model": "gpt-6-astra", "reasoning_effort": "medium"},
         )
         extension = json.loads(Path(dispatch["stage_extension"]["path"]).read_text())
         self.assertEqual(extension["additional_stages"], 5)
+        self.assertEqual(extension["models"], dispatch["models"])
+        self.assertEqual(
+            list(dispatch["models"].values()),
+            [{"model": "gpt-6-astra", "reasoning_effort": "medium"}] * 3,
+        )
         self.ready_writer()
         self.assemble([self.review(blocking=True)], "code_failure")
         self.deliver(ok=False)
@@ -1358,6 +1369,7 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         continued = evidence.read(self.sd)
         self.assertEqual(continued["stage_limit"], dispatch["stage_limit"])
         self.assertEqual(continued["stage_extension"], dispatch["stage_extension"])
+        self.assertEqual(continued["models"], dispatch["models"])
         stage_dispatch = self.sd
         before = self.evidence_snapshot()
         self.stage()
@@ -1402,6 +1414,50 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.assertIn("仅允许追加一次", error["error"])
         self.assertEqual(self.evidence_snapshot(), before)
 
+    def test_extension_model_override_is_bound_and_survives_repair_and_resume(self):
+        self.exhaust_default_stages()
+        overrides = {
+            "implementer": {"model": "gpt-6-astra", "reasoning_effort": "high"},
+            "standards": {"model": "gpt-6-sol", "reasoning_effort": "high"},
+        }
+        before = self.evidence_snapshot()
+        self.stage(
+            "extend",
+            additional_stages=2,
+            extension_reason="用户授权",
+            model_overrides={"implementer": workflow_policy.MODEL_LEVELS[1]},
+            model_override_reason="不允许低于此前档位",
+            ok=False,
+        )
+        self.assertEqual(self.evidence_snapshot(), before)
+        self.stage(
+            "extend",
+            additional_stages=2,
+            extension_reason="用户授权追加两阶段",
+            model_overrides=overrides,
+            model_override_reason="用户指定实现与审查配置",
+        )
+        selected = self.stage_info["models"]
+        self.assertEqual(
+            selected, {**overrides, "spec": {"model": "gpt-6-astra", "reasoning_effort": "medium"}}
+        )
+        dispatch = evidence.read(self.sd)
+        record = evidence.read(evidence.bound(dispatch["stage_extension"]))
+        self.assertEqual(record["models"], selected)
+        self.assertEqual(record["model_overrides"], overrides)
+        self.assertEqual(record["model_override_reason"], "用户指定实现与审查配置")
+        self.stage()
+        self.assertEqual(self.stage_info["models"], selected)
+        self.ready_writer()
+        self.assemble([self.review(blocking=True)], "code_failure")
+        self.stage("repair")
+        self.assertEqual(self.stage_info["models"], selected)
+        self.stage()
+        self.assertEqual(self.stage_info["models"], selected)
+        self.ready_writer()
+        self.assemble([self.review()])
+        self.deliver()
+
     def test_extension_report_requires_matching_authorization(self):
         self.exhaust_default_stages()
         self.stage("extend", additional_stages=1, extension_reason="用户明确追加一个 stage")
@@ -1417,6 +1473,13 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
                 {"new_stage_limit": 10},
                 {"reason": " "},
                 {"selected_stage": dispatch["prior_stages"][0]},
+                {"models": {}},
+                {
+                    "models": {
+                        role: workflow_policy.MODEL_LEVELS[2]
+                        for role in ("implementer", "standards", "spec")
+                    }
+                },
             ):
                 with self.subTest(changes=changes):
                     path = self.file("invalid-extension", {**extension, **changes})

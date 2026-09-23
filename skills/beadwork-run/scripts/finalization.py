@@ -111,7 +111,8 @@ def models(stage, previous, facts):
     changes = facts.get("model_overrides", {})
     repository.require(isinstance(changes, dict) and set(changes) <= set(levels), "模型角色无效")
     if changes:
-        repository.require(facts.get("model_override_reason"), "模型升级需要理由")
+        reason = facts.get("model_override_reason")
+        repository.require(isinstance(reason, str) and reason.strip(), "模型升级需要理由")
         for role, model in changes.items():
             repository.require(
                 model in workflow_policy.MODEL_LEVELS

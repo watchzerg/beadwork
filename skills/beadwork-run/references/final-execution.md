@@ -1,6 +1,6 @@
 # 最终阶段交接
 
-新派发使用 `workflow_contract_version: 5`。controller 管 root 与集成，finalizer 管 attempt 检查点；fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收 fixer、唯一 round、selected_review、selected_stage、累计 gates 和来源。
+新派发使用 `workflow_contract_version: 6`。controller 管 root 与集成，finalizer 管 attempt 检查点；fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收 fixer、唯一 round、selected_review、selected_stage、累计 gates 和来源。
 
 ## 准备与恢复
 
@@ -12,7 +12,7 @@ python3 <skill-dir>/scripts/beadwork.py executor final-stage --dispatch <root-di
 
 fixer DONE 已验收或 review 已开始时，不再派 writer。恢复前先由派发者确认旧 agent 和命令结束；未知停止状态不会授予接替 writer。gate-fix 继续使用 verification.md 的三次额度。
 
-模型与矩阵以 `../scripts/workflow_policy.py` 为准。stage 0 无 fixer；stage 1..5 的 fixer 默认为 Terra-medium 两次、Terra-high 两次、Sol-medium 一次。新阶段可用 `model_overrides` 覆盖 fixer/standards/spec，并提供 `model_override_reason`；只允许三档内升档，后续继承且不降档，同阶段恢复沿用原模型。
+模型与矩阵以 `../scripts/workflow_policy.py` 为准。stage 0 无 fixer；stage 1..5 的 fixer 默认为 GPT-6 Sol-medium 两次、Sol-high 三次。Standards 首轮使用 Sol-medium，修复后使用 Sol-high；Spec 始终使用 Sol-high。新阶段可用 `model_overrides` 覆盖 fixer/standards/spec，并提供非空 `model_override_reason`；只允许常规档位内升档，后续继承且不降档，同阶段恢复沿用原模型。finalization 不使用 Astra。
 
 ## 验证与补充边界
 

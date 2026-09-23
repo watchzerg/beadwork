@@ -265,6 +265,20 @@ def _check_stage(d, report, verified, *, state=None, review_checks=None):
             and extension["reason"].strip(),
             "追加 stage 缺少匹配的用户授权证据",
         )
+        authorized = extension.get("models", {})
+        catalog = workflow_policy.EXTENSION_MODEL_LEVELS
+        repository.require(
+            isinstance(authorized, dict)
+            and set(authorized) == {"implementer", "standards", "spec"}
+            and all(
+                model in catalog
+                and d["models"].get(role) in catalog
+                and catalog.index(d["models"][role]) >= catalog.index(model)
+                for role, model in authorized.items()
+            )
+            and (d["stage"] != default_limit + 1 or d["models"] == authorized),
+            "追加 stage 模型不符合用户授权证据",
+        )
     ticket_state.check_selected_review(
         d, (report.get("review") or {}).get("sources", []), state=state
     )

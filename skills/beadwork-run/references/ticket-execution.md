@@ -13,12 +13,12 @@ python3 <skill-dir>/scripts/beadwork.py executor ticket-stage --dispatch <root-d
 - `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
 - `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到当前授权上限（dispatch.stage_limit，未设置时为默认 stage 5）。
 - `continuation: recover`：仅恢复已按 `blocked` 封存的未登记 gate 修正。review 尚未开始、当前干净 HEAD 必须与阶段报告一致并且是修正前候选的不同后继，旧任务必须结束，同时提供非空 `recovery_reason`。已有已绑定 repair 候选时直接引用；首次修正在 `begin-gate-repair` 前提交、尚无候选时必须另传 `recovery_failure`，绑定修正前原始 delivery gate 失败的 `result.json`。脚本验证失败的 stage identity、日志哈希、干净 HEAD、退出状态和 ancestry，在旧阶段目录追加 `unregistered-gate-repair-recovery.json`，再建立下一阶段并消耗一个 stage。普通环境、spec、seam 或证据阻塞不能使用该入口。
-- `continuation: extend`：每张 ticket 仅可追加一次，仅在默认 stage 5 交付 `code_failure` 且旧任务已停止后使用。controller 交接用户明确追加的额度与授权说明，executor 传入 `additional_stages`（整数 1–5）和非空 `extension_reason`；普通“继续”、自动重试或接替会话不构成追加授权。脚本在检查通过后追加授权证据并建立下一 stage，上限为默认上限加追加数量。新增 stage 沿用最高模型档；repair/resume 继承授权及计数，扩展上限耗尽后停止，不能再次 extend。
+- `continuation: extend`：每张 ticket 仅可追加一次，仅在默认 stage 5 交付 `code_failure` 且旧任务已停止后使用。controller 交接用户明确追加的额度与授权说明，executor 传入 `additional_stages`（整数 1–5）和非空 `extension_reason`；普通“继续”、自动重试或接替会话不构成追加授权。三个角色默认使用 `gpt-6-astra` / `medium`；授权时可用 `model_overrides` 逐角色覆盖并填写 `model_override_reason`，例如 reviewers 保持 Sol-high，或 implementer 使用 Astra-high。未指定角色采用 Astra-medium。先应用覆盖，再检查不低于该角色此前实际档位。脚本持久化追加数量、授权说明、覆盖配置及最终模型；repair/resume 继承已选模型和计数，不重新应用 Astra 默认值。扩展上限耗尽后停止，不能再次 extend。
 - 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
 
 stage 0 的 `active_stage_context_source` 为 null。`repair`、`recover` 或 `extend` 建立后续 stage 时，脚本从 checkpoint 明确选中的前阶段生成内容绑定的紧凑上下文：保留当前 blockers、requested_context、concerns、最终 blocking findings、直接前阶段 implementer 的 verification view，以及前阶段、writer、review 和恢复/扩展证据绑定；不复制累计 verification、历史 review rounds、非阻塞 smells 或 reviewer notes。同 stage `resume` 原样复用该绑定。implementer 默认只读这份上下文，需要时沿其中的绑定定向读取原始证据；完整累计 stage report 继续用于脚本验收与审计。
 
-模型与矩阵以 `../scripts/workflow_policy.py` 为准。三档依次为 Terra-medium、Terra-high、Sol-medium；普通 implementer 六阶段各档两次。`complex_ticket` 保留 Sol-medium 的实现起点及 Terra-high 的 Standards 下限；提前升档后不要求再凑齐低档次数。
+模型与矩阵以 `../scripts/workflow_policy.py` 为准。常规三档依次为 GPT-6 Luna-high、Sol-medium、Sol-high；普通 implementer 六阶段各档两次。授权扩展额外允许 Astra-medium、Astra-high，普通阶段禁止选择 Astra。档位表示工作流升级顺序，不是实测能力排名。executor 本体普通票使用 Sol-medium，`complex_ticket` 使用 Sol-high，并将 implementer 下限设为 Sol-medium、两轴 reviewer 下限设为 Sol-high；提前升档后不要求再凑齐低档次数。跨模块协议、并发恢复、资源生命周期或共同不变量适合标记复杂票；文件多或测试慢本身不构成复杂票。
 
 `base_commit` 始终为整票开工 BASE；`stage_base` 是当前阶段起始 HEAD，仅用于阶段实现归属。双轴 review 始终覆盖原 BASE 到当前 HEAD，不缩为 fix diff。新阶段继承已有 commits 和未完成现场，不 reset 或重新实现正确部分。
 

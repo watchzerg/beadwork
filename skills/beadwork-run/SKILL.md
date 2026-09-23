@@ -36,6 +36,8 @@ worktree: .worktrees/<full-parent-id>
 
 仅支持 Codex；其他宿主直接中止。假定下述模型均可用，派发时按就地规则显式指定 `model` 和 reasoning effort（参数名以当前工具声明为准）。ticket 按阶段 dispatch 的模型派发；报告更正沿用原模型组合，其他角色接替沿用原规则。
 
+controller 主会话建议使用 `gpt-6-sol` / `medium`，复杂恢复或证据冲突时使用 `high`；skill 不切换主会话模型。方案设计可由用户使用 Astra 完成。执行期间 Astra 仅用于用户明确授权的 ticket 扩展阶段，不作为普通阶段或 finalization 的自动 fallback。
+
 写入前确认当前宿主能创建独立 executor、执行内置双轴审查的两个并行只读 reviewers、接收完整报告并确认任务结束。需要支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → reviewers/fixer 的嵌套派发。能力不足时报告并停止。
 
 controller 派发 preflight、executor 和 finalizer 时必须照抄 prepare 返回的 `launch_context`，显式使用独立上下文；不得省略 `fork_turns: "none"` 或改用 `all`，宿主无法满足时返回阻塞。显式交接仓库规则入口、任务事实和证据路径；恢复时补充已有 commits、未提交现场、剩余工作与未解决 findings。
@@ -52,7 +54,7 @@ controller 派发 preflight、executor 和 finalizer 时必须照抄 prepare 返
 
 controller 先确认宿主能力，解析 skill 和规则的绝对路径，按 controller 脚本入口执行 `prepare preflight`。使用返回的 primary、固定 branch/worktree 和证据目录，不预读 ticket/spec 正文。
 
-preflight 默认 `gpt-5.6-terra` / `medium`；复杂恢复现场核对可用 `gpt-5.6-sol` / `medium`。
+preflight 默认 `gpt-6-sol` / `medium`；复杂恢复现场核对或计划冲突可用 `gpt-6-sol` / `high`。
 
 派发全新 preflight agent，交接 `prepare preflight` 生成的 dispatch 字段，并要求子 agent 先读取 `<skill-dir>/agents/preflight.md`。
 
@@ -136,7 +138,7 @@ controller 核对整票交付来源、最终状态、当前计划下的必跑 ga
 
 ### 4.2 派发 finalizer
 
-finalizer 默认 `gpt-5.6-terra` / `medium`；复杂证据整合可用 `gpt-5.6-sol` / `medium`。
+finalizer 默认 `gpt-6-sol` / `medium`；复杂证据整合或恢复可用 `gpt-6-sol` / `high`。
 
 执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN` 和本次 `final_sync_result`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，汇总全部实际验证边界作为 `required_boundary_gates` 下限（脚本去重并排除保留入口 `gate-core` / `gate-full`），并交接实际进度通信目标（若有）。
 

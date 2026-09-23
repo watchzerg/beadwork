@@ -1,9 +1,92 @@
 import pytest
 
 import stage_policy
+import ticket_execution
 import workflow_policy
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize("complex_ticket,effort", [(False, "medium"), (True, "high")])
+def test_coordinator_and_complex_role_floors(complex_ticket, effort):
+    root = {"base_commit": "a" * 40, "complex_ticket": complex_ticket}
+    ticket_execution.root_fields(root)
+    assert root["coordinator_model"] == {"model": "gpt-6-sol", "reasoning_effort": effort}
+    if complex_ticket:
+        for stage in range(6):
+            models = stage_policy.ticket_models(stage, True, None, {})
+            assert models["implementer"] == workflow_policy.MODEL_LEVELS[1 if stage < 4 else 2]
+            assert models["standards"] == models["spec"] == workflow_policy.MODEL_LEVELS[2]
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
+        {"model": "gpt-6-astra", "reasoning_effort": "medium"},
+        {"model": "gpt-6-sol", "reasoning_effort": "max"},
+    ],
+)
+def test_regular_stage_rejects_models_outside_policy(model):
+    with pytest.raises(ValueError, match="模型只能升级"):
+        stage_policy.ticket_models(
+            0,
+            False,
+            None,
+            {"model_overrides": {"implementer": model}, "model_override_reason": "测试"},
+        )
+
+
+def test_extension_override_uses_previous_floor_and_inherits_selection():
+    previous = {
+        role: workflow_policy.MODEL_LEVELS[2] for role in ("implementer", "standards", "spec")
+    }
+    facts = {
+        "continuation": "extend",
+        "model_overrides": {
+            "implementer": workflow_policy.EXTENSION_MODEL_LEVELS[4],
+            "standards": workflow_policy.MODEL_LEVELS[2],
+        },
+        "model_override_reason": "用户指定实现者 Astra-high，Standards 保持 Sol-high",
+    }
+    models = stage_policy.ticket_models(6, False, previous, facts)
+    assert models["implementer"] == workflow_policy.EXTENSION_MODEL_LEVELS[4]
+    assert models["standards"] == workflow_policy.MODEL_LEVELS[2]
+    assert models["spec"] == workflow_policy.EXTENSION_MODEL_LEVELS[3]
+    assert stage_policy.ticket_models(7, False, models, {"continuation": "repair"}) == models
+    for role, model in (
+        ("implementer", workflow_policy.EXTENSION_MODEL_LEVELS[3]),
+        ("standards", workflow_policy.MODEL_LEVELS[1]),
+    ):
+        with pytest.raises(ValueError, match="模型只能升级"):
+            stage_policy.ticket_models(
+                7,
+                False,
+                models,
+                {
+                    "continuation": "repair",
+                    "model_overrides": {role: model},
+                    "model_override_reason": "不允许降档",
+                },
+            )
+
+
+@pytest.mark.parametrize("reason", [None, "", " ", 1])
+def test_extension_override_requires_text_reason(reason):
+    previous = {
+        role: workflow_policy.MODEL_LEVELS[2] for role in ("implementer", "standards", "spec")
+    }
+    with pytest.raises(ValueError, match="覆盖需记录理由"):
+        stage_policy.ticket_models(
+            6,
+            False,
+            previous,
+            {
+                "continuation": "extend",
+                "model_overrides": {"standards": workflow_policy.MODEL_LEVELS[2]},
+                "model_override_reason": reason,
+            },
+        )
 
 
 def inputs():

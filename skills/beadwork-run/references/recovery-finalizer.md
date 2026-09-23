@@ -1,6 +1,6 @@
 # finalizer 接替
 
-新派发采用 `workflow_contract_version: 5`。prior_finalization 指向原阶段 dispatch；同一 reviewed_main 恢复原 attempt 和检查点，保留 BASE、stage、fixer/review 的明确选择、累计 gates、commits、dirty 现场及 gate-fix 额度。先确认旧任务结束，再调用 final-stage continuation: resume；返回原 stage、selected_fixer、review_round、selected_review、selected_stage 和 context_sources。
+新派发采用 `workflow_contract_version: 6`。prior_finalization 指向原阶段 dispatch；同一 reviewed_main 恢复原 attempt 和检查点，保留 BASE、stage、fixer/review 的明确选择、累计 gates、commits、dirty 现场及 gate-fix 额度。先确认旧任务结束，再调用 final-stage continuation: resume；返回原 stage、selected_fixer、review_round、selected_review、selected_stage 和 context_sources。
 
 fixer DONE 已验收时，不重新派 writer；review 已开始时只继续原 round 的缺失轴或同 HEAD 更正。collect 已完成而阶段报告未写出时直接使用已选 collection 组装。collection 写出但检查点未完成时，用原 round 和明确 selection 重新 collect 到新文件。review 准备只有半成品时使用 review-prepare --resume，保留原目录。
 

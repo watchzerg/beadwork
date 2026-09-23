@@ -20,9 +20,6 @@ import workflow_contract
 import workflow_policy
 from command_argv import beadwork_argv
 
-ROLES = ("implementer", "standards", "spec")
-
-
 source = ticket_state.source
 resolve_source = ticket_state.resolve_source
 root = ticket_state.root
@@ -43,7 +40,7 @@ def root_fields(d):
     d.update(
         ticket_scope="root",
         start_head=d["base_commit"],
-        coordinator_model=workflow_policy.MODEL_LEVELS[2 if d.get("complex_ticket") else 0],
+        coordinator_model=workflow_policy.MODEL_LEVELS[2 if d.get("complex_ticket") else 1],
     )
 
 
@@ -278,36 +275,15 @@ def prepare_stage(root_path, facts):
             head == r["base_commit"] and not repository.status(r["worktree"]),
             "stage 0 需要原 BASE 的干净现场",
         )
-    levels = dict(
-        zip(
-            ROLES,
-            workflow_policy.STAGE_MODELS[min(number, len(workflow_policy.STAGE_MODELS) - 1)],
-            strict=True,
-        )
+    models = stage_policy.ticket_models(
+        number, r.get("complex_ticket", False), previous["models"] if previous else None, facts
     )
-    if r.get("complex_ticket"):
-        levels["implementer"] = max(levels["implementer"], 2)
-        levels["standards"] = max(levels["standards"], 1)
-    if previous:
-        for role in ROLES:
-            levels[role] = max(
-                levels[role], workflow_policy.MODEL_LEVELS.index(previous["models"][role])
-            )
-    overrides = facts.get("model_overrides", {})
-    repository.require(isinstance(overrides, dict) and set(overrides) <= set(ROLES), "模型角色无效")
-    if overrides:
-        repository.require(
-            isinstance(facts.get("model_override_reason"), str)
-            and facts["model_override_reason"].strip(),
-            "提前升级需记录理由",
+    if extension_record:
+        extension_record.update(
+            models=models,
+            model_overrides=facts.get("model_overrides", {}),
+            model_override_reason=facts.get("model_override_reason"),
         )
-    for role, model in overrides.items():
-        repository.require(
-            model in workflow_policy.MODEL_LEVELS
-            and workflow_policy.MODEL_LEVELS.index(model) >= levels[role],
-            "模型只能升级",
-        )
-        levels[role] = workflow_policy.MODEL_LEVELS.index(model)
     folder = Path(r["dispatch_path"]).parent / ("stage-" + str(number) + "-" + uuid.uuid4().hex)
     inherited = previous or r
     d = dict(
@@ -318,7 +294,7 @@ def prepare_stage(root_path, facts):
         stage_base=head,
         start_head=head,
         mode="resume",
-        models={role: workflow_policy.MODEL_LEVELS[level] for role, level in levels.items()},
+        models=models,
         model_override_reason=facts.get("model_override_reason"),
         gate_repair_root=str(folder),
         prior_reviews=(report.get("review") or {}).get("sources", []) if previous else [],
