@@ -42,4 +42,4 @@ ticket 和 finalizer 的 collect 都会将当前 collection 绑定到 stage 检�
 
 ticket 新阶段和 finalizer 每个新阶段的复审使用该阶段 dispatch 模型；同 HEAD 的报告更正沿用该轴模型组合且不新增轮次。复审仍使用原 BASE；普通仓库变更使用新 HEAD。ticket 的 direct_verification 若只修复 ignored 或仓库外本机状态，可在 BASE=HEAD 的新轮次复审；资格由各轮绑定的 `existing_behavior` 身份和 acceptance 证据确认，不取决于最终报告是否 DONE 或后续是否转回 TDD。同 HEAD 复审仍阻塞时照常封存失败并按阶段规则处理。每轴核实自己的原 findings 与处置；普通变更重点检查 fix diff，外部状态修复重点检查其 secret-safe 当前证据，同时检查完整范围的新问题和硬违例。未受影响的已处置 smells 不重复报告。使用新的证据目录，保留历史报告。
 
-reviewer dispatch 自动包含 writer_source、verification_view_source、stage_source、required_boundary_gates/gate_sources、plan_source/plan_adjustment、context_sources、本轴 prior_axis_source 和最终审查的 expected_children。派发者只补充无法从来源生成的范围说明；不转交另一轴的前次 findings。
+reviewer dispatch 自动包含 writer_source、verification_view_source、stage_source、plan_source/plan_adjustment、context_sources、本轴 prior_axis_source 和最终审查的 expected_children。派发者只补充无法从来源生成的范围说明；不转交另一轴的前次 findings。

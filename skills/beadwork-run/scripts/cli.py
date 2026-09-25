@@ -79,7 +79,7 @@ def _controller(subparsers) -> None:
 def _executor(subparsers) -> None:
     parser = subparsers.add_parser("executor", help="executor 与 worker 操作")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("context-add", "ticket-stage", "ticket-adapt-plan", "final-gates", "final-stage"):
+    for name in ("context-add", "ticket-stage", "ticket-adapt-plan", "final-stage"):
         p = _leaf(commands, name, executor_operations.execute)
         _required(p, "dispatch", "input")
     p = _leaf(commands, "handoff-close", executor_operations.execute)

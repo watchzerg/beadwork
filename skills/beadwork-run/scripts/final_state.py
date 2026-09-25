@@ -72,12 +72,6 @@ def selected(d, current=True):
 def start(d, fixer):
     value, _, _ = state(d)
     repository.require(str(d["stage"]) not in value["stages"], "最终阶段已存在")
-    gates = list(d["required_boundary_gates"])
-    sources = list(d["prior_gate_sources"])
-    if value["current"] is not None:
-        old = value["stages"][str(value["current"])]
-        gates = list(dict.fromkeys(gates + old["gates"]))
-        sources += [s for s in old["gate_sources"] if s not in sources]
     value["current"] = d["stage"]
     value["stages"][str(d["stage"])] = {
         "dispatch": evidence.binding(d["dispatch_path"]),
@@ -88,24 +82,7 @@ def start(d, fixer):
         "review": None,
         "report": None,
         "closures": {},
-        "gates": gates,
-        "gate_sources": sources,
     }
-    save(d, value)
-
-
-def gates(d, names, sources):
-    value, item = selected(d)
-    repository.require(
-        isinstance(names, list)
-        and all(isinstance(g, str) and g.startswith("gate-") for g in names),
-        "boundary gates 无效",
-    )
-    repository.require(
-        set(names) <= {s["gate"] for s in sources} | set(item["gates"]), "新增 gate 缺少来源"
-    )
-    item["gates"] = list(dict.fromkeys(item["gates"] + names))
-    item["gate_sources"] += [s for s in sources if s not in item["gate_sources"]]
     save(d, value)
 
 
@@ -158,12 +135,6 @@ def check_sources(d, report):
         report["review_sources"] == reviews, "阶段报告必须保留已选 review；更正后需重新组装"
     )
     repository.require(report["fix_sources"] == item["fixes"], "阶段报告必须保留已验收 fixer 来源")
-    repository.require(
-        set(item["gates"]) <= set(report["boundary_gates"]), "报告丢失累计 boundary gates"
-    )
-    repository.require(
-        all(s in report["gate_sources"] for s in item["gate_sources"]), "报告丢失累计 gate 来源"
-    )
 
 
 def check_delivery(root, report):

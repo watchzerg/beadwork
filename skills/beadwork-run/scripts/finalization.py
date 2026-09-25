@@ -37,10 +37,7 @@ def prepare_attempt(d, head):
         )
         for key in ("repository_root", "worktree", "branch", "parent_id", "expected_children"):
             repository.require(previous[key] == d[key], "恢复批次身份变化")
-        _, selection = fs.selected(previous)
-        d["required_boundary_gates"] = list(
-            dict.fromkeys(d["required_boundary_gates"] + selection["gates"])
-        )
+        fs.selected(previous)
         changed_main = previous["reviewed_main"] != d["reviewed_main"]
         if not changed_main and not d.get("new_attempt_reason"):
             d.update(
@@ -51,10 +48,6 @@ def prepare_attempt(d, head):
             )
             repository.git(
                 d["worktree"], "merge-base", "--is-ancestor", previous["stage_base"], head
-            )
-            repository.require(
-                set(previous["required_boundary_gates"]) <= set(d["required_boundary_gates"]),
-                "恢复不得减少 gates",
             )
             repository.require(
                 not repository.status(d["worktree"]) or previous["stage"] > 0,
@@ -173,7 +166,6 @@ def prepare_stage(dispatch_path, facts):
     fixes = sources["fixes"]
     history = sources["history"]
     verification = sources["verification"]
-    gate_sources = sources["gate_sources"]
     repository.require(
         0 <= stage < len(workflow_policy.FINAL_STAGE_MODELS), "六阶段已用尽，停止并保留现场"
     )
@@ -181,22 +173,16 @@ def prepare_stage(dispatch_path, facts):
         not repository.status(root["worktree"]) or stage > 0, "首次验收不能包含 dirty 现场"
     )
     repository.git(root["worktree"], "merge-base", "--is-ancestor", base, head)
-    gates = list(root["required_boundary_gates"])
-    if previous:
-        _, selected = fs.selected(previous)
-        gates = list(dict.fromkeys(gates + selected["gates"]))
     directory = Path(root["attempt_path"]) / ("stage-" + uuid.uuid4().hex)
     directory.mkdir()
     d = {
         **root,
-        "required_boundary_gates": gates,
         "stage": stage,
         "stage_base": base,
         "previous_stages": history,
         "prior_reviews": reviews,
         "prior_fixes": fixes,
         "prior_verification": verification,
-        "prior_gate_sources": gate_sources,
         "models": models(stage, previous, facts),
         "dispatch_path": str(directory / "dispatch.json"),
         "report_path": str(directory / "report.json"),
@@ -269,9 +255,6 @@ def check_report(expected, report, *, review_checks=None):
         report["verification"][: len(historical_verification)] == historical_verification,
         "丢失历史验证",
     )
-    repository.require(
-        all(g in report["gate_sources"] for g in d["prior_gate_sources"]), "丢失 gate 来源"
-    )
     check_review_history(d, report, reviews, review_checks=review_checks)
     code_failure_evidence = any(
         not item["passed"] and item["head_commit"] == report["head_commit"]
@@ -309,7 +292,7 @@ def check_report(expected, report, *, review_checks=None):
                 rows = fv.check(d, report)
                 code_failure_evidence = any(
                     row[-1]["gate"] == "gate-full"
-                    and row[2].get("gate_plan") is not None
+                    and row[2].get("delivery") is True
                     and row[4]
                     and row[3]["exit_code"] > 0
                     and row[2]["dispatch_path"] == d["dispatch_path"]
@@ -363,7 +346,6 @@ def assemble(dispatch_path, draft_path, output_path):
         reviewed_main=d["reviewed_main"],
         start_head=d["start_head"],
         head_commit=head,
-        required_gates=d["required_boundary_gates"],
         stage=d["stage"],
         attempt_id=d["attempt_id"],
         stage_sources=d["previous_stages"] + [evidence.binding(dispatch_path)],
@@ -379,15 +361,8 @@ def assemble(dispatch_path, draft_path, output_path):
             "clean": not repository.status(d["worktree"]),
         },
     )
-    fs.gates(d, r["boundary_gates"], r["gate_sources"])
-    _, chosen = fs.selected(d)
-    r["boundary_gates"] = chosen["gates"]
-    r["gate_sources"] = chosen["gate_sources"]
     current_verification = r["verification"]
     r["verification"] = list(d["prior_verification"])
-    for item in d["prior_gate_sources"]:
-        if item not in r["gate_sources"]:
-            r["gate_sources"].append(item)
     commits, dispositions = [], []
     for source in fixes:
         _, fr, fc = read_fixer(
@@ -398,10 +373,6 @@ def assemble(dispatch_path, draft_path, output_path):
         for v in fr["verification"]:
             if v not in r["verification"]:
                 r["verification"].append(v)
-        for g in fr["gate_sources"]:
-            if g not in r["gate_sources"]:
-                r["gate_sources"].append(g)
-        r["boundary_gates"] = list(dict.fromkeys(r["boundary_gates"] + fr["boundary_gates"]))
     r["verification"].extend(current_verification)
     r["fix"] = {"used": d["stage"] > 0, "commits": commits, "dispositions": dispositions}
     inherited = []
@@ -462,7 +433,6 @@ def accept_fixer(stage_path, report_path, receipt_path, closure=None):
     item["closures"][source["report"]["sha256"]] = closure
     item["report"] = None
     fs.save(d, value)
-    fs.gates(d, r["boundary_gates"], r["gate_sources"])
     return {"accepted": True, "source": source}
 
 
@@ -502,7 +472,6 @@ def review_ready(d):
         "status": "READY_TO_MERGE",
         "outcome": "passed",
         "head_commit": head,
-        "boundary_gates": item["gates"],
         "stage_sources": d["previous_stages"] + [evidence.binding(d["dispatch_path"])],
         "fix_sources": item["fixes"],
         "verification_notes": selected_verification_notes(d),
@@ -574,7 +543,7 @@ def inspect_delivery(dispatch_path, report_path, receipt_path):
 def resume_stage_sources(root, previous_path, facts, head, continuation):
     previous = report = None
     stage, base, reviews, fixes, history = 0, head, [], [], []
-    verification, gate_sources = [], []
+    verification = []
     previous = dispatch_contract.dispatch(previous_path)
     same_attempt(root, previous)
     for path in Path(root["attempt_path"]).glob("stage-*/dispatch.json"):
@@ -588,7 +557,7 @@ def resume_stage_sources(root, previous_path, facts, head, continuation):
     stage, base = previous["stage"], previous["stage_base"]
     history = previous["previous_stages"] + [evidence.binding(previous_path)]
     reviews, fixes = previous["prior_reviews"], previous["prior_fixes"]
-    verification, gate_sources = previous["prior_verification"], previous["prior_gate_sources"]
+    verification = previous["prior_verification"]
     repository.require(
         bool(facts.get("previous_report")) == bool(facts.get("previous_receipt")),
         "报告和回执须成对提供",
@@ -600,7 +569,7 @@ def resume_stage_sources(root, previous_path, facts, head, continuation):
         if report["head_commit"]:
             repository.require(head == report["head_commit"], "阶段交接 HEAD 已变化")
         reviews, fixes = report["review_sources"], report["fix_sources"]
-        verification, gate_sources = report["verification"], report["gate_sources"]
+        verification = report["verification"]
     else:
         repository.require(
             not list(Path(previous_path).parent.glob("result-*.json")),
@@ -626,14 +595,13 @@ def resume_stage_sources(root, previous_path, facts, head, continuation):
         "fixes": fixes,
         "history": history,
         "verification": verification,
-        "gate_sources": gate_sources,
     }
 
 
 def initial_stage_sources(root, dispatch_path, facts, head, continuation):
     previous = report = None
     stage, base, reviews, fixes, history = 0, head, [], [], []
-    verification, gate_sources = [], []
+    verification = []
     repository.require(
         not list(Path(root["attempt_path"]).glob("stage-*/dispatch.json")),
         "已有阶段，不能重新从阶段 0 开始",
@@ -648,7 +616,6 @@ def initial_stage_sources(root, dispatch_path, facts, head, continuation):
         "fixes": fixes,
         "history": history,
         "verification": verification,
-        "gate_sources": gate_sources,
     }
 
 

@@ -19,7 +19,6 @@ def plan_schema():
         {
             "mode": {"enum": ["TDD", "direct_verification"]},
             "approved_seams": {**TEXTS, "uniqueItems": True},
-            "boundary_gates": {**TEXTS, "uniqueItems": True},
             **{
                 key: nullable(TEXT)
                 for key in ("observable_behavior", "expected_red", "reason", "verification")
@@ -77,15 +76,13 @@ def schema(role):
             "stopped_tasks": {"type": "boolean"},
         }
         if role == "implementer":
-            fields.update(verification_notes=notes, required_boundary_gates=TEXTS)
+            fields["verification_notes"] = notes
     elif role in ("fixer", "finalizer"):
         fields = {
             "status": {
                 "enum": ["DONE", "BLOCKED"] if role == "fixer" else ["READY_TO_MERGE", "BLOCKED"]
             },
             "outcome": outcome,
-            "boundary_gates": TEXTS,
-            "gate_sources": rows({"gate": TEXT, "source": TEXT}),
             "verification_notes": notes,
             "stopped_tasks": {"type": "boolean"},
             "blockers": TEXTS,

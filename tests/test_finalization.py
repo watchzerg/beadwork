@@ -135,8 +135,6 @@ class FinalizationTests(unittest.TestCase):
         return {
             "status": status,
             "outcome": outcome,
-            "boundary_gates": ["gate-browser"],
-            "gate_sources": [{"gate": "gate-browser", "source": "ticket"}],
             "verification_notes": {},
             "stopped_tasks": True,
             "sources": [],
@@ -211,10 +209,6 @@ class FinalizationTests(unittest.TestCase):
             "base_commit": d["base_commit"],
             "head_commit": head,
             "dispositions": [{"source": "review", "action": "已修复"}],
-            "boundary_gates": d["required_boundary_gates"],
-            "gate_sources": [
-                {"gate": gate, "source": "fixer"} for gate in d["required_boundary_gates"]
-            ],
             "verification": verification,
             "worktree_clean": True,
             "stopped_tasks": True,
@@ -244,7 +238,7 @@ class FinalizationTests(unittest.TestCase):
         binary.write_text(
             "#!"
             + sys.executable
-            + '\nimport sys\nif sys.argv[1:]==["--summary"]: print("check-toolchain install typecheck test gate-plan gate-core gate-full gate-browser env-facts fmt")\nelif sys.argv[3]=="gate-plan": print(\'{"core":"gate-core","full":["gate-core","gate-browser"],"defer_to_final":[]}\')\nelse: print("collected 1 check")\n'
+            + '\nimport sys\nif sys.argv[1:]==["--summary"]: print(\'install test gate-core gate-full\')\nelse: print("collected 1 check")\n'
         )
         binary.chmod(0o755)
         result = subprocess.run(

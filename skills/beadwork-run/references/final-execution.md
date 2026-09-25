@@ -1,6 +1,6 @@
 # 最终阶段交接
 
-新派发使用 `workflow_contract_version: 6`。controller 管 root 与集成，finalizer 管 attempt 检查点；fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收 fixer、唯一 round、selected_review、selected_stage、累计 gates 和来源。
+新派发使用 `workflow_contract_version: 7`。controller 管 root 与集成，finalizer 管 attempt 检查点；fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收 fixer、唯一 round、selected_review、selected_stage 及其来源。
 
 ## 准备与恢复
 
@@ -14,23 +14,15 @@ fixer DONE 已验收或 review 已开始时，不再派 writer。恢复前先由
 
 模型与矩阵以 `../scripts/workflow_policy.py` 为准。stage 0 无 fixer；stage 1..5 的 fixer 默认为 GPT-6 Sol-medium 两次、Sol-high 三次。Standards 首轮使用 Sol-medium，修复后使用 Sol-high；Spec 始终使用 Sol-high。新阶段可用 `model_overrides` 覆盖 fixer/standards/spec，并提供非空 `model_override_reason`；只允许常规档位内升档，后续继承且不降档，同阶段恢复沿用原模型。finalization 不使用 Astra。
 
-## 验证与补充边界
+## 最终验证
 
 stage 0 由 finalizer 用 `beadwork.py run-verification` 采集一次无参数 `gate-full`，交付验证加 `--delivery`。stage 1..5 由 fixer 采集同一入口；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
 
 最终成功依据 started/result/output.log 的绑定、正常退出码、相同干净 HEAD 和进程组结束事实。相同 gate 在交付 HEAD 取最新结果，较早成功不能覆盖较晚失败。未知结果需要实际收尾说明；日志损坏时可以组装 BLOCKED/blocked 或 interrupted，组装器自动保留 verification_issues，不能据此通过或推进代码修复。
 
-fixer 的开发定向验证和历史辅助 gate 全部保留在运行快照中，包括 dirty 工作区中的正常 red/green；它们不替代最终交付。成功与 gate-fix 额度耗尽只由绑定 `gate-plan` 的完整 `gate-full` 支撑；交付 HEAD 上完整成功之后出现失败或无效验证时，仍须重跑 `gate-full`。
+fixer 的开发定向验证全部保留在运行快照中，包括 dirty 工作区中的正常 red/green；它们不替代最终交付。成功与 gate-fix 额度耗尽由完整 `gate-full` 的候选运行支撑；交付 HEAD 上完整成功之后出现失败或无效验证时，仍须重跑 `gate-full`。
 
-`gate-full` 的覆盖由同一 HEAD 上绑定的 `gate-plan` 定义；不得从命令文字推导子 gate、传筛选参数或拼接不同运行。一次完整失败后必须从 `gate-full` 入口重新执行；同一有效候选可复用已绑定的完整成功，但更晚的相关失败会使旧成功失效。boundary gates 继续作为需求与影响范围的来源义务保留，不把全量成功扩大解释为未声明的票据通过范围。
-
-新增边界一经确认，立即持久化，不等待成功报告：
-
-```bash
-python3 <skill-dir>/scripts/beadwork.py executor final-gates --dispatch <stage-dispatch.json> --input <gates.json>
-```
-
-gates.json 为 `{names: ["gate-example"], sources: [{gate: "gate-example", source: "新增原因及依据"}]}`。累计下限继承到下一 stage/fixer、最终报告与接替者；同 attempt 不自动删减。final-gates 由 finalizer 调用，fixer 通过消息提交新增边界；fixer 报告验收也会合并实际边界。
+`gate-full` 的实际覆盖由当前项目 justfile 及其调用文件定义。finalizer/reviewer 核对 parent acceptance 和各票行为证据，尤其审查测试或 gate 定义变化是否削减必要覆盖。完整验收不得传筛选参数或拼接不同运行；完整失败后从 `gate-full` 入口重新执行，同一有效候选可复用已有完整成功。
 
 ## fixer 交付
 
@@ -40,7 +32,7 @@ python3 <skill-dir>/scripts/beadwork.py executor fixer-check --dispatch <fixer-d
 python3 <skill-dir>/scripts/beadwork.py executor fixer-accept --dispatch <stage-dispatch.json> --report <report.json> --receipt <receipt.json> --closure <closure-source.json>
 ```
 
-fixer 读取 dispatch.draft_schema_path，只填写处置、补充边界及原因、verification_notes、实际收尾和剩余工作。身份、HEAD、commits、验证运行及来源由脚本生成；stdout 为短回执，保存原件。
+fixer 读取 dispatch.draft_schema_path，只填写处置、verification_notes、实际收尾和剩余工作。身份、HEAD、commits、验证运行及来源由脚本生成；stdout 为短回执，保存原件。
 
 DONE 需当前 HEAD 的一次完整 `gate-full`；code_failure 需三次 gate-fix 已用尽及第三次候选正常非零交付结果。blocked/interrupted 可保留部分证据，不伪造成功。直接派发者先按 report-delivery.md 记录收尾，再 accept；验收会保存 fixer 选择。成功或代码失败终态不能改报中断继续写入。
 

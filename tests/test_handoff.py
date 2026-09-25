@@ -26,7 +26,7 @@ class HandoffTests(unittest.TestCase):
         self.bin.write_text(
             "#!"
             + sys.executable
-            + '\nimport os,sys,signal\nif sys.argv[1:]==["--summary"]: print("check-toolchain install test typecheck gate-plan gate-core gate-full gate-browser gate-extra env-facts fmt")\nelif sys.argv[3]=="gate-plan": print(\'{"core":"gate-core","full":["gate-core","gate-browser","gate-extra"],"defer_to_final":[]}\')\nelif os.environ.get("GATE_INTERRUPT"): os.kill(os.getpid(),signal.SIGTERM)\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n'
+            + '\nimport os,sys,signal\nif sys.argv[1:]==["--summary"]: print(\'install test gate-core gate-full\')\nelif os.environ.get("GATE_INTERRUPT"): os.kill(os.getpid(),signal.SIGTERM)\nelse: print("collected 1 check");sys.exit(int(os.environ.get("GATE_EXIT", "0")))\n'
         )
         self.bin.chmod(0o755)
         self.original_review = self.f.review
@@ -76,7 +76,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_finalizer_rejects_auxiliary_calls_before_recording(self):
         stage = self.f.stage()
-        for recipe in ("test", "typecheck", "gate-browser", "gate-full"):
+        for recipe in ("test", "gate-core", "gate-full"):
             with self.subTest(recipe=recipe):
                 result = subprocess.run(
                     [
@@ -102,8 +102,7 @@ class HandoffTests(unittest.TestCase):
         # 构造旧采集器允许的辅助记录，重算绑定；不改动真实执行证据。
         run = self.run_gate(stage, failed=failed)
         start = json.loads((run / "started.json").read_text())
-        start["argv"][-1] = "gate-browser"
-        start.pop("gate_plan")
+        start["argv"][-1] = "gate-core"
         self.f.put(run / "started.json", start)
         result = json.loads((run / "result.json").read_text())
         result["started_sha256"] = evidence.digest(run / "started.json")
@@ -123,7 +122,7 @@ class HandoffTests(unittest.TestCase):
             stage, reviews=[review], status="READY_TO_MERGE", outcome="passed"
         )
         value = json.loads(report.read_text())
-        self.assertEqual([v["gate"] for v in value["verification"]], ["gate-browser", "gate-full"])
+        self.assertEqual([v["gate"] for v in value["verification"]], ["gate-core", "gate-full"])
         self.assertEqual(len(value["verification_sources"]), 2)
         self.assertEqual((auxiliary / "started.json").read_bytes(), original)
         result = self.f.call(
@@ -181,11 +180,11 @@ class HandoffTests(unittest.TestCase):
             fd, "test", failed=True, parameters=("targeted-test.txt",), delivery=False
         )
         green = self.run_gate(fd, "test", parameters=("targeted-test.txt",), delivery=False)
-        self.run_gate(fd, "typecheck", delivery=False)
+        self.run_gate(fd, "gate-core", delivery=False)
         source = self.f.done_fixer(fd)
         value = json.loads(Path(source["report"]["path"]).read_text())
         self.assertEqual(
-            [v["gate"] for v in value["verification"]], ["test", "test", "typecheck", "gate-full"]
+            [v["gate"] for v in value["verification"]], ["test", "test", "gate-core", "gate-full"]
         )
         self.assertFalse(value["verification"][0]["passed"])
         self.assertTrue(value["verification"][1]["passed"])
@@ -319,6 +318,54 @@ class HandoffTests(unittest.TestCase):
         )
         return accepted["source"]
 
+    def test_fixer_development_full_cannot_replace_delivery(self):
+        stage = self.f.stage()
+        _, receipt = self.f.assemble(stage, outcome="code_failure", failed_gate="gate-full")
+        following = self.f.stage(previous=stage, receipt=receipt, continuation="repair")
+        dispatch = following.parent / "fixer/dispatch.json"
+        original = self.original_fixer(dispatch)
+        report = json.loads(Path(original["report"]["path"]).read_text())
+        development = self.run_gate(dispatch, delivery=False)
+        folder = dispatch.parent
+        draft = folder / "delivery-draft.json"
+        report["verification_notes"] = {}
+        self.f.put(draft, {k: report[k] for k in draft_contracts.schema("fixer")["properties"]})
+        args = ("fixer-assemble", "--dispatch", dispatch, "--draft", draft)
+        error = self.f.call(*args, "--output", folder / "development-report.json", ok=False)
+        self.assertIn("交付模式", error["error"])
+
+        delivery = self.run_gate(dispatch)
+        result = self.f.call(*args, "--output", folder / "delivery-report.json")
+        receipt = folder / "delivery-receipt.json"
+        self.f.put(receipt, result)
+        cp = closure_source(dispatch, result["report_path"])
+        self.f.put(cp, {"closure_source": json.loads(cp.read_text())})
+        self.f.call(
+            "fixer-accept",
+            "--dispatch",
+            following,
+            "--report",
+            result["report_path"],
+            "--receipt",
+            receipt,
+            "--closure",
+            cp,
+        )
+        accepted = json.loads(Path(result["report_path"]).read_text())
+        self.assertEqual(len(accepted["verification_sources"]), 2)
+        self.assertFalse(json.loads((development / "started.json").read_text())["delivery"])
+        self.assertTrue(json.loads((delivery / "started.json").read_text())["delivery"])
+        self.original_review(following)
+        self.f.assemble(following, status="READY_TO_MERGE", outcome="passed")
+        final = self.f.call(
+            "final-deliver",
+            "--dispatch",
+            self.f.root,
+            "--output",
+            self.f.root.parent / "delivery-root.json",
+        )
+        self.assertEqual(final["status"], "READY_TO_MERGE")
+
     def test_same_stage_cannot_open_second_review(self):
         stage = self.f.stage()
         self.f.review(stage, blocking=True)
@@ -423,22 +470,6 @@ class HandoffTests(unittest.TestCase):
         )
         self.assertTrue(result.returncode != 0 or not json.loads(result.stdout)["ok"])
 
-    def test_supplemental_gate_survives_stage_transition(self):
-        stage = self.f.stage()
-        original = self.f.draft
-
-        def draft(*args, **kwargs):
-            value = original(*args, **kwargs)
-            value["boundary_gates"].append("gate-extra")
-            value["gate_sources"].append({"gate": "gate-extra", "source": "实际影响的边界"})
-            return value
-
-        self.f.draft = draft
-        _, receipt = self.f.assemble(stage, outcome="code_failure", failed_gate="gate-full")
-        following = self.f.stage(previous=stage, receipt=receipt, continuation="repair")
-        data = json.loads((following.parent / "fixer/dispatch.json").read_text())
-        self.assertIn("gate-extra", data["required_boundary_gates"])
-
     def test_success_delivers_exact_bytes_and_controller_accepts(self):
         stage = self.f.stage()
         review = self.f.review(stage)
@@ -497,37 +528,6 @@ class HandoffTests(unittest.TestCase):
         )
         self.f.h.deliver(json.loads(report.read_text()))
         self.f.h.accept()
-
-    def test_gate_full_covers_supplemental_boundary_and_retains_provenance(self):
-        stage = self.f.stage()
-        request = self.f.h.root / "gates.json"
-        self.f.put(
-            request,
-            {"names": ["gate-extra"], "sources": [{"gate": "gate-extra", "source": "实际边界"}]},
-        )
-        self.f.call("final-gates", "--dispatch", stage, "--input", request)
-        self.gates(stage)
-        review = self.original_review(stage)
-        report, _ = self.f.assemble(
-            stage, reviews=[review], status="READY_TO_MERGE", outcome="passed"
-        )
-        self.assertIn("gate-extra", json.loads(report.read_text())["boundary_gates"])
-        self.f.h.deliver(json.loads(report.read_text()))
-        self.f.h.accept()
-
-    def test_gate_full_plan_must_contain_accumulated_boundary(self):
-        stage = self.f.stage()
-        request = self.f.h.root / "gates-missing-plan.json"
-        self.f.put(
-            request,
-            {
-                "names": ["gate-missing"],
-                "sources": [{"gate": "gate-missing", "source": "实际边界"}],
-            },
-        )
-        self.f.call("final-gates", "--dispatch", stage, "--input", request)
-        self.gates(stage)
-        self.f.call("review-prepare", "--dispatch", stage, ok=False)
 
     def test_missing_log_can_deliver_partial_blocked(self):
         stage = self.f.stage()
@@ -730,7 +730,7 @@ class HandoffTests(unittest.TestCase):
                 "gate-full",
                 "--delivery",
                 "--",
-                "gate-browser",
+                "gate-core",
             ],
             cwd=self.f.h.root,
             env=self.f.h.env,

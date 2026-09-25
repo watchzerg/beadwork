@@ -114,8 +114,6 @@ def stage_result(d, state):
         "prior_implementer": selected,
         "selected_stage": state["selected_stage"],
         "selected_review": state["selected_review"],
-        "required_boundary_gates": state["required_boundary_gates"],
-        "gate_sources": state["gate_sources"],
         "review_round": state["review_round_path"],
         "review_started": (Path(d["gate_repair_root"]) / "gate-review-started.json").exists(),
     }
@@ -312,7 +310,6 @@ def prepare_stage(root_path, facts):
         gate_repair.record(target, extension_record)
         d["stage_extension"] = evidence.binding(str(target))
         d["stage_limit"] = stage_limit
-    d["required_boundary_gates"] = list(state["required_boundary_gates"])
     d.pop("implementer_dispatch", None)
     folder.mkdir()
     if previous:
@@ -400,12 +397,6 @@ def accept_implementer(stage_path, report_path, receipt_path, closure=None):
     )
     state.setdefault("closures", {})[item["report"]["sha256"]] = closure
     state["implementer_sources"].append(item)
-    for gate in report["required_boundary_gates"]:
-        if gate not in state["required_boundary_gates"]:
-            state["required_boundary_gates"].append(gate)
-        marker = {"gate": gate, "report": item["report"]}
-        if marker not in state["gate_sources"]:
-            state["gate_sources"].append(marker)
     state["selected_stage"] = None
     checkpoint(d, state)
     return {"accepted": True, "source": item}
@@ -426,7 +417,7 @@ def review_ready(d):
         "--expected",
         w["dispatch_path"],
     )
-    check_implementation(w, report, live=True, state=state)
+    check_implementation(w, report, live=True)
     repository.require(
         report["status"] == "DONE" and report["stopped_tasks"], "实现未通过，不能 review"
     )
@@ -464,11 +455,6 @@ def adapt_plan(args):
     repository.require(
         not (Path(d["gate_repair_root"]) / "gate-review-started.json").exists(),
         "review 后不能适配计划",
-    )
-    facts = evidence.read(args.input)
-    repository.require(
-        set(state["required_boundary_gates"]).issubset(facts.get("boundary_gates", [])),
-        "计划适配不得丢失累计 boundary gates",
     )
     adjusted = adapt_plan_dispatch(args)
     old_writer = evidence.read(evidence.bound(d["implementer_dispatch"]))
@@ -520,7 +506,7 @@ def adapt_plan_dispatch(args):
     )
     facts = evidence.read(args.input)
     repository.require(
-        set(facts) == {"reason", "acceptance", "verification", "boundary_gates", "mode"},
+        set(facts) == {"reason", "acceptance", "verification", "mode"},
         "计划适配字段不符",
     )
     repository.require(
@@ -544,15 +530,6 @@ def adapt_plan_dispatch(args):
             ),
             key + " 需要实测证据",
         )
-    repository.require(
-        isinstance(facts["boundary_gates"], list)
-        and all(isinstance(x, str) and x.startswith("gate-") for x in facts["boundary_gates"]),
-        "boundary gates 无效",
-    )
-    repository.require(
-        set(d.get("required_boundary_gates", [])).issubset(facts["boundary_gates"]),
-        "计划调整丢失 gate 下限",
-    )
     repository.require(
         facts["mode"] != "TDD" or bool(old_plan["approved_seams"]),
         "恢复 TDD 需要既有 approved seams",
@@ -579,7 +556,6 @@ def adapt_plan_dispatch(args):
         expected_plan_path=str(target / "expected-plan.json"),
         test_mode=facts["mode"],
         plan_adjustment=evidence.binding(str(target / "plan-adjustment.json")),
-        required_boundary_gates=facts["boundary_gates"],
         verification_dispatches=list(
             dict.fromkeys(d.get("verification_dispatches", []) + [args.dispatch])
         ),

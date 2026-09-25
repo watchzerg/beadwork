@@ -1,13 +1,13 @@
 # 验证采集
 
-implementer/fixer 的 `typecheck`、`test` 和 `gate-*` 通过以下入口执行；一次调用一个 recipe。只有 `test` 接受定向参数；`typecheck` 与完整 gate 拒绝参数。finalizer 只采集带 `--delivery` 的无参数 `gate-full`，其他调用在创建运行记录前拒绝。`fmt` 和 controller 的 `install` 沿用原入口。
+implementer/fixer 使用以下入口采集 `test`、`gate-core` 和 `gate-full`，一次调用一个 recipe；只有 `test` 接受定向参数。单票固定交付检查为 `gate-core`，最终交付为 `gate-full`，均须使用采集器的 `--delivery`；`--delivery` 属于采集器，不传给 just。finalizer 只采集带 `--delivery` 的无参数 `gate-full`。其他开发操作按项目规则执行并保留必要证据，controller 的 `install` 使用初始化/同步入口。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe gate-core
 ```
 
-脚本在 dispatch.worktree 执行实际 `just` 命令，继承已准备好的环境，在本轮 `verification-*` 目录保存 started.json、完整 output.log 和完成后的 result.json。启动时 stderr 返回运行目录，结束时 stdout 返回命令、退出码、耗时、HEAD、dirty 状态和最多末尾 2048 字节/20 行日志。通常直接阅读摘要，需进一步诊断时搜索完整日志；不必重抄命令和结果。
+脚本在 dispatch.worktree 执行实际 `just` 命令，继承已准备好的环境，在本轮 `verification-*` 目录保存 started.json、完整 output.log 和完成后的 result.json。started.json 的 `delivery` 字段记录本次是否使用 `--delivery`；最终验收只接受 `delivery: true` 的完整运行，开发验证成功不能替代交付验证。启动时 stderr 返回运行目录，结束时 stdout 返回命令、退出码、耗时、HEAD、dirty 状态和最多末尾 2048 字节/20 行日志。通常直接阅读摘要，需进一步诊断时搜索完整日志；不必重抄命令和结果。
 
 | 脚本退出码 | 处理 |
 | --- | --- |
@@ -25,7 +25,7 @@ python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.js
 
 ## 最多三次就地 gate 修正
 
-开发中的 TDD red 与定向验证沿用上述命令。实现提交后，完整交付 gates 增加 `--delivery`（放在 `--` 参数分隔符之前）；入口要求干净 HEAD，并在原始记录中区分交付候选与开发验证。本票默认交付集合由绑定 `gate-plan` 和累计 `required_boundary_gates` 计算：`gate-core` 始终必跑，非 deferred 边界必跑，deferred 边界保留给 parent finalize。当前 stage 一旦对某边界使用 `--delivery`，该 gate 即成为本 stage 最终候选的附加义务；失败、恢复或计划适配都不会清除它。
+开发中的 TDD red 与定向验证使用 `test`。实现提交后，单票 `gate-core` 或最终 `gate-full` 增加 `--delivery`（放在 `--` 参数分隔符之前）；入口要求干净 HEAD，并区分交付候选与开发验证。每票的行为覆盖由 Test plan、实测证据和 executor/reviewer 核对，不能用 core 通过替代。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <writer-dispatch.json> --recipe gate-core --delivery
@@ -36,7 +36,7 @@ writer 确认交付失败由代码导致后，在修改前调用上述入口申�
 
 如果 writer 已经提交修正才发现遗漏了 `begin-gate-repair`，不要覆盖 repair/candidate 记录、重置分支或把当前 HEAD 冒充旧候选。停止 writer，将阶段按 `blocked` 完整交付；controller 解除流程阻塞后，executor 使用 `ticket-stage` 的 `continuation: recover` 和具体 `recovery_reason`。已有 repair 候选时该入口只接受其干净后继；首次修正尚无候选时另传修正前原始 delivery gate 失败 `result.json` 的绝对路径作为 `recovery_failure`。脚本追加恢复记录，然后在下一 stage 重新执行完整交付 gates 和双轴 review。
 
-当前 writer 集中修正，可运行必要的定向验证；提交后以 `--delivery` 重跑受影响的交付 gates。每次修正后的第一次重跑绑定该次候选 HEAD，其余交付 gates 必须使用同一 HEAD。该候选再有代码失败时，有余额则申请下一次修正；三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，不按 recipe 或失败类型增加；环境修复可在同 HEAD 重跑。review 开始后不能申请修正。
+当前 writer 集中修正，运行必要的定向验证；提交后以 `--delivery` 重跑本阶段交付入口（单票 `gate-core`，最终 `gate-full`）。重跑绑定修正后的干净候选 HEAD；该候选仍有代码失败时，有余额则申请下一次修正，三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，环境修复可在同 HEAD 重跑；review 开始后不能申请修正。
 
 机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。finalizer stage 0 没有 writer，不享有机会；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，executor/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。
 

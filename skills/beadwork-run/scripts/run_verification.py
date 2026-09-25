@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shlex
 import shutil
 import sys
@@ -18,7 +17,6 @@ sys.dont_write_bytecode = True
 import dispatch_contract
 import evidence
 import final_state
-import gate_plan
 import gate_repair
 import process_runner
 import repository
@@ -92,8 +90,8 @@ def run(args):
         before["head"],
     )
     repository.require(
-        args.recipe in ("typecheck", "test") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", args.recipe),
-        "仅执行 typecheck、test、gate-*",
+        args.recipe in ("test", "gate-core", "gate-full"),
+        "仅采集 test、gate-core、gate-full",
     )
     repository.require(
         not d.get("ticket_scope") or args.recipe != "gate-full",
@@ -106,25 +104,17 @@ def run(args):
         "验证 recipe 不存在",
     )
     parameters = args.parameters[1:] if args.parameters[:1] == ["--"] else args.parameters
-    repository.require(
-        not parameters or args.recipe == "test", "完整 gate 与 typecheck 不接受筛选参数"
-    )
+    repository.require(not parameters or args.recipe == "test", "完整 gate 不接受筛选参数")
     if final_state.strict(d) and d["role"] == "finalizer":
         repository.require(
             args.delivery and args.recipe == "gate-full",
             "finalizer 只采集带 --delivery 的无参数 gate-full",
         )
-    if args.delivery and final_state.strict(d):
-        repository.require(args.recipe == "gate-full", "最终交付只接受无参数 gate-full")
-    current_plan = None
     if args.delivery:
-        recipes = repository.run([executable, "--summary"], d["worktree"]).split()
-        current_plan = gate_plan.parse(
-            repository.run([executable, "--one", "--", "gate-plan"], d["worktree"]), recipes
-        )
         repository.require(
-            args.recipe == "gate-full" or args.recipe in current_plan["full"],
-            "交付 gate 不属于当前 gate-plan full",
+            args.recipe
+            == ("gate-core" if d["role"] in ("executor", "implementer") else "gate-full"),
+            "单票交付只接受 gate-core，最终交付只接受 gate-full",
         )
     argv = ["just", "--one", "--", args.recipe, *parameters]
     attempt = None
@@ -145,9 +135,8 @@ def run(args):
         "cwd": d["worktree"],
         "started_ns": time.time_ns(),
         "before": before,
+        "delivery": args.delivery,
     }
-    if current_plan is not None:
-        started["gate_plan"] = current_plan
     if attempt is not None:
         started["delivery_attempt"] = attempt
     write(directory / "started.json", started)

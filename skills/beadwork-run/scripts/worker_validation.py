@@ -91,8 +91,6 @@ def report_schema(role, axis_schema):
             "head_commit": nullable(SHA),
             "fix_commit": nullable(SHA),
             "dispositions": {"type": "array", "items": obj({"source": TEXT, "action": TEXT})},
-            "boundary_gates": {**TEXTS, "uniqueItems": True},
-            "gate_sources": {"type": "array", "items": obj({"gate": TEXT, "source": TEXT})},
             "verification": {
                 "type": "array",
                 "items": obj(
@@ -129,7 +127,7 @@ def report_schema(role, axis_schema):
 
 
 def dispatch_schema(role):
-    # 其余任务上下文由 prompt 交接；这里只校验验收需要的身份与 gate 下限。
+    # 其余任务上下文由 prompt 交接；这里只校验验收需要的身份。
     fields = (
         {"axis": {"enum": ["standards", "spec"]}, "reviewed_base": SHA, "reviewed_head": SHA}
         if role == "reviewer"
@@ -137,7 +135,6 @@ def dispatch_schema(role):
             "parent_id": TEXT,
             "branch": TEXT,
             "base_commit": SHA,
-            "required_boundary_gates": {**TEXTS, "uniqueItems": True},
         }
     )
     schema = obj(fields)
@@ -207,19 +204,12 @@ def validate(role, report, axis_schema, expected):
         failures.append("fix_commit_is_new_delivery_head")
     if not report["dispositions"]:
         failures.append("fix_has_dispositions")
-    gates = set(report["boundary_gates"])
-    if not set(expected["required_boundary_gates"]).issubset(gates):
-        failures.append("required_gates_retained")
-    if any(not gate.startswith("gate-") or gate == "gate-full" for gate in gates):
-        failures.append("boundary_gate_names")
-    if not gates.issubset({item["gate"] for item in report["gate_sources"]}):
-        failures.append("boundary_gate_sources")
     latest = {
         item["gate"]: item
         for item in report["verification"]
         if item["head_commit"] == report["head_commit"]
     }
-    required = {"gate-full"} if role == "fixer" else gates | {"gate-core"}
+    required = {"gate-full"}
     if not required.issubset({gate for gate, item in latest.items() if item["passed"]}):
         failures.append("final_validation_on_delivery_head")
     return failures

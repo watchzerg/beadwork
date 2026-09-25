@@ -1,12 +1,10 @@
 """最终验证报告的运行来源与覆盖；不从文字或退出码判断失败根因。"""
 
-import re
 import shlex
 from pathlib import Path
 
 import dispatch_contract
 import evidence
-import gate_plan
 import gate_repair
 import repository
 import verification_records
@@ -38,12 +36,10 @@ def records(d, sources, allowed, notes, successful=False):
         repository.require(len(argv) >= 4 and argv[:3] == ["just", "--one", "--"], "验证 argv 不符")
         recipe = argv[3]
         repository.require(
-            recipe in ("test", "typecheck") or re.fullmatch(r"gate-[A-Za-z0-9_-]+", recipe),
+            recipe in ("test", "gate-core", "gate-full"),
             "验证 recipe 不符",
         )
-        repository.require(
-            len(argv) == 4 or recipe == "test", "完整 gate 与 typecheck 不接受筛选参数"
-        )
+        repository.require(len(argv) == 4 or recipe == "test", "完整 gate 不接受筛选参数")
         gates = [recipe]
         valid = bool(
             end
@@ -139,15 +135,13 @@ def check(d, report, live=False):
             latest.get("gate-full") and latest["gate-full"][-1]["passed"],
             "交付 HEAD 缺少成功 gate-full",
         )
-        selected = latest["gate-full"][2].get("gate_plan")
-        repository.require(selected is not None, "gate-full 缺少当次 gate-plan 定义")
+        repository.require(
+            latest["gate-full"][2].get("delivery") is True,
+            "最终验收需要交付模式 gate-full；请使用 --delivery 重新运行",
+        )
         repository.require(
             not any(row[0] > latest["gate-full"][0] and not row[-1]["passed"] for row in current),
             "完整 gate-full 之后存在失败或无效验证，需重跑 gate-full",
-        )
-        gate_plan.require_boundaries(
-            selected,
-            list(dict.fromkeys([*report["boundary_gates"], *d["required_boundary_gates"]])),
         )
     if report.get("outcome") == "code_failure" and d["role"] == "fixer":
         repository.require(
@@ -156,7 +150,7 @@ def check(d, report, live=False):
         repository.require(
             any(
                 row[-1]["gate"] == "gate-full"
-                and row[2].get("gate_plan") is not None
+                and row[2].get("delivery") is True
                 and row[4]
                 and row[3]["exit_code"] > 0
                 and row[2].get("delivery_attempt") == 3

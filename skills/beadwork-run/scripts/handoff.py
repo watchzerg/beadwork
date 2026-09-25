@@ -6,7 +6,6 @@ from pathlib import Path
 
 import dispatch_contract
 import evidence
-import gate_plan
 import phase_validation
 import repository
 
@@ -49,25 +48,12 @@ def preflight_input(d):
         "验收期间报告发生变化",
     )
     repository.require(
-        evidence.read(evidence.bound(report["gate_plan_source"])) == report["gate_plan"],
-        "preflight gate-plan 来源已变化",
-    )
-    repository.require(
         pd["parent_id"] == d["parent_id"] and pd["repository_root"] == d["repository_root"],
         "preflight 批次身份不符",
     )
     plan = next((t["test_plan"] for t in report["tickets"] if t["id"] == d["ticket_id"]), None)
     if not plan or plan["mode"] != d["test_mode"] or plan["approved_seams"] != d["approved_seams"]:
         raise ValueError("ticket 计划与 preflight 不符")
-    repository.require(
-        set(plan["boundary_gates"]) <= set(d["required_boundary_gates"]), "派发遗漏 preflight gates"
-    )
-    sync = evidence.read(d["sync_result"])
-    current_plan = sync.get("gate_plan")
-    repository.require(current_plan is not None, "同步证据缺少当前 gate-plan")
-    gate_plan.require_boundaries(current_plan, d["required_boundary_gates"])
-    d["gate_plan"] = current_plan
-    d["gate_plan_source"] = evidence.binding(d["sync_result"])
     repository.require(report["linked_spec"] == d["linked_spec"], "linked spec 与 preflight 不符")
     d["plan_source"] = {
         "report": evidence.binding(accepted["report_path"]),

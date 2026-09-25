@@ -15,7 +15,7 @@
 1. 使用 `ticket-stage` 创建或恢复 stage，模型取返回值。默认 executor 自身使用 root 的 `coordinator_model`；跨 stage 保持本协调上下文。
 2. 向 implementer 交接生成的 dispatch，要求先读 `agents/implementer.md`；交接原 ticket BASE、stage 起始现场、需求和规则来源、执行计划、必要 gates 与已有提交。后续 stage 的当前失败只交接 `ticket-stage` 返回的 `active_stage_context_source`，不手工复制或默认展开累计 stage report/review 历史。新 stage 使用全新 implementer；保留已有正确实现。向实现者一并交接 ticket-stage 返回的 context_sources。恢复同 stage 优先继续原 implementer，无法继续时在旧 writer/命令已确认停止后接替，额度不变。
 3. implementer 内部完成实现、定向验证、普通提交和最多三次交付 gate-fix。不逐次审批修复，也不重复跑同 HEAD 上已验证的 gates。
-4. 等待 implementer 及命令结束，原样保存回执，执行 `implementer-accept`。核对 acceptance、有效行为 red、seams、定向行为验证、当前计划计算的必跑 gates，以及本 stage 已尝试完整 delivery gate 的失败处置。默认延期的完整 suite 未运行不是本票失败，但不能用 `gate-core` 代替本票行为证据。证据错误按报告更正规则处理；不能当作代码失败消耗 stage。
+4. 等待 implementer 及命令结束，原样保存回执，执行 `implementer-accept`。核对 acceptance、有效行为 red、seams、Test plan 的定向行为验证、当前干净候选的 `gate-core` 及失败处置。基础检查不能替代本票行为证据；完整项目回归留给 parent finalize。证据错误按报告更正规则处理，不能当作代码失败消耗 stage。
 5. 实现通过后按 `../references/review.md` 直接派发两个只读 reviewers。BASE 始终为 ticket 的原 `base_commit`，HEAD 为已提交并验证的当前候选。review 期间保持源码冻结。
 6. 用 `ticket-assemble` 保存当前 stage 报告和检查点；它汇总已验收实现、验证与原始两轴证据。每 stage 最多一轮完整 review，更正或恢复复用原 round。
 
@@ -39,6 +39,6 @@ BASE 已满足原计划行为时，按 `../references/baseline-adaptation.md` �
 
 ## 最终验收与交付
 
-你对整票 acceptance 与实际代码、有效 red、seams、验证覆盖、review findings 的语义一致性负责。确认全部 commits 属于本票，本票定向证据与必跑 gates、已承担的提前完整 gates 和最后两轴 review 覆盖交付 HEAD；deferred 完整回归保留给 parent finalize；未完成记录具有实际收尾说明；源码现场干净，无 blockers，所有命令及子任务已结束，才可返回 DONE。
+你对整票 acceptance 与实际代码、有效 red、seams、验证覆盖、review findings 的语义一致性负责。确认全部 commits 属于本票，本票行为证据、`gate-core` 和最后两轴 review 覆盖交付候选；未完成记录具有实际收尾说明；源码现场干净，无 blockers，所有命令及子任务已结束，才可返回 DONE。
 
 使用 `ticket-deliver` 原样交付已验收阶段报告；controller 进行整票契约验收并写 completion/close。中断和阻塞也保留完整恢复指针。stage 进度直接通知 controller，不等待每阶段 Beads comment；检查点保存在 start comment 指向的 root 证据目录。原始报告、回执、smells 与更正记录全部保留。

@@ -58,8 +58,6 @@ def checkpoints(d):
         "selected_review": None,
         "review_round_path": None,
         "review_round": None,
-        "required_boundary_gates": list(r["required_boundary_gates"]),
-        "gate_sources": [],
     }
     root_binding = evidence.binding(r["dispatch_path"])
     for i, path in enumerate(files, 1):

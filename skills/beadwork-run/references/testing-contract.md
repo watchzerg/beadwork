@@ -8,4 +8,4 @@
 
 `testing-seams.md` 定义授权边界，`testing-plan.md` 定义计划，`testing-tdd.md` 定义 red 证据，`testing-gates.md` 定义验证覆盖。各角色入口按结构化的角色、scope、axis 和 Test plan mode 规定固定读取组合；不在本定位文件中另建递归路由，不因后续可能需要而预读其他 testing 文件。共享文件内的跨文件指针供规划和人工 TDD 场景使用，本 skill 的角色不用它们扩展固定组合。已在当前上下文读取且未变化的文件无需重复加载。固定组合中的文件不可读取时，按当前阶段的缺事实/阻塞处理。
 
-需要用户确认的 seam 变化，在本流程返回 `BLOCKED`；已有批准不重复询问。无效计划不进入实现。实测 BASE 由 controller 在安装后绑定 `gate-plan` 并通过 `gate-core` 建立快速基线，执行者按测试契约记录证据。完整 `gate-full` 保留给最终干净候选；单票的 deferred 边界仍需要能证明 acceptance 的定向证据。
+需要用户确认的 seam 变化，在本流程返回 `BLOCKED`；已有批准不重复询问。无效计划不进入实现。controller 通过 `install` 准备环境，再以 `gate-core` 建立快速基线；执行者按 Test plan 获取能证明 acceptance 的行为证据，提交后以 `gate-core` 验证交付候选。完整 `gate-full` 保留给最终干净候选，内部覆盖由项目维护，并由最终审查核对。

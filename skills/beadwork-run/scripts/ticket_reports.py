@@ -340,7 +340,7 @@ def _check_stage(d, report, verified, *, state=None, review_checks=None):
             "--expected",
             w["dispatch_path"],
         )
-        implementer_reports.check_implementation(w, implementation, state=state)
+        implementer_reports.check_implementation(w, implementation)
         closure = state.get("closures", {}).get(item["report"]["sha256"])
         handoff.check_close(
             w["dispatch_path"],

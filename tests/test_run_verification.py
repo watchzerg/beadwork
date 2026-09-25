@@ -35,24 +35,7 @@ class VerificationTests(unittest.TestCase):
             "#!"
             + sys.executable
             + "\n"
-            + """import json, os, signal, sys, time
-from pathlib import Path
-if sys.argv[1:] == ['--summary']:
-    if os.environ.get('TEST_MODE') == 'spawnfail': Path(sys.argv[0]).unlink()
-    print('check-toolchain install test typecheck gate-plan gate-core gate-full env-facts fmt gate-demo'); sys.exit(0)
-assert sys.argv[1:3] == ['--one', '--']
-if sys.argv[3] == 'gate-plan':
-    print('{"core":"gate-core","full":["gate-core","gate-demo"],"defer_to_final":[]}'); sys.exit(0)
-mode = os.environ.get('TEST_MODE', 'pass')
-print(json.dumps({'argv': sys.argv[3:], 'cwd': os.getcwd()}), flush=True)
-if mode == 'fail': print('目标断言失败'); sys.exit(7)
-if mode == 'large': os.write(1, b'x' * 200000 + b'\\xffEND'); sys.exit(0)
-if mode == 'change': Path('new-file').write_text('changed'); sys.exit(0)
-if mode == 'hang':
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    print('READY', flush=True)
-    while True: time.sleep(.1)
-"""
+            + "import json, os, signal, sys, time\nfrom pathlib import Path\nif sys.argv[1:] == ['--summary']:\n    if os.environ.get('TEST_MODE') == 'spawnfail': Path(sys.argv[0]).unlink()\n    print('install test gate-core gate-full'); sys.exit(0)\nassert sys.argv[1:3] == ['--one', '--']\nmode = os.environ.get('TEST_MODE', 'pass')\nprint(json.dumps({'argv': sys.argv[3:], 'cwd': os.getcwd()}), flush=True)\nif mode == 'fail': print('目标断言失败'); sys.exit(7)\nif mode == 'large': os.write(1, b'x' * 200000 + b'\\xffEND'); sys.exit(0)\nif mode == 'change': Path('new-file').write_text('changed'); sys.exit(0)\nif mode == 'hang':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    print('READY', flush=True)\n    while True: time.sleep(.1)\n"
         )
         self.fake.chmod(0o755)
         self.serial = 0

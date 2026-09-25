@@ -30,7 +30,6 @@ class PhaseValidatorTests(unittest.TestCase):
             "expected_children": ["demo-2", "demo-3"],
             "reviewed_main": SHA_A,
             "start_head": SHA_B,
-            "required_boundary_gates": ["gate-browser"],
         }
 
     def dispatch(self, phase: str) -> dict:
@@ -57,7 +56,6 @@ class PhaseValidatorTests(unittest.TestCase):
             "reviewed_main": SHA_A,
             "start_head": SHA_B,
             "ticket_evidence": [],
-            "required_boundary_gates": ["gate-browser"],
             "prior_finalization": None,
         }
 
@@ -65,11 +63,10 @@ class PhaseValidatorTests(unittest.TestCase):
         return {
             "mode": mode,
             "approved_seams": ["S1"] if mode == "TDD" else [],
-            "boundary_gates": ["gate-browser"],
             "observable_behavior": "可观察行为" if mode == "TDD" else None,
             "expected_red": "BASE 失败" if mode == "TDD" else None,
             "reason": None if mode == "TDD" else "无需 red",
-            "verification": None if mode == "TDD" else "just gate-browser",
+            "verification": "just test 相关场景，观察目标行为",
         }
 
     def preflight(self, status: str = "READY") -> dict:
@@ -87,9 +84,7 @@ class PhaseValidatorTests(unittest.TestCase):
                 "worktree_ignored",
                 "branch_name",
                 "beads_clean",
-                "toolchain",
                 "just_recipes",
-                "gate_plan",
                 "review_schema",
                 "recovery",
             )
@@ -104,13 +99,6 @@ class PhaseValidatorTests(unittest.TestCase):
                 {"id": "demo-3", "status": "open", "test_plan": self.plan("direct_verification")},
             ],
             "linked_spec": "spec",
-            "boundary_gates": ["gate-browser"],
-            "gate_plan": {
-                "core": "gate-core",
-                "full": ["gate-core", "gate-browser"],
-                "defer_to_final": [],
-            },
-            "gate_plan_source": {"path": "/evidence/gate-plan.json", "sha256": "a" * 64},
             "workspace": {
                 "primary_worktree": "/repo",
                 "implementation_worktree": "/repo/.worktrees/demo-1",
@@ -132,7 +120,6 @@ class PhaseValidatorTests(unittest.TestCase):
             report["parent"] = {"id": None, "status": None}
             report["expected_children"] = []
             report["tickets"] = []
-            report["boundary_gates"] = []
         return report
 
     def pair(self, base: str = SHA_A, head: str = SHA_B, blocking: bool = False) -> dict:
@@ -174,9 +161,6 @@ class PhaseValidatorTests(unittest.TestCase):
             "reviewed_main": SHA_A,
             "start_head": SHA_B,
             "head_commit": SHA_B,
-            "required_gates": ["gate-browser"],
-            "boundary_gates": ["gate-browser"],
-            "gate_sources": [{"gate": "gate-browser", "source": "ticket"}],
             "verification": [
                 {
                     "gate": "gate-full",
@@ -205,8 +189,6 @@ class PhaseValidatorTests(unittest.TestCase):
                 stopped_tasks=False,
                 blockers=["gate 失败"],
                 remaining_work=["修复"],
-                required_gates=[],
-                boundary_gates=[],
             )
         return report
 
@@ -251,8 +233,8 @@ class PhaseValidatorTests(unittest.TestCase):
         changed["checks"] = []
         self.rejected("preflight", changed, "all_preflight_checks_passed")
         changed = self.preflight()
-        changed["boundary_gates"] = []
-        self.rejected("preflight", changed, "boundary_gates_are_ticket_union")
+        changed["tickets"][0]["test_plan"]["verification"] = None
+        self.rejected("preflight", changed, "ticket_verification_plan")
         changed = self.preflight()
         changed["expected_children"] = ["demo-2"]
         self.rejected("preflight", changed, "tickets_match_unique_children")
@@ -295,7 +277,6 @@ class PhaseValidatorTests(unittest.TestCase):
         self.assertTrue(self.invoke("preflight", report)["ok"])
         report["parent"]["status"] = "closed"
         report["suggested_route"] = "post_merge"
-        report["boundary_gates"] = []
         for ticket in report["tickets"]:
             ticket.update(status="closed", test_plan=None)
         self.assertTrue(self.invoke("preflight", report)["ok"])
@@ -330,10 +311,7 @@ class PhaseValidatorTests(unittest.TestCase):
         report["review_rounds"] = [self.pair(blocking=True)]
         self.rejected("finalizer", report, "final_review_gate_pass")
 
-    def test_new_boundary_and_dirty_workspace_cannot_pass(self) -> None:
-        report = self.finalizer()
-        report["boundary_gates"].append("gate-postgres")
-        self.rejected("finalizer", report, "boundary_gate_sources")
+    def test_dirty_workspace_cannot_pass(self) -> None:
         report = self.finalizer()
         report["workspace"]["clean"] = False
         self.rejected("finalizer", report, "workspace_ready")

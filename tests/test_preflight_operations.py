@@ -83,14 +83,7 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
             "#!"
             + sys.executable
             + "\n"
-            + """import sys
-if sys.argv[1:] == ['--summary']:
-    print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser')
-elif sys.argv[1:] == ['--one', '--', 'gate-plan']:
-    print('{"core":"gate-core","full":["gate-core","gate-browser"],"defer_to_final":[]}')
-else:
-    assert sys.argv[1:] == ['--one', '--', 'check-toolchain'], sys.argv
-"""
+            + "import sys\nif sys.argv[1:] == ['--summary']:\n    print('install test gate-core gate-full')\nelse:\n    raise AssertionError(sys.argv)\n"
         )
         just.chmod(0o755)
         self.draft: dict[str, Any] = dict(
@@ -154,21 +147,13 @@ else:
         self.assertEqual(self.facts["pending_ids"], ["test-1"])
         self.assertEqual(self.facts["failed_checks"], [])
         snapshot = json.loads(Path(self.facts["facts_path"]).read_text())
-        self.assertEqual(
-            snapshot["gate_plan"],
-            {
-                "core": "gate-core",
-                "full": ["gate-core", "gate-browser"],
-                "defer_to_final": [],
-            },
-        )
+        self.assertEqual(snapshot["recipes"], ["install", "test", "gate-core", "gate-full"])
         receipt = self.assemble()
         self.h.report = self.h.dispatch.parent / "report.json"
         self.h.receipt = self.h.dispatch.parent / "receipt.json"
         self.h.put(self.h.receipt, receipt)
         self.h.accept()
         r = json.loads(self.h.report.read_text())
-        self.assertEqual(r["boundary_gates"], ["gate-browser"])
         self.assertIsNone(r["tickets"][1]["test_plan"])
         timing = json.loads(self.h.report.with_suffix(".timing.json").read_text())
         self.assertEqual(timing["report_sha256"], receipt["report_sha256"])
@@ -232,39 +217,34 @@ else:
         self.draft["checks"].append(dict(name="toolchain", passed=True, evidence="尝试覆盖"))
         self.assemble(ok=False, name="report-3.json")
 
-    def test_unknown_gate_is_blocked(self):
+    def test_missing_required_recipe_is_blocked(self):
+        just = self.h.root / "bin/just"
+        just.write_text("#!" + sys.executable + "\nprint('install test gate-core')\n")
         self.collect()
-        self.draft["plans"]["test-1"]["boundary_gates"] = ["gate-absent"]
+        self.assertIn("just_recipes", {row["name"] for row in self.facts["failed_checks"]})
         self.assertEqual(self.assemble()["status"], "BLOCKED")
 
-    def test_gate_plan_rejects_duplicate_and_unregistered_members(self):
+    def test_optional_project_recipes_need_no_registration_or_execution(self):
         just = self.h.root / "bin/just"
         just.write_text(
-            "#!"
-            + sys.executable
-            + "\n"
-            + """import sys
-if sys.argv[1:] == ['--summary']:
-    print('check-toolchain install typecheck test gate-plan gate-core gate-full env-facts fmt gate-browser gate-extra')
-elif sys.argv[1:] == ['--one', '--', 'gate-plan']:
-    print('{"core":"gate-core","full":["gate-core","gate-browser","gate-browser"],"defer_to_final":[]}')
-else:
-    assert sys.argv[1:] == ['--one', '--', 'check-toolchain'], sys.argv
-"""
+            "#!" + sys.executable + "\nimport sys\n"
+            "assert sys.argv[1:] == ['--summary'], sys.argv\n"
+            "print('install test gate-core gate-full fmt typecheck env-facts gate-browser gate-plan')\n"
         )
-        just.chmod(0o755)
         self.collect()
-        self.assertIn("gate_plan", {x["name"] for x in self.facts["failed_checks"]})
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
+        self.assertEqual(self.facts["failed_checks"], [])
+        self.assertEqual(self.assemble()["status"], "READY")
 
     def test_command_failures_remain_inspectable(self):
         (self.h.root / "bin/just").write_text("#!" + sys.executable + "\nimport sys\nsys.exit(9)\n")
         self.collect()
         self.assertEqual(
             {x["name"] for x in self.facts["failed_checks"]},
-            {"toolchain", "just_recipes", "gate_plan"},
+            {
+                "just_recipes",
+            },
         )
-        result = json.loads((self.h.dispatch.parent / "facts/toolchain.json").read_text())
+        result = json.loads((self.h.dispatch.parent / "facts/recipes.json").read_text())
         self.assertEqual(result["exit_code"], 9)
         self.assertEqual(self.assemble()["status"], "BLOCKED")
 

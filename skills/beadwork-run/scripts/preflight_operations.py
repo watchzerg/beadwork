@@ -12,12 +12,11 @@ from typing import NotRequired, TypedDict
 import draft_contracts
 import evidence
 import execution_plan
-import gate_plan
 import graph
 import report_io
 import repository
 
-RECIPES = gate_plan.REQUIRED_RECIPES
+RECIPES = ("install", "test", "gate-core", "gate-full")
 SEMANTIC = ("spec_and_test_plans", "recovery")
 
 
@@ -285,13 +284,8 @@ class FactsCollector:
         checkout = str(wt) if wt.exists() else d["repository_root"]
         return workspace, recovery_facts, checkout
 
-    def toolchain_facts(self, checkout):
-        self.check(
-            "toolchain",
-            lambda: self.run("toolchain", ["just", "--one", "--", "check-toolchain"], checkout)[1],
-        )
+    def recipe_facts(self, checkout):
         recipes = []
-        plan = None
 
         def just_recipes():
             nonlocal recipes
@@ -301,17 +295,9 @@ class FactsCollector:
                 set(RECIPES).issubset(recipes),
                 "缺少 recipes：" + ", ".join(sorted(set(RECIPES) - set(recipes))),
             )
-            return path + "；实际边界能力由 spec_and_test_plans 核对"
+            return path + "；实际验证能力由 spec_and_test_plans 核对"
 
         self.check("just_recipes", just_recipes)
-
-        def project_gate_plan():
-            nonlocal plan
-            raw, _ = self.run("gate-plan-command", ["just", "--one", "--", "gate-plan"], checkout)
-            plan = gate_plan.parse(raw, recipes)
-            return self.save("gate-plan", plan)
-
-        self.check("gate_plan", project_gate_plan)
 
         def schemas():
             values = {
@@ -328,7 +314,7 @@ class FactsCollector:
 
         self.check("review_schema", schemas)
 
-        return recipes, plan
+        return recipes
 
     def pending_tickets(self, children):
         # list 已含正文时不重复 show；closed 票只交接状态。
@@ -361,7 +347,7 @@ def collect(args):
     parent, children, comments = capture.tracker_inputs()
     capture.repository_checks(parent, children)
     workspace, recovery_facts, checkout = capture.workspace_facts()
-    recipes, plan = capture.toolchain_facts(checkout)
+    recipes = capture.recipe_facts(checkout)
     pending = capture.pending_tickets(children)
     inputs = capture.save(
         "semantic-inputs",
@@ -389,7 +375,6 @@ def collect(args):
         checks=capture.checks,
         blockers=capture.problems,
         recipes=recipes,
-        gate_plan=plan,
         inputs=inputs,
         sources=capture.bindings,
         collection_started_at=started,
@@ -434,18 +419,9 @@ def assemble(args):
     unresolved = {x["id"] for x in f["tickets"] if x["status"] != "closed"}
     repository.require(set(draft["plans"]).issubset(unresolved), "计划含未知或已关闭 ticket")
     tickets = [dict(x, test_plan=draft["plans"].get(x["id"])) for x in f["tickets"]]
-    gates = sorted({g for x in tickets if x["test_plan"] for g in x["test_plan"]["boundary_gates"]})
     blockers = list(f["blockers"]) + draft["blockers"]
     checks = f["checks"] + draft["checks"]
     blockers += [x["name"] + "：" + x["evidence"] for x in checks if not x["passed"]]
-    missing = set(gates) - set(f["recipes"])
-    if missing:
-        blockers.append("未知 boundary gates：" + ", ".join(sorted(missing)))
-    if f.get("gate_plan") is not None:
-        try:
-            gate_plan.require_boundaries(f["gate_plan"], gates)
-        except (ValueError, AssertionError) as error:
-            blockers.append(str(error))
     route, parent_status = draft["suggested_route"], f["parent"]["status"]
     if route == "new_batch" and not (
         parent_status == "open"
@@ -463,16 +439,12 @@ def assemble(args):
     report = {
         k: draft[k] for k in ("linked_spec", "resume_evidence", "suggested_route", "remaining_work")
     }
-    plan_path = directory / "facts" / "gate-plan.json"
     report.update(
         status="BLOCKED" if blockers else draft["status"],
         parent=f["parent"],
         expected_children=f["expected_children"],
         execution_plan=f["execution_plan"],
         tickets=tickets,
-        boundary_gates=gates,
-        gate_plan=f.get("gate_plan"),
-        gate_plan_source=evidence.binding(plan_path) if plan_path.exists() else None,
         workspace=f["workspace"],
         checks=checks,
         blockers=blockers,

@@ -66,7 +66,7 @@ class GateRepairTests(unittest.TestCase):
         self.assertEqual(self.begin(failure), first)
         second = self.run_gate()
         self.assertEqual(self.begin(second)["repair_number"], 2)
-        third = self.run_gate(recipe="gate-demo")
+        third = self.run_gate()
         self.assertEqual(self.begin(third)["remaining_repairs"], 0)
         self.assertEqual(self.begin(failure), first)
         exhausted = self.run_gate()
@@ -76,7 +76,7 @@ class GateRepairTests(unittest.TestCase):
 
     def test_each_repair_binds_new_head_and_preserves_prior_evidence(self):
         failure = self.run_gate()
-        other_failure = self.run_gate(recipe="gate-demo")
+        other_failure = self.run_gate()
         snapshots = {}
         for number in range(1, 4):
             grant = self.begin(failure)
@@ -225,7 +225,7 @@ class GateRepairTests(unittest.TestCase):
         f.setUp()
         self.addCleanup(f.doCleanups)
         fake = f.h.root / "bin" / "just"
-        fake.write_text(self.v.fake.read_text().replace("gate-demo", "gate-browser"))
+        fake.write_text(self.v.fake.read_text())
         fake.chmod(0o755)
         self.h = f.h
         self.v.h = f.h

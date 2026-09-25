@@ -1,6 +1,5 @@
 """implementer 报告结构、运行事实与组装；不选择 writer 或推进阶段。"""
 
-import json
 from pathlib import Path
 
 import dispatch_contract
@@ -8,7 +7,6 @@ import draft_contracts
 import evidence
 import gate_repair
 import repository
-import ticket_state
 import ticket_verification
 import verify_ticket as v
 
@@ -27,7 +25,6 @@ def implementer_schema():
         verification_notes={"type": "object", "additionalProperties": {"type": "string"}},
         verification_sources={"type": "array", "items": {"type": "object"}},
         verification_issues={"type": "array", "items": {"type": "object"}},
-        required_boundary_gates={"type": "array", "items": v.TEXT, "uniqueItems": True},
     )
     schema["required"] += [
         "role",
@@ -39,7 +36,6 @@ def implementer_schema():
         "verification_notes",
         "verification_sources",
         "verification_issues",
-        "required_boundary_gates",
     ]
     return schema
 
@@ -75,13 +71,10 @@ def implementer_errors(report, d):
         k: report["test_plan"][k] for k in ("mode", "approved_seams")
     } != evidence.read(d["expected_plan_path"]):
         errors.append("test plan 与执行计划不符")
-    required = set(d.get("required_boundary_gates", []))
-    if not required.issubset(report["required_boundary_gates"]):
-        errors.append("丢失 boundary gate 下限")
     return errors
 
 
-def check_implementation(d, report, live=False, *, state=None):
+def check_implementation(d, report, live=False):
     dispatch_contract.validate_plan(d)
     snapshot = report.get("verification_sources")
     if live and snapshot is not None:
@@ -95,17 +88,6 @@ def check_implementation(d, report, live=False, *, state=None):
     )
     rows = [row[3] for row in records]
     runs = [(start, end, path) for start, end, path, _, _ in records if end is not None]
-    state = ticket_state.checkpoints(d)[0] if state is None else state
-    required = set(d["required_boundary_gates"])
-    required.update(ticket_verification.attempted_boundaries(row[0] for row in records))
-    stage = (
-        evidence.read(evidence.bound(state["stage_dispatch"])) if state["stage_dispatch"] else None
-    )
-    if stage and stage["implementer_dispatch"] == evidence.binding(d["dispatch_path"]):
-        required.update(state["required_boundary_gates"])
-    repository.require(
-        required <= set(report["required_boundary_gates"]), "丢失 boundary gate 下限"
-    )
     repository.require(report.get("verification_issues") == issues, "实现验证问题与原始来源不符")
     repository.require(
         not issues
@@ -136,22 +118,10 @@ def check_implementation(d, report, live=False, *, state=None):
         if report["status"] == "DONE":
             repository.require(not repository.status(d["worktree"]), "实现通过需要干净现场")
     if report["status"] == "DONE":
-        _, required, passed, latest = ticket_verification.delivery_coverage(
-            [(start, end) for start, end, *_ in records],
-            head,
-            report["required_boundary_gates"],
+        passed = ticket_verification.delivery_coverage(
+            [(start, end) for start, end, *_ in records], head
         )
-        repository.require(
-            set(required) <= passed,
-            "交付 HEAD 缺少成功 gates：" + ", ".join(sorted(set(required) - passed)),
-        )
-        definitions = {
-            json.dumps(latest[recipe][0].get("gate_plan"), sort_keys=True) for recipe in required
-        }
-        repository.require(
-            len(definitions) == 1 and "null" not in definitions,
-            "交付 gates 未绑定同一 gate-plan 定义",
-        )
+        repository.require("gate-core" in passed, "交付 HEAD 缺少成功 gate-core")
     if report["outcome"] == "code_failure":
         repository.require(
             gate_repair.used_repairs(gate_repair.root(d)) == 3, "代码 gate 失败必须先用尽三次修复"
@@ -174,17 +144,9 @@ def check_implementation(d, report, live=False, *, state=None):
 def implementer_assemble(args):
     d = dispatch_contract.dispatch(args.dispatch)
     report = draft_contracts.read(d, args.draft, "implementer")
-    state, _, _ = ticket_state.checkpoints(d)
     report["verification_sources"] = ticket_verification.verification_snapshot(d)
     records, report["verification_issues"] = ticket_verification.inspect(
         d, report["verification_sources"], report["verification_notes"], report["status"]
-    )
-    report["required_boundary_gates"] = list(
-        dict.fromkeys(
-            state["required_boundary_gates"]
-            + report["required_boundary_gates"]
-            + ticket_verification.attempted_boundaries(row[0] for row in records)
-        )
     )
     repository.require(
         not report["verification_issues"]

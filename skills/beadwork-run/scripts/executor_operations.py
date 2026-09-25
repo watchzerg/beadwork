@@ -14,7 +14,6 @@ sys.dont_write_bytecode = True
 
 import dispatch_contract
 import evidence
-import final_state
 import finalization
 import gate_repair
 import handoff
@@ -202,7 +201,6 @@ def execute(args):
         "fixer-accept": lambda a: finalization.accept_fixer(
             a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None
         ),
-        "final-gates": lambda a: final_state.gates(dispatch(a.dispatch), **load(a.input)),
         "final-stage": lambda a: finalization.prepare_stage(a.dispatch, load(a.input)),
         "final-assemble": lambda a: finalization.assemble(a.dispatch, a.draft, a.output),
         "inspect": inspect_context,

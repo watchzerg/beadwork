@@ -49,9 +49,9 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 ## 验收与实现边界
 
 - **agent 判断语义，脚本校验事实。** executor/finalizer 负责需求、修复处置、验证覆盖和 review 的日常语义验收；controller 核对交付与集成条件，遇到矛盾、缺证或越界迹象再追查。
-- **验证由当前执行者负责。** controller 在初始化和改变 HEAD 的票间同步建立 `gate-core` 快速基线；ticket 的定向行为证据、非 deferred 完整 gates 与必要的提前边界由 implementer 执行；最终 stage 0 由 finalizer 执行一次完整 `gate-full`，修复阶段由 fixer 重新执行该入口。相同 HEAD 的完整有效结果复用。
-- **报告可追溯。** 使用文件报告、短回执及 SHA-256 来源绑定；直接派发者验收子角色。报告与更正 append-only，最终阶段检查点固定 fixer/review/阶段报告选择；验证绑定原始运行，补充 gates 累计继承。派发者记录收尾观察，回执不替代任务停止确认。详见 [交付协议](../skills/beadwork-run/references/report-delivery.md)。
-- **源码与协议各有入口。** `skills/` 是 skill 源码；[scripts/](../skills/beadwork-run/scripts/) 实现身份、计数、状态和证据校验，不派发 agent；[共享测试契约](../skills/beadwork-run/references/testing-contract.md) 定义测试规则，目标项目的 `justfile` 定义实际验证命令。本文不复制这些协议。
+- **验证由当前执行者负责。** controller 在初始化和改变 HEAD 的票间同步建立 `gate-core` 快速基线；ticket 的定向行为验证和干净候选 `gate-core` 由 implementer 执行；最终 stage 0 由 finalizer 执行一次完整 `gate-full`，修复阶段由 fixer 重新执行该入口。相同 HEAD 的完整有效结果复用。
+- **报告可追溯。** 使用文件报告、短回执及 SHA-256 来源绑定；直接派发者验收子角色。报告与更正 append-only，最终阶段检查点固定 fixer/review/阶段报告选择；验证绑定原始运行，本票行为覆盖由 executor/reviewer 核对。派发者记录收尾观察，回执不替代任务停止确认。详见 [交付协议](../skills/beadwork-run/references/report-delivery.md)。
+- **源码与协议各有入口。** `skills/` 是 skill 源码；[scripts/](../skills/beadwork-run/scripts/) 实现身份、计数、状态和证据校验，不派发 agent；[共享测试契约](../skills/beadwork-run/references/testing-contract.md) 定义测试规则，目标项目只需提供 `install`、`test`、`gate-core`、`gate-full` 四个 just 入口，内部 suite、格式化和静态检查由项目维护。具体参数与行为见接入契约。
 
 ## 脚本入口与内部依赖
 

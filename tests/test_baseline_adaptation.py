@@ -37,7 +37,6 @@ class BaselineAdaptationTests(unittest.TestCase):
             "reason": "开工 BASE 已满足要求，复用既有行为验证",
             "acceptance": [{"criterion": "交付行为", "evidence": "BASE 的现有实现与测试"}],
             "verification": [{"command": "just test", "result": "目标断言通过"}],
-            "boundary_gates": ["gate-browser"],
             **changes,
         }
         source = self.h.root / "adapt.json"
@@ -168,9 +167,7 @@ class BaselineAdaptationTests(unittest.TestCase):
         self.assertEqual(self.h.d["plan_adjustment"], old["plan_adjustment"])
         self.assertEqual(self.h.d["stage"], old["stage"])
 
-    def test_reject_gate_loss_and_cross_ticket_record(self):
-        with self.assertRaises(AssertionError):
-            self.adapt(boundary_gates=[])
+    def test_reject_cross_ticket_record(self):
         self.select(self.adapt())
         raw = copy.deepcopy(self.h.d)
         raw["ticket_id"] = "other"

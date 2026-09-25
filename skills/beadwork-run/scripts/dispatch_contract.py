@@ -37,10 +37,6 @@ def validate_plan(d):
         record["effective_plan"]["approved_seams"] == record["original_plan"]["approved_seams"],
         "计划调整不得改变 seam",
     )
-    require(
-        set(record["boundary_gates"]).issubset(d.get("required_boundary_gates", [])),
-        "恢复丢失 gate 下限",
-    )
 
 
 def dispatch(path):

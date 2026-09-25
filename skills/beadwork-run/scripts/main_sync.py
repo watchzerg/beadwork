@@ -9,7 +9,6 @@ from pathlib import Path
 
 import evidence
 import execution_plan
-import gate_plan
 import graph
 import process_runner
 import repository
@@ -60,8 +59,7 @@ def command(d, directory, argv):
     evidence.write(
         folder / "started.json", {"argv": argv, "head": repository.sha(d["worktree"], "HEAD")}
     )
-    stdout = folder / "stdout.log" if argv == ["just", "--one", "--", "gate-plan"] else None
-    executed = process_runner.run(argv, d["worktree"], folder / "output.log", stdout_path=stdout)
+    executed = process_runner.run(argv, d["worktree"], folder / "output.log")
     result = {
         "argv": argv,
         "started_sha256": evidence.digest(folder / "started.json"),
@@ -71,8 +69,6 @@ def command(d, directory, argv):
         "recorder_error": executed["error"],
         "log_sha256": evidence.digest(folder / "output.log"),
     }
-    if stdout is not None:
-        result["stdout"] = evidence.binding(stdout)
     evidence.write(folder / "result.json", result)
     repository.require(
         executed["outcome"] == "exited"
@@ -83,20 +79,9 @@ def command(d, directory, argv):
     return str(folder / "result.json")
 
 
-def plan_output(entry):
-    path = evidence.bound(entry)
-    result = evidence.read(path)
-    source = result.get("stdout")
-    repository.require(
-        source is not None and Path(source["path"]) == path.parent / "stdout.log",
-        "同步 gate-plan 缺少独立 stdout 来源",
-    )
-    return evidence.bound(source).read_text()
-
-
 def verification_commands(d, intent, head):
     unchanged = head == intent["before"] and ancestor(d["worktree"], intent["target_main"], head)
-    if intent.get("final") and unchanged:
+    if unchanged:
         return []
     install = bool(
         repository.git(
@@ -109,15 +94,9 @@ def verification_commands(d, intent, head):
             *intent["install_inputs"],
         )
     )
-    recipes = (
-        (["install"] if install else []) + ["env-facts"]
-        if intent.get("final")
-        else (
-            (["install"] if install else []) + ["env-facts", "gate-plan", "gate-core"]
-            if not unchanged
-            else ["gate-plan"]
-        )
-    )
+    recipes = ["install"] if install else []
+    if not intent.get("final"):
+        recipes.append("gate-core")
     return [["just", "--one", "--", recipe] for recipe in recipes]
 
 
@@ -200,17 +179,6 @@ def check_result(d, path, final=False):
         repository.require(
             evidence.digest(Path(entry["path"]).parent / "output.log") == record["log_sha256"],
             "同步日志已变化",
-        )
-    if not final:
-        plan_entry = next(
-            entry
-            for entry, argv in zip(r["commands"], expected, strict=True)
-            if argv[-1] == "gate-plan"
-        )
-        raw = plan_output(plan_entry)
-        repository.require(
-            r.get("gate_plan") == gate_plan.parse(raw, r.get("recipes", [])),
-            "同步 gate-plan 定义不符",
         )
     return r
 
@@ -329,23 +297,12 @@ def sync(args, final=False):
         repository.require(
             repository.sha(d["worktree"], "HEAD") == head, "同步验证期间 HEAD 已变化"
         )
-    plan = None
-    recipes = []
-    if not final:
-        recipes = repository.run(["just", "--summary"], d["worktree"]).split()
-        entry = next(
-            entry
-            for entry, argv in zip(commands, verification_commands(d, intent, head), strict=True)
-            if argv[-1] == "gate-plan"
-        )
-        plan = gate_plan.parse(plan_output(entry), recipes)
     result = {
         "head": head,
         "target_main": target,
         "changed": changed or head != before,
         "intent_sha256": evidence.digest(attempt / "intent.json"),
         "commands": commands,
-        **({"gate_plan": plan, "recipes": recipes} if plan is not None else {}),
     }
     clean(d)
     repository.require(repository.sha(d["worktree"], "HEAD") == head, "同步完成前 HEAD 已变化")

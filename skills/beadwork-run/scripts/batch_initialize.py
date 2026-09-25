@@ -6,7 +6,6 @@ from pathlib import Path
 
 import evidence
 import execution_plan
-import gate_plan
 import operation_commands as commands
 import repository
 import tracker_operations as tracker
@@ -97,7 +96,7 @@ def prepare(input_path, output):
     require(not list(expected.glob("*/intent.json")), "已有初始化 intent；使用原入口恢复")
     intent = dict(
         data,
-        version=3,
+        version=4,
         branch=branch,
         worktree=str(worktree),
         target_main=update["main_commit"],
@@ -126,7 +125,7 @@ def observation(recovery, run):
     return value
 
 
-def step(folder, name, argv, cwd, context, recovery=None, *, plan_recipes=None):
+def step(folder, name, argv, cwd, context, recovery=None):
     directory = folder / name
     directory.mkdir(exist_ok=True)
     attempts = sorted(directory.glob("attempt-*"))
@@ -143,12 +142,6 @@ def step(folder, name, argv, cwd, context, recovery=None, *, plan_recipes=None):
             evidence.write(run / "closure.json", observation(recovery, run))
         if result and commands.succeeded(result) and started["context"] == context:
             reusable = evidence.binding(run / "result.json")
-            if plan_recipes is not None:
-                raw = commands.stdout(reusable)
-                try:
-                    gate_plan.parse(raw, plan_recipes)
-                except ValueError:
-                    reusable = None
         else:
             reusable = None
     return reusable or commands.run(
@@ -157,7 +150,6 @@ def step(folder, name, argv, cwd, context, recovery=None, *, plan_recipes=None):
         argv,
         cwd,
         context,
-        capture_stdout=plan_recipes is not None,
     )
 
 
@@ -230,7 +222,7 @@ def execute(intent_path, recovery=None):
     path = evidence.absolute(intent_path)
     d = evidence.read(path)
     folder = path.parent
-    require(d.get("version") == 3, "需要当前初始化 intent")
+    require(d.get("version") == 4, "需要当前初始化 intent")
     evidence.bound(d["preflight_acceptance"])
     evidence.bound(d["update_main_result"])
     ready = folder / "ready.json"
@@ -281,10 +273,7 @@ def execute(intent_path, recovery=None):
     require(not repository.git(root, "diff", "HEAD", "--", ".beads"), "primary .beads 已变化")
     sources = workspace(d, folder)
     context = {"head": d["target_main"]}
-    plan = None
-    plan_source = None
-    for recipe in ("install", "env-facts", "gate-plan", "gate-core"):
-        recipes = repository.run(["just", "--summary"], wt).split() if recipe == "gate-plan" else []
+    for recipe in ("install", "gate-core"):
         source = step(
             folder,
             recipe,
@@ -292,7 +281,6 @@ def execute(intent_path, recovery=None):
             wt,
             context,
             recovery,
-            plan_recipes=recipes if recipe == "gate-plan" else None,
         )
         commands.require_success(source)
         require(
@@ -300,11 +288,7 @@ def execute(intent_path, recovery=None):
             "初始化验证期间源码变化",
         )
         sources.append(source)
-        if recipe == "gate-plan":
-            plan = gate_plan.parse(commands.stdout(source), recipes)
-            plan_source = source
         context = source  # 上游重跑后，下游不可复用旧成功。
-    require(plan is not None, "初始化缺少有效 gate-plan")
     live_unstarted(d)
     common = dict(repository_root=root, parent_id=d["parent_id"], issue_id=d["parent_id"])
     claimed, claim_source = tracker_step(
@@ -346,8 +330,6 @@ def execute(intent_path, recovery=None):
         base_commit=d["target_main"],
         expected_children=d["expected_children"],
         commands=sources,
-        gate_plan=plan,
-        gate_plan_source=plan_source,
         claim_source=claim_source,
         comment_source=comment_source,
         comment_id=comment["comment_id"],

@@ -58,11 +58,11 @@ preflight 默认 `gpt-6-sol` / `medium`；复杂恢复现场核对或计划冲�
 
 派发全新 preflight agent，交接 `prepare preflight` 生成的 dispatch 字段，并要求子 agent 先读取 `<skill-dir>/agents/preflight.md`。
 
-按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本同时固定报告的执行计划与 `gate-plan` 来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发；boundary gates 作为每票影响范围义务保留。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
+按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本固定报告的执行计划来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
 
-进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `beadwork.py graph next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、安装后 `gate-plan` / `gate-core` 快速基线或 claim。
+进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `beadwork.py graph next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、安装后 `gate-core` 快速基线或 claim。
 
-`BLOCKED` 不推进流程。工具链缺失时 controller 按 recipe 输出安装声明版本，再派新 preflight 复查；已获得首次 children 集合时将其作为 `expected_children` 一并传入，不重置范围。其他缺事实、冲突或失败沿用停止处理，不自动补写 ticket。
+`BLOCKED` 不推进流程。修复准入缺项后派新 preflight 复查；已获得首次 children 集合时将其作为 `expected_children` 一并传入，不重置范围。初始化的安装或工具链失败保留原 intent 和日志，按 controller-operations.md 恢复。缺事实、冲突或失败沿用停止处理，不自动补写 ticket。
 
 全部 direct children 已关闭时，先读取 `references/recovery-post-merge.md`，决定进入最终集成还是补全关闭与清理。
 
@@ -109,7 +109,7 @@ executor 负责内部实现、阶段修复和双轴 review。controller 收到�
 
 按共享交付契约确认 executor 及后代任务结束，保存原始回执，按 report-delivery.md 保存直接派发者的收尾观察，并带 --closure 执行 controller `accept`。脚本绑定 root、当前阶段、implementer 来源、BASE/HEAD、完整 commits、验证与原始双轴证据；失败停止，不把 implementer DONE 当成 ticket DONE。
 
-controller 核对整票交付来源、最终状态、当前计划下的必跑 gates、延期边界的行为证据和最后 review 的 HEAD、现场与任务收尾事实；验收与报告有矛盾、缺证或越界迹象时打开相关源码/日志追查。test plan、TDD red、seams 和 acceptance 的日常语义验收由 executor 承担，不再逐 stage 重做。确认误写 primary 时保留现场并停止，不自动还原。
+controller 核对整票交付来源、最终状态、交付候选的 `gate-core` 与本票行为证据和最后 review 的 HEAD、现场与任务收尾事实；验收与报告有矛盾、缺证或越界迹象时打开相关源码/日志追查。test plan、TDD red、seams 和 acceptance 的日常语义验收由 executor 承担，不再逐 stage 重做。确认误写 primary 时保留现场并停止，不自动还原。
 
 补证沿用 append-only `acceptance-evidence-N.json`，字段为 report_path、report_sha256 与 sources（source/evidence）；不替代原报告或 PASS。completion comment 引用原始、更正与补证来源。
 
@@ -140,7 +140,7 @@ controller 核对整票交付来源、最终状态、当前计划下的必跑 ga
 
 finalizer 默认 `gpt-6-sol` / `medium`；复杂证据整合或恢复可用 `gpt-6-sol` / `high`。
 
-执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN` 和本次 `final_sync_result`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，汇总全部实际验证边界作为 `required_boundary_gates` 下限（脚本去重并排除保留入口 `gate-core` / `gate-full`），并交接实际进度通信目标（若有）。
+执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN` 和本次 `final_sync_result`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，要求 finalizer 核对整个 parent 的验收覆盖，并交接实际进度通信目标（若有）。
 
 `prior_finalization` 首次为 `null`；接替或重新运行最终集成时，先读取 `references/recovery-finalizer.md`。
 
@@ -151,7 +151,7 @@ finalizer 自行管理最终验证、修复和 review；controller 等待 final-
 `READY_TO_MERGE` 才能进入第 5 节。修复处置、验证覆盖和 review 的日常语义验收由 finalizer 负责；controller 除机械校验外，核对最终交付与集成条件：
 
 - parent、固定 children 集合、`reviewed_main` 和交付来源属于本次批次。
-- 最终 gate 范围包含交接的下限和 finalizer 确认的补充边界；必要验证与最后两轴 PASS 覆盖交付 HEAD，fix commits 和原始 review 证据来源完整。
+- 项目完整 `gate-full`、parent 验收覆盖和最后两轴 PASS 对应交付 HEAD，fix commits 和原始 review 证据来源完整。
 - 现场满足集成条件，所有命令及子任务已结束，没有 blockers 或 remaining work，smells 已保留。
 
 交付与现场有矛盾、缺证或越界迹象时，controller 打开相关源码、日志和原始 reviewer 证据追查；不逐 stage 重做 finalizer 的日常语义验收。

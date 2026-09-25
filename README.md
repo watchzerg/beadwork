@@ -48,7 +48,7 @@ Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和
 
 ## 接入新项目
 
-新项目可以先实现测试与验证契约，再补齐本地 skill 发现、Git/worktree、Beads 和 ticket graph。完整要求、分阶段验收清单及 `gate-plan` schema 见[目标项目接入契约](docs/project-contract.md)。仅完成测试契约，表示项目已经提供统一验证接口，不表示已经可以运行 `beadwork-run`。
+新项目可以先实现测试与验证契约，再补齐本地 skill 发现、Git/worktree、Beads 和 ticket graph。四个必需 just 接口、完整要求及分阶段验收清单 见[目标项目接入契约](docs/project-contract.md)。仅完成测试契约，表示项目已经提供统一验证接口，不表示已经可以运行 `beadwork-run`。
 
 ## 使用方法
 

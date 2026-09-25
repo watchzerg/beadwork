@@ -1,4 +1,4 @@
-"""在专属 POSIX 进程组运行命令；默认合并日志，结构化输出可单独保存。"""
+"""在专属 POSIX 进程组运行命令；合并保存 stdout 与 stderr。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import os
 import signal
 import subprocess
 import time
-from contextlib import ExitStack
 from pathlib import Path
 
 
@@ -40,7 +39,7 @@ def stop(process):
     return not group_exists(process.pid)
 
 
-def run(argv, cwd, log_path, *, executable=None, stdout_path=None):
+def run(argv, cwd, log_path, *, executable=None):
     if os.name != "posix":
         raise ValueError("此执行入口需要 POSIX 进程组")
     interrupted, handlers = [], {}
@@ -52,16 +51,14 @@ def run(argv, cwd, log_path, *, executable=None, stdout_path=None):
     try:
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             handlers[sig] = signal.signal(sig, lambda value, frame: interrupted.append(value))
-        with ExitStack() as stack:
-            output = stack.enter_context(Path(log_path).open("xb"))
-            stdout = stack.enter_context(Path(stdout_path).open("xb")) if stdout_path else output
+        with Path(log_path).open("xb") as output:
             process = subprocess.Popen(
                 argv,
                 executable=executable,
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
-                stdout=stdout,
-                stderr=output if stdout_path else subprocess.STDOUT,
+                stdout=output,
+                stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
             while process.poll() is None and not interrupted:

@@ -116,23 +116,17 @@ def manifest(input_path):
         dispatch = evidence.read(acceptance["dispatch_path"])
         report = evidence.read(acceptance["report_path"])
         require(dispatch["parent_id"] == data["parent_id"], "ticket 属于其他 parent")
-        gates = list(dispatch.get("required_boundary_gates", []))
-        gates += report.get("required_boundary_gates", report.get("boundary_gates", []))
         if dispatch.get("ticket_scope") == "root":
             execution = report["execution"]
-            stage = evidence.read(evidence.bound(execution["stage_dispatch"]))
-            gates += stage["required_boundary_gates"]
+            evidence.bound(execution["stage_dispatch"])
             for item in execution["implementers"]:
-                implementation = evidence.read(evidence.bound(item["report"]))
-                gates += implementation["required_boundary_gates"]
-        gates = list(dict.fromkeys(gates))
+                evidence.bound(item["report"])
         tickets.append(
             {
                 "ticket_id": dispatch["ticket_id"],
                 "base_commit": report["base_commit"],
                 "head_commit": report["head_commit"],
                 "implementation_commits": report["implementation_commits"],
-                "boundary_gates": gates,
                 "acceptance": binding,
                 "test_plan": report.get("test_plan"),
                 "concerns": report.get("concerns", []),
@@ -148,9 +142,6 @@ def manifest(input_path):
         "parent_id": data["parent_id"],
         "expected_children": data["expected_children"],
         "tickets": tickets,
-        "required_boundary_gates": list(
-            dict.fromkeys(gate for row in tickets for gate in row["boundary_gates"])
-        ),
     }
 
 
@@ -170,7 +161,6 @@ def summary(input_path):
         "conflicts": facts["conflicts"],
         "external_stop_observation_required": facts["external_stop_observation_required"],
         "tickets": [] if manifest_data is None else manifest_data["expected_children"],
-        "gates": [] if manifest_data is None else manifest_data["required_boundary_gates"],
     }
     lines = [
         "## Beadwork 批次事实",

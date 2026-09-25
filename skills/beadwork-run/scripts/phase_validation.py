@@ -46,11 +46,9 @@ PREFLIGHT_CHECKS = (
     "worktree_ignored",
     "branch_name",
     "beads_clean",
-    "toolchain",
     "just_recipes",
     "review_schema",
     "recovery",
-    "gate_plan",
 )
 
 
@@ -89,25 +87,6 @@ def preflight_schema() -> dict[str, Any]:
             ),
             "tickets": {"type": "array", "items": ticket},
             "linked_spec": nullable(TEXT),
-            "boundary_gates": {"type": "array", "items": TEXT, "uniqueItems": True},
-            "gate_plan": nullable(
-                object_schema(
-                    {
-                        "core": TEXT,
-                        "full": {"type": "array", "items": TEXT, "uniqueItems": True},
-                        "defer_to_final": {
-                            "type": "array",
-                            "items": TEXT,
-                            "uniqueItems": True,
-                        },
-                    }
-                )
-            ),
-            "gate_plan_source": nullable(
-                object_schema(
-                    {"path": TEXT, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
-                )
-            ),
             "workspace": object_schema(
                 {
                     "primary_worktree": nullable(TEXT),
@@ -163,12 +142,6 @@ def finalizer_schema(axis: dict[str, Any]) -> dict[str, Any]:
             "reviewed_main": nullable(SHA),
             "start_head": nullable(SHA),
             "head_commit": nullable(SHA),
-            "required_gates": {"type": "array", "items": TEXT, "uniqueItems": True},
-            "boundary_gates": {"type": "array", "items": TEXT, "uniqueItems": True},
-            "gate_sources": {
-                "type": "array",
-                "items": object_schema({"gate": TEXT, "source": TEXT}),
-            },
             "verification": {
                 "type": "array",
                 "items": object_schema(
@@ -264,7 +237,6 @@ def dispatch_failures(phase: str, expected: dict[str, Any] | None) -> list[dict[
             "reviewed_main",
             "start_head",
             "ticket_evidence",
-            "required_boundary_gates",
             "prior_finalization",
             "report_path",
             "dispatch_path",
@@ -275,9 +247,7 @@ def dispatch_failures(phase: str, expected: dict[str, Any] | None) -> list[dict[
     if not isinstance(expected["parent_id"], str) or not expected["parent_id"]:
         return [fail("dispatch_schema")]
     if phase == "finalizer":
-        if not isinstance(expected["expected_children"], list) or not isinstance(
-            expected["required_boundary_gates"], list
-        ):
+        if not isinstance(expected["expected_children"], list):
             return [fail("dispatch_schema")]
         prior = expected["prior_finalization"]
         if (
@@ -321,16 +291,6 @@ def preflight_failures(
             failures.append(fail("children_match_dispatch"))
     if report["status"] != "READY":
         return failures
-    if report.get("gate_plan") is None or report.get("gate_plan_source") is None:
-        failures.append(fail("ready_has_gate_plan"))
-    elif (
-        report["gate_plan"]["core"] != "gate-core"
-        or report["gate_plan"]["core"] not in report["gate_plan"]["full"]
-        or not set(report["gate_plan"]["defer_to_final"]).issubset(
-            set(report["gate_plan"]["full"]) - {report["gate_plan"]["core"]}
-        )
-    ):
-        failures.append(fail("ready_gate_plan_valid"))
     if (
         not report["expected_children"]
         or not unique_ids(report["tickets"])
@@ -357,7 +317,6 @@ def preflight_failures(
         or any(not item["passed"] for item in report["checks"])
     ):
         failures.append(fail("all_preflight_checks_passed"))
-    gates = set()
     for item in report["tickets"]:
         plan = item["test_plan"]
         if item["status"] == "closed":
@@ -365,7 +324,8 @@ def preflight_failures(
         if plan is None:
             failures.append(fail("ready_ticket_has_plan", ticket=item["id"]))
             continue
-        gates.update(plan["boundary_gates"])
+        if plan["verification"] is None:
+            failures.append(fail("ticket_verification_plan", ticket=item["id"]))
         if plan["mode"] == "TDD" and (
             not plan["approved_seams"]
             or plan["observable_behavior"] is None
@@ -376,14 +336,6 @@ def preflight_failures(
             plan["approved_seams"] or plan["reason"] is None or plan["verification"] is None
         ):
             failures.append(fail("direct_plan_complete", ticket=item["id"]))
-    if gates != set(report["boundary_gates"]):
-        failures.append(fail("boundary_gates_are_ticket_union"))
-    if report.get("gate_plan") and not gates <= (
-        set(report["gate_plan"]["full"]) - {report["gate_plan"]["core"]}
-    ):
-        failures.append(fail("boundary_gates_in_full_plan"))
-    if any(not gate.startswith("gate-") for gate in gates):
-        failures.append(fail("boundary_gate_names"))
     return failures
 
 
@@ -447,13 +399,6 @@ def finalizer_failures(
                 failures.append(fail(key + "_matches_dispatch"))
         if set(report["expected_children"]) != set(expected.get("expected_children", [])):
             failures.append(fail("children_match_dispatch"))
-        gate_match = (
-            set(expected.get("required_boundary_gates", [])) <= set(report["required_gates"])
-            if expected.get("role") == "finalizer" and "stage" not in expected
-            else set(report["required_gates"]) == set(expected.get("required_boundary_gates", []))
-        )
-        if not gate_match:
-            failures.append(fail("required_gates_match_dispatch"))
         workspace = report["workspace"]
         if (
             workspace["branch"] != expected.get("branch")
@@ -503,14 +448,7 @@ def finalizer_failures(
             f.get("blocking") for item in final_pair.values() for f in item.get("findings", [])
         ):
             failures.append(fail("final_review_gate_pass"))
-    if not set(report["required_gates"]).issubset(report["boundary_gates"]) or any(
-        not gate.startswith("gate-") or gate == "gate-full" for gate in report["boundary_gates"]
-    ):
-        failures.append(fail("boundary_gate_names"))
     required = {"gate-full"}
-    sourced = {item["gate"] for item in report["gate_sources"]}
-    if not set(report["boundary_gates"]).issubset(sourced):
-        failures.append(fail("boundary_gate_sources"))
     # verification 按时间顺序追加；同一 gate 以交付 HEAD 的最后一次结果为准。
     latest: dict[str, dict[str, Any]] = {}
     for item in report["verification"]:

@@ -6,7 +6,7 @@
 
 `review_kind: existing_behavior` 时读取 dispatch 的 hash 绑定 `acceptance_evidence`：审查本票（finalizer 为 parent）的已有实现和完整验收证据；BASE=HEAD 不意味着自动 PASS。Standards 仅检查本范围相关的明确规则，Spec 核实全部 acceptance。其他情况沿用 change 审查。
 
-从 dispatch 的 writer_source、verification_view_source、stage_source、required_boundary_gates/gate_sources 和 context_sources 读取实现与覆盖证据；先读 verification view，并默认只展开 selected_sources，存在矛盾或覆盖疑问时再从绑定的完整来源定点追查。复审的历史判断来源使用本轴 prior_axis_source。核对 Git 引用、BASE ancestry、当前 HEAD 与派发一致；change 使用固定 SHA 的 diff 和 commit 列表，existing_behavior 使用固定 HEAD 的实现与验收证据。为核实本轮范围可读取相关调用方、实现和测试，报告范围内的问题。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；最终审查才检查整个批次的完整性。真正的来源冲突须引用双方原文并报告阻塞。
+从 dispatch 的 writer_source、verification_view_source、stage_source 和 context_sources 读取实现与覆盖证据；先读 verification view，并默认只展开 selected_sources，存在矛盾或覆盖疑问时再从绑定的完整来源定点追查。复审的历史判断来源使用本轴 prior_axis_source。核对 Git 引用、BASE ancestry、当前 HEAD 与派发一致；change 使用固定 SHA 的 diff 和 commit 列表，existing_behavior 使用固定 HEAD 的实现与验收证据。为核实本轮范围可读取相关调用方、实现和测试，报告范围内的问题。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；最终审查才检查整个批次的完整性。真正的来源冲突须引用双方原文并报告阻塞。
 
 按 `../references/testing-contract.md` 定位共享测试契约与项目事实，只选择一个固定组合：
 
@@ -16,7 +16,7 @@
 
 不得因后续可能需要而预读其他组合；所需规则不可读取时报告 BLOCKED。
 
-单票审查按绑定 `gate-plan` 区分本票必跑完整 gates 与待 parent finalize 的 deferred 完整回归，但仍核对 deferred 边界的本票行为证据；不因完整慢 suite 按契约延期而报告缺失。
+单票审查核对干净候选的 `gate-core` 和足以证明本票 acceptance 的行为证据；完整项目回归由 parent finalize 执行 `gate-full`。真实数据库、浏览器或进程行为应有能够观察相应边界的验证。最终审查核对整个 parent 的覆盖；测试框架、筛选或 gate 定义发生变化时，审查是否遗漏必要验收。
 
 ## Standards
 

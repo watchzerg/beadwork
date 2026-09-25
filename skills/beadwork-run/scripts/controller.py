@@ -17,7 +17,6 @@ import draft_contracts
 import evidence
 import execution_plan
 import finalization
-import gate_plan
 import handoff
 import report_io
 import repository
@@ -77,14 +76,12 @@ def prepare(args):
             "approved_seams",
             "testing_seams_doc",
             "linked_spec",
-            "required_boundary_gates",
         ]
     elif args.role == "finalizer":
         fields += [
             "expected_children",
             "linked_spec",
             "ticket_evidence",
-            "required_boundary_gates",
             "prior_finalization",
             "reviewed_main",
         ]
@@ -104,20 +101,6 @@ def prepare(args):
         require(
             isinstance(d["linked_spec"], str) and d["linked_spec"].strip(),
             "需要明确 linked_spec，parent 即 spec 时填写 parent ID",
-        )
-        require(
-            isinstance(d["required_boundary_gates"], list)
-            and all(
-                isinstance(g, str) and g.startswith("gate-") for g in d["required_boundary_gates"]
-            ),
-            "需要显式 boundary gate 列表，允许空列表",
-        )
-        d["required_boundary_gates"] = list(
-            dict.fromkeys(
-                gate
-                for gate in d["required_boundary_gates"]
-                if gate not in ("gate-core", "gate-full")
-            )
         )
     workflow_contract.stamp(d)
     d.update(
@@ -160,12 +143,6 @@ def prepare(args):
                         "恢复须沿用已调整计划；改模式使用 adapt-plan",
                     )
                     d["plan_adjustment"] = previous["plan_adjustment"]
-                    d["required_boundary_gates"] = list(
-                        dict.fromkeys(
-                            previous.get("required_boundary_gates", [])
-                            + d.get("required_boundary_gates", [])
-                        )
-                    )
                 d["verification_dispatches"] = list(
                     dict.fromkeys(
                         previous.get("verification_dispatches", []) + [d["previous_dispatch"]]
@@ -328,10 +305,6 @@ def accept(args):
         "receipt_sha256": digest(args.receipt),
     }
     if d["role"] == "preflight" and r["status"] == "READY":
-        require(
-            evidence.read(evidence.bound(r["gate_plan_source"])) == r["gate_plan"],
-            "gate-plan 来源已变化或与报告不符",
-        )
         _, children, _, value = execution_plan.live(d["repository_root"], d["parent_id"])
         require(
             value == r["execution_plan"]
@@ -380,25 +353,19 @@ def accepted(path):
 
 
 def ticket_gate_summary(implementation):
-    """从 implementer 固定快照推导完整 gate 实测与延期摘要。"""
+    """从 implementer 固定快照生成 core 实测和行为验证摘要。"""
     head = implementation["head_commit"]
     rows = []
     for item in implementation["verification_sources"]:
         _, started, _, result, _ = verification_records.read(item)
         rows.append((started, result))
-    boundaries = implementation["required_boundary_gates"]
-    plan, required, passed, _ = ticket_verification.delivery_coverage(rows, head, boundaries)
-    measured = [
-        {"gate": gate, "result": "通过" if gate in passed else "未通过"} for gate in required
-    ]
-    pending = [
-        gate for gate in gate_plan.deferred_for_ticket(plan, boundaries) if gate not in passed
-    ]
+    passed = ticket_verification.delivery_coverage(rows, head)
+    measured = [{"gate": "gate-core", "result": "通过" if "gate-core" in passed else "未通过"}]
     behavior = {}
     for row in implementation["verification"]:
         if " test" in row["command"] or row["command"].endswith(" test"):
             behavior[row["command"]] = row
-    return measured, pending, list(behavior.values())
+    return measured, list(behavior.values())
 
 
 def final_gate_summary(report):
@@ -444,17 +411,13 @@ def comment(args):
     if not final:
         if d.get("ticket_scope"):
             d = read(evidence.bound(r["execution"]["stage_dispatch"]))
-            gates = list(d.get("required_boundary_gates", []))
-            for item in r["execution"]["implementers"]:
-                implementation = read(evidence.bound(item["report"]))
-                gates += implementation["required_boundary_gates"]
-            measured, pending, behavior = ticket_gate_summary(implementation)
+            implementation = read(evidence.bound(r["execution"]["implementers"][-1]["report"]))
+            measured, behavior = ticket_gate_summary(implementation)
             lines += [
-                "Boundary gates：" + json.dumps(list(dict.fromkeys(gates)), ensure_ascii=False),
                 "本票完整 gate 义务与实测：" + json.dumps(measured, ensure_ascii=False),
                 "定向行为验证来源："
                 + json.dumps(behavior or implementation["acceptance"], ensure_ascii=False),
-                "待 parent finalize 完整回归：" + json.dumps(pending, ensure_ascii=False),
+                "完整项目回归由 parent finalize 的 gate-full 验收。",
             ]
         if d.get("plan_adjustment"):
             adjustment = read(evidence.bound(d["plan_adjustment"]))

@@ -17,87 +17,57 @@
 
 ### justfile 接口
 
-目标项目提供下列入口。当前 preflight 的必需名称清单见 [preflight_operations.py](../skills/beadwork-run/scripts/preflight_operations.py) 的 `RECIPES`；具体调用方式见 skill 内的执行指令。
+目标项目的根 `justfile` 必须提供以下四个入口；preflight 通过 `just --summary` 检查名称，不运行安装或验证。必需清单位于 [preflight_operations.py](../skills/beadwork-run/scripts/preflight_operations.py) 的 `RECIPES`。
 
 | Recipe | 职责与调用约定 |
 | --- | --- |
-| `check-toolchain` | 检查项目声明的工具链；缺失或不符合要求时明确失败 |
-| `install` | 按项目锁定输入安装依赖，可重复执行 |
-| `typecheck` | 执行项目权威类型检查或等价静态检查 |
-| `test [ARGS...]` | 运行相关测试；支持项目明确声明的 suite、路径、node ID、名称或场景筛选 |
-| `gate-plan` | 无参数、只读输出严格三字段 JSON：`core`、有序 `full` 和 `defer_to_final`；不安装依赖、运行测试或探测外部服务 |
-| `gate-core` | 无参数执行静态检查及快速隔离的基础回归；必须是 `full` 成员 |
-| `gate-full` | 无参数按 `gate-plan.full` 的顺序逐项完整执行，每项一次、首错停止 |
-| `env-facts` | 输出用于检查与交接的环境事实，不输出凭据 |
-| `fmt [FILES...]` | 格式化指定文件；遵循项目自己的参数约定 |
-| `gate-<boundary>` | 按项目的真实 suite 提供额外边界验证，由 Test plan 引用 |
+| `install` | 检查并准备当前 worktree 的开发环境，按项目锁定输入安装依赖；可重复执行，缺失工具或准备失败时明确报错 |
+| `test [ARGS...]` | 执行行为验证；支持项目声明的 suite、路径、node ID、名称或场景筛选，也能运行无法进一步收窄的完整相关 suite |
+| `gate-core` | 无参数执行必要静态检查与快速基础回归，用于基线和每票交付 |
+| `gate-full` | 无参数执行项目权威的完整验收，包含 core 及项目需要的全部真实边界；任何必需验证失败都返回非零 |
 
-这些是行为接口，不要求使用某个具体 test runner、formatter、编程语言或固定 gate 名称。项目应先盘点真实测试、依赖和故障边界；没有独立 suite 时不创建空 gate，也不为模仿其他项目而虚构 database、browser 等分类。
+这些是行为接口，不要求特定语言、test runner、formatter 或内部 suite 分类。项目自己维护 `gate-full` 的组成和执行顺序；Beadwork 不解析内部 gate 清单，不维护延期分类。项目可保留工具链检查、环境诊断、类型检查、格式化和独立边界命令，供维护者及 implementer 按项目规则使用；它们不是 Beadwork 的必需入口。
 
-所有声明的入口都必须传播真实失败：测试零匹配、未收集、导入失败、依赖缺失、环境准备失败、空命令或占位 recipe 不能代表通过。完整 gate 均拒绝筛选参数；收窄验证只走 `test`。项目源码、justfile 及其调用脚本是实际命令、收集范围和运行环境的事实来源。
-
-### `gate-plan` schema
-
-`gate-plan` 输出一个且仅一个 JSON object，对象必须恰好包含：
-
-- `core`：固定为 `gate-core`，且必须属于 `full`。
-- `full`：非空、唯一、有序的真实完整 gate 列表；顺序也是 `gate-full` 的执行顺序。
-- `defer_to_final`：唯一、可为空的列表；每项必须是 `full` 中的非 core boundary gate。
-
-除保留入口 `gate-plan`、`gate-full` 外，每个实际存在的 `gate-*` recipe 都必须在 `full` 中登记且只出现一次。`gate-plan`、`gate-full` 和 `gate-core` 不能出现在 `defer_to_final` 中。
-
-以下仅为结构示例，不是要求所有项目照搬这些边界：
-
-```json
-{
-  "core": "gate-core",
-  "full": ["gate-core", "gate-database", "gate-browser"],
-  "defer_to_final": ["gate-browser"]
-}
-```
-
-没有独立 boundary suite 的项目可以只声明 `full=["gate-core"]` 和空的 `defer_to_final`。是否延期某个 boundary 应依据项目的实测成本、定向验证能力和风险作出决定，不能仅按 gate 名称或是否使用 Docker、浏览器等工具自动分类。
+所有入口都必须传播真实失败：零匹配、未收集、导入失败、依赖缺失、环境准备失败、空命令或占位 recipe 不能代表通过。`gate-core`、`gate-full` 不接受筛选参数；定向测试通过 `test` 表达。命令及环境要求以当前 checkout 的 justfile、调用脚本、测试配置和项目规则为准。
 
 ### 调度与验证语义
 
-- 初始化和 main 改变后的同步运行 `gate-core`；main 无变化时只读绑定 `gate-plan`。
-- 单票始终运行 `gate-core`，并完整运行本票涉及且未列入 `defer_to_final` 的 boundary gates。
-- deferred boundary 仍是本票影响范围和最终覆盖义务。本票必须提供能实际观察目标行为的定向证据；只有完整 boundary gate 能证明时，仍需在本票提前执行它。
-- `gate-full` 始终执行 `full` 的所有成员，不因 `defer_to_final` 跳过任何 gate。
-- parent finalize 在最终干净候选上执行一次无筛选参数的完整 `gate-full`。
+- 初始化执行 `install`，再运行 `gate-core` 建立快速基线。
+- 票间同步合入 main、改变 implementation HEAD 后，安装输入变化时执行 `install`，随后运行 `gate-core`；main 已包含时不重复执行命令。
+- implementer 按项目规则完成格式化及相关静态检查，通过 `test` 获取本票行为证据；提交后在干净候选上运行 `gate-core`。
+- 每票的 Test plan 必须说明实际验证命令或场景及预期结果；涉及数据库、浏览器、进程等真实边界时，验证必须能够观察所要求的行为。无法收窄时，在本票执行完整相关 suite，不能只凭 core 通过关闭票据。
+- 最终同步只按安装输入变化决定是否重新执行 `install`，由 finalizer 在最终干净候选上运行一次完整 `gate-full`。修复改变候选后重新执行该完整入口。
+- executor/reviewer 核对本票行为证据；最终 reviewer 核对整个 parent 的验收范围。修改测试框架或 gate 定义时，必须审查完整验收是否遗漏必要覆盖。
 
-更细的 Test plan、TDD、boundary 选择和证据规则由随 skill 分发的共享契约维护：
+更细的 Test plan、TDD 和证据规则由随 skill 分发的共享契约维护：
 
 - [testing-seams.md](../skills/beadwork-run/references/testing-seams.md)：spec 中的 seam 定义和变更授权。
 - [testing-plan.md](../skills/beadwork-run/references/testing-plan.md)：TDD / direct verification 的声明字段。
 - [testing-tdd.md](../skills/beadwork-run/references/testing-tdd.md)：BASE、red 证据与已满足行为的处理。
-- [testing-gates.md](../skills/beadwork-run/references/testing-gates.md)：验证范围和 boundary gates。
+- [testing-gates.md](../skills/beadwork-run/references/testing-gates.md)：验证范围和入口选择。
 
 ### 项目必须声明的测试事实
 
-目标项目在自己的 `AGENTS.md`、justfile 注释或测试文档中明确说明：
+目标项目在自己的 `AGENTS.md`、justfile 注释或测试文档中说明：
 
-- `gate-core` 实际包含哪些静态检查和快速测试，以及明确排除哪些真实边界。
-- 每个 `gate-<boundary>` 覆盖什么行为、进程或外部服务边界。
-- `test` 支持哪些筛选方式，默认收集范围是什么，如何识别并拒绝零匹配。
-- 各 gate 所需的工具、服务和环境准备，以及缺失时的失败行为。
-- 哪些 boundaries 列入 `defer_to_final` 及其项目理由。
+- `install` 所需宿主工具、准备范围及安装输入。
+- `gate-core` 包含哪些静态检查和快速测试，排除哪些真实边界。
+- `test` 支持的筛选、默认范围、完整相关 suite 的调用方式及零匹配失败行为。
+- `gate-full` 的实际覆盖，以及必需服务和环境准备方式。
+- 格式化、静态检查等开发操作的项目约定。
 - 哪些人工、线上或真实凭据验收不属于 `gate-full` 的结论。
 
-共享契约定义通用规则，目标项目文档定义本项目的实际映射；不要把 Grok、x-media-saver 或其他消费项目的工具链与业务边界复制成通用要求。
+共享契约定义通用规则，项目文档定义本项目的实际映射，不复制其他消费项目的工具链与业务边界。
 
 ### 阶段 1 验收清单
 
-- [ ] 必需 recipes 均存在，并可在项目 worktree 中调用。
-- [ ] `gate-plan` 只读输出严格三字段 JSON。
-- [ ] `full` 包含所有且仅包含实际完整 gates，顺序与 `gate-full` 一致。
-- [ ] `defer_to_final` 只包含 `full` 中的非 core 成员。
-- [ ] `gate-core` 不启动项目声明的昂贵真实边界。
-- [ ] 每个 boundary gate 都实际收集并执行非空测试范围。
-- [ ] `gate-full` 按 `full` 顺序执行全部成员，不受延期分类削减。
-- [ ] 定向 `test` 的筛选和默认收集范围已有项目内说明。
+- [ ] 四个必需 recipes 均存在，且可在项目 worktree 中调用。
+- [ ] `install` 可重复执行并明确报告工具或依赖准备失败。
+- [ ] `gate-core` 提供快速基础检查，不启动项目声明的昂贵完整边界回归。
+- [ ] `test` 能执行定向验证及必要的完整相关 suite，筛选方式已有说明。
+- [ ] `gate-full` 完整覆盖项目规定的验收范围，不接受筛选参数。
 - [ ] 零匹配、缺失依赖和环境准备失败返回非零。
-- [ ] 项目已用自身完整 gate 验证本次接入。
+- [ ] 项目已用自身完整 gate 验证接入。
 
 ## 阶段 2：本地发现与 Git/worktree
 

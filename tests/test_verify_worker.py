@@ -59,7 +59,6 @@ class WorkerDeliveryTests(unittest.TestCase):
                 "parent_id": "demo-1",
                 "branch": "implement/demo-1",
                 "base_commit": A,
-                "required_boundary_gates": ["gate-browser"],
             }
         )
 
@@ -91,8 +90,6 @@ class WorkerDeliveryTests(unittest.TestCase):
             "head_commit": B,
             "fix_commit": B,
             "dispositions": [{"source": "finding.json", "action": "已修复"}],
-            "boundary_gates": ["gate-browser"],
-            "gate_sources": [{"gate": "gate-browser", "source": "ticket"}],
             "verification": [
                 {
                     "gate": "gate-full",
@@ -254,12 +251,6 @@ class WorkerDeliveryTests(unittest.TestCase):
         for item in report["verification"]:
             item["head_commit"] = A
         self.reject("fixer", report, "final_validation_on_delivery_head")
-        report = self.fixer()
-        report["boundary_gates"] = []
-        self.reject("fixer", report, "required_gates_retained")
-        report = self.fixer()
-        report["boundary_gates"].append("gate-postgres")
-        self.reject("fixer", report, "boundary_gate_sources")
 
     def test_fixer_last_gate_result_wins_and_failed_history_is_preserved(self):
         report = self.fixer()

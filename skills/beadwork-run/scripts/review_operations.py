@@ -62,17 +62,8 @@ def review_inputs(d, axis):
             "review writer 现场不符",
         )
     verification = list(report.get("verification_sources", [])) if writer else []
-    gates = list(d.get("required_boundary_gates", []))
-    gate_sources = []
-    if writer:
-        gates = list(
-            dict.fromkeys(
-                gates + report.get("required_boundary_gates", report.get("boundary_gates", []))
-            )
-        )
     if final_state.strict(d):
         verification += [s for s in final_verification.snapshot(d) if s not in verification]
-        gates, gate_sources = final_selection["gates"], final_selection["gate_sources"]
     return {
         "writer_source": writer,
         "prior_axis_source": previous_axis,
@@ -82,8 +73,6 @@ def review_inputs(d, axis):
         "context_sources": handoff.contexts(d),
         "verification_sources": verification,
         "stage_source": evidence.binding(d["dispatch_path"]),
-        "required_boundary_gates": gates,
-        "gate_sources": gate_sources,
         "scope": "ticket" if d["role"] == "executor" else "batch",
     }
 

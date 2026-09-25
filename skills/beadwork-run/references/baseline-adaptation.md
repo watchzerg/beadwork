@@ -13,7 +13,7 @@ executor 在建立上下文或首个测试发现 Expected red 已不成立时读
 
 ## 同一 implementer 继续
 
-implementer 在当前阶段 review 前向 executor 提交计划建议：JSON 含 mode、reason、acceptance（criterion/evidence）、verification（command/result）和 boundary_gates。证据说明行为在开工 BASE 已满足，不能把本票刚实现的 green 当作基线事实。补测试后验证时如实区分新增测试和生产行为。
+implementer 在当前阶段 review 前向 executor 提交计划建议：JSON 含 mode、reason、acceptance（criterion/evidence）和 verification（command/result）。证据说明行为在开工 BASE 已满足，不能把本票刚实现的 green 当作基线事实。补测试后验证时如实区分新增测试和生产行为。
 
 executor 语义核对后执行：
 
