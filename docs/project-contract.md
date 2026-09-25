@@ -95,7 +95,7 @@ Test seams 指引由各目标项目声明；共享契约正文继续由 skill �
 
 目标项目还需要：
 
-- 可用的 Git 仓库、本地 `main` 分支及用于基线同步的 `origin/main`；不需要远端写入权限。
+- 可用的 Git 仓库和本地 `main` 分支；运行 skill 不需要 Git 远端。
 - 支持 Git worktree，并正确忽略 `.worktrees/`。
 - 允许工作流创建 `implement/<parent-id>` branch、`.worktrees/<parent-id>/` implementation worktree，以及 `.worktrees/.evidence/<parent-id>/` 证据目录。
 
@@ -125,7 +125,7 @@ Test seams 指引由各目标项目声明；共享契约正文继续由 skill �
 
 - [ ] 阶段 1 的测试契约清单全部满足，项目的无参数 `gate-full` 已通过。
 - [ ] 项目可以从 primary checkout 发现当前 `beadwork-run` skill。
-- [ ] 本地 main、origin/main、worktree 和忽略规则满足阶段 2。
+- [ ] 本地 main、worktree 和忽略规则满足阶段 2。
 - [ ] Beads workspace、parent、直接 children、依赖和 `ticket_order` 满足阶段 3。
 - [ ] 每张未关闭 ticket 都有明确 acceptance、Test plan 和 `ready-for-agent` label。
 - [ ] TDD tickets 引用的 seams 已获批准且可解析。

@@ -132,7 +132,7 @@ controller 核对整票交付来源、最终状态、交付候选的 `gate-core`
 ### 4.1 controller 准备现场
 
 1. 用 `beadwork.py graph next` 和固定 children 集合重新确认结果为 `done`；范围变化或未全部关闭即停止。
-2. 执行 controller 的 `update-main`；返回的 fetch fallback note 写入最终 `integration-ready` comment。已有未完成 `sync-final` 时直接用原输入恢复，不重新选取 main。
+2. 执行 controller 的 `update-main` 固定当前本地 `main`。已有未完成 `sync-final` 时直接用原输入恢复，不重新选取 main。
 3. 使用返回的 `main_commit` 作为完整 `REVIEWED_MAIN` SHA，按 controller-operations.md 执行 `sync-final`：合入该 SHA，安装输入有变化时刷新依赖。成功后才派发 finalizer；冲突由 controller 加载 `resolving-merge-conflicts` 组织解决，再恢复原同步。
 4. 确认所有先前 writer 及命令已结束，准备 finalizer 输入。
 
@@ -162,7 +162,7 @@ finalizer 自行管理最终验证、修复和 review；controller 等待 final-
 
 最终 review 与语义验收通过后：
 
-1. 执行 controller 脚本的 `comment` 生成 integration-ready，补充必要的 fetch fallback 记录，核对证据 binding，并将返回的 `comment_source` 直接作为 tracker `body_source` 写入 parent；不读取或复制全文，写入失败停止。
+1. 执行 controller 脚本的 `comment` 生成 integration-ready，核对证据 binding，并将返回的 `comment_source` 直接作为 tracker `body_source` 写入 parent；不读取或复制全文，写入失败停止。
 2. 使用实际 comment ID 执行 `merge`，checkpoint 留在本轮证据目录。脚本复查 BASE/HEAD、干净状态与 comment 身份，再 fast-forward；仅 primary dirty 时恢复干净后重试，复用原验收；main 已移动时重新执行第 4 节。命令中断或失败后恢复前，读取 `references/recovery-merge.md`。
 3. 仅 `merged: true` 后继续；`REVIEWED_HEAD` 使用脚本返回的 `reviewed_head`。
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -472,15 +471,9 @@ primary_writable = repository.primary_writable
 def update_main(args):
     root = primary(args.repository_root)
     primary_writable(root)
-    fetched = subprocess.run(["git", "-C", root, "fetch", "origin"], capture_output=True, text=True)
-    target = sha(root, "refs/remotes/origin/main")
-    primary_writable(root)
-    git(root, "merge", "--ff-only", target)
     return {
         "repository_root": root,
         "main_commit": sha(root, "refs/heads/main"),
-        "fetch_failed": fetched.returncode != 0,
-        "note": "fetch 失败，以本地 ref 为准" if fetched.returncode else "",
     }
 
 

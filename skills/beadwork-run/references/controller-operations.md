@@ -47,7 +47,7 @@ manifest-input 为 parent_id、固定 expected_children、按该顺序一一对�
 
 以下 `beadwork.py controller` 命令成功 stdout 为 JSON，非零退出停止；证据使用新文件名，输入路径均为绝对路径。
 
-## 更新 primary 的本地 main
+## 固定 primary 的本地 main
 
 初始化及最终集成前调用：
 
@@ -55,7 +55,7 @@ manifest-input 为 parent_id、固定 expected_children、按该顺序一一对�
 python3 <skill-dir>/scripts/beadwork.py controller update-main --repository-root <repository-path>
 ```
 
-脚本在 fetch 前及 fast-forward 前检查 primary checkout main、干净且无未完成 Git 操作；fetch 失败时仅允许使用现存本地 `origin/main`，不能 fast-forward 则停止。返回固定 `main_commit`、`fetch_failed` 和供 comment 使用的 note。此命令与最终 `merge` 执行期间，用户需暂停操作 primary。
+脚本检查 primary checkout main、干净且无未完成 Git 操作，返回当前本地 `main_commit`；不访问 Git 远端。初始化绑定该 SHA，最终集成使用该 SHA。此命令与最终 `merge` 执行期间，用户需暂停操作 primary。
 
 ## 新票前同步本地 main
 
@@ -133,7 +133,7 @@ controller 完成交付验收后调用：
 python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
 ```
 
-只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、最终 gate 摘要、review 次数、当前阶段、原始非阻塞 smells 和 report/receipt/acceptance bindings。ticket completion 另从绑定运行来源生成本票 core 实测、去重后的定向行为证据，并说明完整项目回归由 parent finalize 验收；完整验证历史、执行来源树和模型矩阵只留在绑定报告，不复制进 tracker。controller 用 `--evidence` 加入更正前报告、补证或 fetch fallback 的 binding；命令返回 comment_source，直接作为 tracker comment 的 body_source，不读取或手工包装正文。integration-ready 中的 JSON 身份块保持原样。
+只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、最终 gate 摘要、review 次数、当前阶段、原始非阻塞 smells 和 report/receipt/acceptance bindings。ticket completion 另从绑定运行来源生成本票 core 实测、去重后的定向行为证据，并说明完整项目回归由 parent finalize 验收；完整验证历史、执行来源树和模型矩阵只留在绑定报告，不复制进 tracker。controller 用 `--evidence` 加入更正前报告或补证的 binding；命令返回 comment_source，直接作为 tracker comment 的 body_source，不读取或手工包装正文。integration-ready 中的 JSON 身份块保持原样。
 
 ## 合入本地 main
 

@@ -55,6 +55,16 @@ class ControllerTests(unittest.TestCase):
         Path(path).write_text(json.dumps(value, ensure_ascii=False))
         return str(path)
 
+    def test_update_main_uses_local_main_without_contacting_origin(self):
+        self.h.git(self.primary, "remote", "add", "origin", "/nonexistent/beadwork-remote")
+        main = self.h.git(self.primary, "rev-parse", "refs/heads/main")
+
+        result = self.call("update-main", "--repository-root", self.primary)
+
+        self.assertEqual(result, {"repository_root": str(self.primary), "main_commit": main})
+        self.assertEqual(self.h.git(self.primary, "rev-parse", "refs/heads/main"), main)
+        self.assertFalse((self.primary / ".git/refs/remotes/origin/main").exists())
+
     def call(self, *args, ok=True):
         argv = [sys.executable, "-B", str(SCRIPT), "controller", *map(str, args)]
         if getattr(self, "utility_fixture", True) and args[:2] == ("prepare", "executor"):

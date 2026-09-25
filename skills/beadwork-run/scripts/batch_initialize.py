@@ -59,9 +59,7 @@ def prepare(input_path, output):
     )
     update = evidence.read(evidence.bound(data["update_main_result"]))
     require(
-        update["repository_root"] == root
-        and type(update["fetch_failed"]) is bool
-        and isinstance(update["note"], str),
+        set(update) == {"repository_root", "main_commit"} and update["repository_root"] == root,
         "update-main 结果无效",
     )
     require(
@@ -299,7 +297,6 @@ def execute(intent_path, recovery=None):
         current["status"] == "in_progress" and current.get("assignee") == d["expected_assignee"],
         "parent claim 实时读回不符",
     )
-    update = evidence.read(evidence.bound(d["update_main_result"]))
     body = "\n".join(
         [
             "批次初始化完成。",
@@ -307,7 +304,6 @@ def execute(intent_path, recovery=None):
             "branch：" + d["branch"],
             "worktree：" + str(wt),
             "BASE：" + d["target_main"],
-            update["note"],
             "依赖与环境准备完成，快速基线 gate-core 通过。",
             "初始化证据：" + str(path),
             *["命令证据：" + x["path"] for x in sources[-4:]],

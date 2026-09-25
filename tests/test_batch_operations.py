@@ -169,8 +169,6 @@ class BatchOperationsTests(unittest.TestCase):
             {
                 "repository_root": str(self.root),
                 "main_commit": self.git("rev-parse", "HEAD"),
-                "fetch_failed": False,
-                "note": "",
             },
         )
         source = self.root / "init-input.json"

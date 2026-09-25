@@ -36,7 +36,7 @@ Beadwork 将已有的 ticket 依赖图逐票推进到实现、验证、审查和
 
 目标项目需要具备：
 
-- 可用的 Git 仓库、本地 main 分支及用于基线同步的 origin/main；不需要远端写入权限。
+- 可用的 Git 仓库和本地 main 分支；运行 skill 不需要 Git 远端。
 - 已配置的 Beads workspace，以及包含直接子 tickets 的 parent。
 - 明确的 ticket 依赖关系、验收条件和 Test plan；未关闭的 child 带有 `ready-for-agent` label。
 - TDD ticket 对应的已批准测试 seam。
