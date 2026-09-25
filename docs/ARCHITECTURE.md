@@ -81,3 +81,17 @@ implementer/document-syncer/fixer 完成并停止写入后，才开始对应 rev
 源码拆分的范围与验证结果见[实施方案](plans/script-modularization-plan.md)及[验收记录](acceptance/script-modularization-acceptance.md)。正常流程的历史精简见[改造计划](plans/normal-flow-simplification-plan.md)。当前初始化由 `beadwork.py batch-initialize` 调用 `batch_initialize.py` 完整执行；清理直接校验本地 merge checkpoint 与现场；角色只填写生成的 draft 输入契约。
 
 串行顺序由 parent 的 `ticket_order` 区块声明；`execution_plan.py` 负责解析、依赖与状态校验、批次计划来源链，`beadwork.py plan` 提供发布和显式接纳入口。`expected_children` 仍表示成员集合。详见[串行规划契约](../skills/beadwork-run/references/serial-planning.md)。
+
+## 模型读取与交接
+
+prepare 按角色、有效 Test plan 和 review 轴生成 `required_reads`，角色入口保留职责和正常步骤，特殊恢复与模型扩展按条件加载。writer 的交付命令集中在 [writer-delivery.md](../skills/beadwork-run/references/writer-delivery.md)。
+
+读取与语义输入分别由 `role_instructions.py` 和 `draft_contracts.py` 维护：前者选择当前角色需要的协议，后者生成 `draft_schema_path`。executor root 先读协调协议，准备或恢复 stage 后再按当前有效 Test plan 加载测试规则；计划适配同时刷新 stage 和 implementer 清单。reviewer 按 axis、ticket/batch scope 和测试模式读取，不继承派发者对话。脚本只生成派发材料，真正的 agent 创建、等待和停止观察仍由直接派发者完成。
+
+ticket 与最终修复均提供 `active_stage_context_source`。最终 fixer dispatch 使用阶段绑定保留历史入口，默认读取当前 blockers、findings、前阶段验证视图和直接处置。`final_active_context.py` 在恢复与 fixer 验收时重新核对内容来源。
+
+正常 accept 可直接接收 `--observation`，内部保存 closure 并执行既有验收；已有 closure 仍可显式复用。review-prepare 返回 selection 草稿，review-collect 保存两轴观察及原始来源。任务停止仍由派发者实际观察。相关范围与验证见[注意力减负方案](plans/model-attention-refactoring-plan.md)。
+
+当前交接链为 `dispatch → draft/report → receipt + closure → checkpoint 选择 → 上层交付`。dispatch 固定角色、范围、模型和来源；report 保存事实与语义判断，receipt 绑定报告内容，closure 记录派发者观察；checkpoint 决定恢复与推进时采用哪个版本。旧文件存在或收到成功回执，都不等于来源已被验收选中。
+
+紧凑验证视图按 `started_ns` 排序后选择最早失败、最新命令结果与当前 HEAD 的交付结果；随机证据目录名不代表时间顺序。完整运行来源仍保留绑定。fixer 恢复和 finalizer 补充验证共同要求当前 writer 的自报与派发者观察均确认停止；passed/code_failure 的 writer 保持终态冻结，blocked/interrupted 在收尾确认后恢复原阶段。

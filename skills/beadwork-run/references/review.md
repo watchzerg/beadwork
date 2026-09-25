@@ -1,45 +1,38 @@
 # 双轴审查
 
-executor 和 finalizer 在每轮审查前读取本文件，直接派发两个独立、并行的只读 reviewer。审查方法由本 skill 的 `../agents/reviewer.md` 定义；文件报告与回执遵循 `report-delivery.md`。
+executor/finalizer 在验证通过且 writer、命令结束后，直接派发 Standards 和 Spec 两名独立并行 reviewer。方法见 agents/reviewer.md，交付见 [report-delivery.md](report-delivery.md)。
 
 ## 准备与派发
 
-1. 确认验证已通过、先前 writer 及其命令已结束。ticket 使用当前 stage dispatch，并先完成 implementer-accept；root 和 implementer 不派发 review。执行下列 `review-prepare`，使用返回的 `round_path` 和两轴 dispatch。脚本检查真实 branch、BASE/HEAD、ancestry、干净状态；普通 change 要求非空 diff，无提交分支按 `baseline-adaptation.md` 提供 `--evidence <acceptance.json>`，准备 existing_behavior 审查，记录 commit 列表；executor 的 BASE 取 dispatch.base_commit，finalizer 取 dispatch.reviewed_main。ticket 每阶段只 prepare 一次，恢复从已有 round/轴 dispatch 继续或更正。最终阶段使用 final-execution.md 的检查点；缺少真实验证或已验收 fixer 时不可准备 review。round 准备写入中断后，仅使用 review-prepare --resume 恢复原目录，已完成 round 从 final-stage 返回值继续。从派发到验收保持现场冻结；脚本不确认任务结束，也不锁住工作区。
-2. 明确本轮范围与来源。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；后续 children 的工作不算本票遗漏。最终审查覆盖 parent、linked spec 和全部 children。提供可读取的具体来源，必要需求或规范缺失/冲突时报告阻塞，不从分支名或 commit message 猜测替代需求。
-3. `review-prepare` 已在本次派发证据目录下创建独立轮次及两轴目录，保存 dispatch、报告/回执 schema、指定 report_path，以及两轴共用的 verification view。reviewer 先读 view，并默认只展开其中 selected_sources；完整来源由 view 绑定，存在矛盾或覆盖疑问时再定点追查。按共享交付契约交接这些路径及 reviewer 自检命令；无需手工复制 schema 或 Git 身份。
-4. ticket 和 finalizer reviewer 都使用其 dispatch 的 `models.standards` / `models.spec`；`review-prepare` 将对应 `model` 和 `reasoning_effort` 写入轴 dispatch。派发时必须照抄返回的 `reviewer_launch_context`，显式使用 `fork_turns: "none"`，不得省略或改用 `all`；在任务指令中要求每名 reviewer 先读取 `<skill-dir>/agents/reviewer.md`。实际派发提供：
-   - `skill_dir`、`worktree` 和适用仓库规则的绝对路径；项目测试契约由 reviewer 按自身指令读取，不依赖派发者上下文。
-   - 本轴 `axis`、完整 `reviewed_base` / `reviewed_head`、固定 diff 命令与 commit 列表。
-   - 本轮范围说明、ticket/parent/spec pointers；Standards 轴另附适用规范来源。Beads 来源交接完整 ID，由 reviewer 使用 `bd show <id> --json` 和 `bd comments <id> --json` 只读查询。
-   - 本轴 `dispatch_path`、`report_path`、`report_schema_path`、`receipt_schema_path` 和自检命令。
-   - 复审时只附本轴上一轮原始报告、相关处置及上一轮 HEAD。
-
-reviewer 从自身文件读取方法与 smell baseline，派发者只交接本轮事实。schema 文件按共享交付契约传路径。无需额外 review coordinator agent。
-
 ```bash
-python3 <skill-dir>/scripts/beadwork.py executor review-prepare --dispatch <本角色的dispatch.json>
+python3 <skill-dir>/scripts/beadwork.py executor review-prepare --dispatch <stage-dispatch.json>
 ```
 
-## 验收与结果
+ticket 先完成 implementer-accept；final 阶段先完成文档/fixer 验收与完整验证。脚本固定真实 branch、BASE/HEAD、ancestry 和干净候选，预留本阶段唯一 round。BASE 为 ticket 原 base_commit 或最终 reviewed_main。
 
-等待两个 reviewer 及其命令结束，原样保存回执，编写 selection.json：`{"standards":{"report":"<绝对路径>","receipt":"<绝对路径>","closure":"<本轴收尾记录绝对路径>"},"spec":{"report":"<绝对路径>","receipt":"<绝对路径>","closure":"<本轴收尾记录绝对路径>"}}`。报告和回执必须位于各自轴目录；更正时显式选择新文件。执行：
+返回 round_path、axes、reviewer_launch_context 和 selection_draft_path。每轴 dispatch 已包含身份、diff/commits、规则与需求指针、required_reads、schema、自检命令、writer_source、verification_view_source、stage_source、plan_source、context_sources 和本轴 prior_axis_source。派发者只补充来源无法表达的范围与通信目标，使用 `fork_turns: "none"`。
+
+单票以当前 child acceptance 为范围，parent/spec 提供约束；最终审查覆盖整个批次。reviewer 从 verification view 的 selected_sources 开始，按具体疑问追查完整来源。
+
+BASE=HEAD 时按 [baseline-adaptation.md](baseline-adaptation.md) 提供 `--evidence <acceptance.json>`，执行 existing_behavior 审查。审查期间候选冻结。
+
+## 收集
+
+两轴停止后保存原始回执。将生成的 selection-draft.json 复制到新的 selection.json，填写每轴实际 observation；更正报告时更新该轴 report/receipt 路径。模板里的 stopped=false 表示待观察。
 
 ```bash
-python3 <skill-dir>/scripts/beadwork.py executor review-collect --round <round.json> --input <selection.json> --output <本轮目录/collection.json>
+python3 <skill-dir>/scripts/beadwork.py executor review-collect --round <round.json> --input <selection.json> --output <collection.json>
 ```
 
-脚本复用 reviewer verifier 校验两轴身份、报告和回执，复查真实 HEAD 与干净状态，保存原始 JSON 值组成的 `pair`、派生 `gate` 和来源文件的 hash 绑定。输出文件已存在时换新文件名。派发者仍核对报告与原始证据的语义一致性。
+每轴输入为 report、receipt、observation；已有收尾来源时也可使用 report、receipt、closure。collect 自动保存观察来源，校验身份、回执、停止状态和真实候选，保存原始 pair、派生 gate 与 bindings，并更新 checkpoint。
 
-ticket 和 finalizer 的 collect 都会将当前 collection 绑定到 stage 检查点；阶段报告必须保留该选择。ticket 恢复见 ticket-execution.md，finalizer 恢复见 recovery-finalizer.md；同 round 更正清除旧阶段选择，重新组装后才能交付或推进。
+- 两轴均 COMPLETED：blocking findings 决定 gate；完整代码类阻塞按阶段规则修复，非阻塞 smells 保留。
+- 任一轴未完成、校验失败或现场变化：保存已有证据，按 blocked 处理。
 
-- 任一轴未完成、校验失败或现场变化：保留全部已有证据，向调用方报告阻塞。失败报告不嵌入 AxisReport，不伪造完整轮次。
-- 两轴 `COMPLETED` 且验收通过：executor 将 collection 路径交给报告组装入口；finalizer 由 final-assemble 从检查点读取 collection 并生成 review_rounds 与来源。gate 由 final findings 的 blocking 派生。`COMPLETED` 表示审查完成，不表示无缺陷。
-- 保持两轴原始 findings，不跨轴合并、重排或以摘要替代。分类争议交原 reviewer 核实，按共享契约写更正文件；汇总者不改写分类。smells 非阻塞，其详情交调用方保留。
+派发者核对 findings 与原始证据的语义一致性。分类疑问交原 reviewer 核实并更正；原始 findings 保持其轴与分类。
 
-## 复审
+## 复审与更正
 
-修复权限、次数及停止条件由 executor/finalizer 管理。本文件只定义一轮审查，reviewer 不修改源码。任何新 commit 都使旧 HEAD 的审查不能作为新 HEAD 的合入依据。
+代码修复使用新 stage、新 HEAD 和原 BASE，检查原 findings 根因、修复直接影响的路径与完整范围的新问题。外部状态修复可以按 existing_behavior 规则保持同 HEAD；需当前状态的可核查证据。
 
-ticket 新阶段和 finalizer 每个新阶段的复审使用该阶段 dispatch 模型；同 HEAD 的报告更正沿用该轴模型组合且不新增轮次。复审仍使用原 BASE；普通仓库变更使用新 HEAD。ticket 的 direct_verification 若只修复 ignored 或仓库外本机状态，可在 BASE=HEAD 的新轮次复审；资格由各轮绑定的 `existing_behavior` 身份和 acceptance 证据确认，不取决于最终报告是否 DONE 或后续是否转回 TDD。同 HEAD 复审仍阻塞时照常封存失败并按阶段规则处理。每轴核实自己的原 findings 与处置；普通变更重点检查 fix diff，外部状态修复重点检查其 secret-safe 当前证据，同时检查完整范围的新问题和硬违例。未受影响的已处置 smells 不重复报告。使用新的证据目录，保留历史报告。
-
-reviewer dispatch 自动包含 writer_source、verification_view_source、stage_source、plan_source/plan_adjustment、context_sources、本轴 prior_axis_source 和最终审查的 expected_children。派发者只补充无法从来源生成的范围说明；不转交另一轴的前次 findings。
+同 HEAD 报告更正沿用原 round 与模型；collect 后旧 selected_stage 失效，重新 assemble 才能推进。已进入后续 stage 的旧轮次保持封存。review 准备中断或 collection 半成品按 [recovery-report.md](recovery-report.md) 处理。

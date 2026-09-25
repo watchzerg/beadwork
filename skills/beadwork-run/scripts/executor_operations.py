@@ -193,19 +193,19 @@ def execute(args):
         "implementer-assemble": ticket_execution.implementer_assemble,
         "implementer-check": lambda a: ticket_execution.implementer_check(a.dispatch, a.report),
         "implementer-accept": lambda a: ticket_execution.accept_implementer(
-            a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None
+            a.dispatch, a.report, a.receipt, handoff.acceptance_closure(a)
         ),
         "begin-gate-repair": gate_repair.begin,
         "final-deliver": lambda a: finalization.deliver(a.dispatch, a.output),
         "fixer-assemble": lambda a: finalization.fixer_assemble(a.dispatch, a.draft, a.output),
         "fixer-check": lambda a: finalization.fixer_check(a.dispatch, a.report),
         "fixer-accept": lambda a: finalization.accept_fixer(
-            a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None
+            a.dispatch, a.report, a.receipt, handoff.acceptance_closure(a)
         ),
         "document-assemble": lambda a: document_sync.assemble(a.dispatch, a.draft, a.output),
         "document-check": lambda a: document_sync.check(a.dispatch, a.report),
         "document-accept": lambda a: document_sync.accept(
-            a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None
+            a.dispatch, a.report, a.receipt, handoff.acceptance_closure(a)
         ),
         "final-stage": lambda a: finalization.prepare_stage(a.dispatch, load(a.input)),
         "final-assemble": lambda a: finalization.assemble(a.dispatch, a.draft, a.output),

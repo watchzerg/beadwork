@@ -98,20 +98,22 @@ def prepare_utility_stage(data):
     return d
 
 
-def closure_source(dispatch, report, *, observed_stopped=None):
+def stop_observation(report, *, observed_stopped=None):
     stopped = json.loads(Path(report).read_text()).get("stopped_tasks", True)
     if observed_stopped is not None:
         stopped = observed_stopped
+    return {
+        "task_id": "fixture-task",
+        "stopped": stopped,
+        "observed_at": "2026-09-16T00:00:00Z",
+        "evidence": "测试 CLI 已退出",
+        "unresolved": [],
+    }
+
+
+def closure_source(dispatch, report, *, observed_stopped=None):
     result = handoff.close(
-        str(dispatch),
-        str(report),
-        {
-            "task_id": "fixture-task",
-            "stopped": stopped,
-            "observed_at": "2026-09-16T00:00:00Z",
-            "evidence": "测试 CLI 已退出",
-            "unresolved": [],
-        },
+        str(dispatch), str(report), stop_observation(report, observed_stopped=observed_stopped)
     )
     path = Path(dispatch).parent / ("closure-source-" + uuid.uuid4().hex + ".json")
     path.write_text(json.dumps(result["closure_source"]))

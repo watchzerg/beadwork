@@ -317,6 +317,9 @@ def adapt(h, mode="direct_verification", ok=True):
     result = h.cli("executor", "ticket-adapt-plan", "--dispatch", h.sd, "--input", facts, ok=ok)
     if ok:
         h.sd, h.wd = Path(result["stage_dispatch"]), Path(result["implementer_dispatch"])
+        for path in (h.sd, h.wd):
+            reads = json.loads(path.read_text())["required_reads"]
+            assert any(name.endswith("testing-tdd.md") for name in reads) == (mode == "TDD")
     return result
 
 
@@ -525,3 +528,29 @@ def test_adaptation_revalidates_implementer_recovery_sources(adaptation, source_
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("mode", ["TDD", "direct_verification"])
+def test_resumed_executor_reads_current_stage_plan(mode):
+    h = TicketExecutionTests()
+    h.initial_mode = "TDD"
+    h.initial_seams = ["S1"]
+    try:
+        h.setUp()
+        root_bytes = h.root_dispatch.read_bytes()
+        root = json.loads(root_bytes)
+        assert not any("testing-" in Path(path).name for path in root["required_reads"])
+        if mode == "TDD":
+            adapt(h, "direct_verification")
+        adapt(h, mode)
+        adapted_stage = h.sd
+        h.stage()
+        assert h.sd == adapted_stage
+        current = json.loads(h.sd.read_text())
+        assert current["test_mode"] == mode
+        assert any(path.endswith("testing-tdd.md") for path in current["required_reads"]) == (
+            mode == "TDD"
+        )
+        assert h.root_dispatch.read_bytes() == root_bytes
+    finally:
+        h.doCleanups()

@@ -20,7 +20,7 @@ python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.js
 
 用宿主长任务机制等待或取消。记录器收到取消后终止本次专属进程组，有限等待后必要时强杀；`process_group_gone` 只描述该进程组，不证明 Docker 容器、脱离进程组的任务等外部资源已清理。强杀记录器可能仅留下开始记录和日志；恢复前由 agent 确认旧任务结束，不根据旧 PID 自动操作。
 
-报告交付按 `report-delivery.md` 自动汇总全部运行。缺少 result.json 的记录作为“结果未知”保留；返回 DONE 前必须在该运行的 `verification_notes` 写明实际收尾确认及后续验证，语义由 executor 核对。失败历史不自动阻止交付，也不会被旧成功覆盖。implementer 报告由组装器固定交付时的验证来源快照；历史报告只核验该快照，新交付必须包含当前全部运行。每条快照固定 `directory`、`started` 和 `result`：目录为规范绝对路径，文件为内容绑定，采集时缺失的文件为 `null`；不读取旧快照格式。缺失或截断 started、日志损坏等情况保留目录与已有绑定并生成 `verification_issues`；只能返回部分 `BLOCKED / blocked|interrupted`，不能支持成功、review 或 code_failure 推进。
+报告交付按 `report-delivery.md` 自动汇总全部运行。缺少 result.json 的记录作为“结果未知”保留；返回 DONE 前必须在该运行的 `verification_notes` 写明实际收尾确认及后续验证，语义由 executor 核对。失败历史不自动阻止交付，也不会被旧成功覆盖。implementer 报告由组装器固定交付时的验证来源快照；历史报告只核验该快照，新交付必须包含当前全部运行。每条快照固定 `directory`、`started` 和 `result`：目录为规范绝对路径，文件为内容绑定，采集时缺失的文件为 `null`。缺失或截断 started、日志损坏等情况保留目录与已有绑定并生成 `verification_issues`；只能返回部分 `BLOCKED / blocked|interrupted`，不能支持成功、review 或 code_failure 推进。
 
 
 ## 最多三次就地 gate 修正
@@ -34,7 +34,7 @@ python3 <skill-dir>/scripts/beadwork.py executor begin-gate-repair --dispatch <w
 
 writer 确认交付失败由代码导致后，在修改前调用上述入口申请修正，每逻辑阶段最多三次，全程由当前 writer 处理。脚本核对失败来源、正常非零退出、日志、候选和逻辑阶段，返回本次编号与授予时的剩余额度；同一申请幂等重试不重复计数，新申请必须来自当前候选。环境/工具阻塞不申请；脚本不从退出码推断代码根因。
 
-如果 writer 已经提交修正才发现遗漏了 `begin-gate-repair`，不要覆盖 repair/candidate 记录、重置分支或把当前 HEAD 冒充旧候选。停止 writer，将阶段按 `blocked` 完整交付；controller 解除流程阻塞后，executor 使用 `ticket-stage` 的 `continuation: recover` 和具体 `recovery_reason`。已有 repair 候选时该入口只接受其干净后继；首次修正尚无候选时另传修正前原始 delivery gate 失败 `result.json` 的绝对路径作为 `recovery_failure`。脚本追加恢复记录，然后在下一 stage 重新执行完整交付 gates 和双轴 review。
+遗漏修改前登记且已经提交时，保留候选与原始失败，按 blocked 交付。ticket 的特定恢复见 [recovery-ticket.md](recovery-ticket.md)；最终 fixer 交回 finalizer，保留原 attempt，由 controller 处理流程阻塞。ticket-stage recover 仅适用于单票阶段。
 
 当前 writer 集中修正，运行必要的定向验证；提交后以 `--delivery` 重跑本阶段交付入口（单票 `gate-core`，最终 `gate-full`）。重跑绑定修正后的干净候选 HEAD；该候选仍有代码失败时，有余额则申请下一次修正，三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，环境修复可在同 HEAD 重跑；review 开始后不能申请修正。
 

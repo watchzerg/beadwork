@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
+import final_state
 import test_controller as controller_fixture
-from fixture_support import closure_source
+from fixture_support import stop_observation
 
 OPS = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
@@ -111,7 +112,10 @@ class FinalizationTests(unittest.TestCase):
         if not ok:
             return answer
         receipt = self.put(folder / f"receipt-{self.serial}.json", answer)
-        closure = closure_source(dispatch, output, observed_stopped=observed_stopped)
+        observation = self.put(
+            folder / f"observation-{self.serial}.json",
+            stop_observation(output, observed_stopped=observed_stopped),
+        )
         self.call(
             "document-accept",
             "--dispatch",
@@ -120,8 +124,8 @@ class FinalizationTests(unittest.TestCase):
             output,
             "--receipt",
             receipt,
-            "--closure",
-            closure,
+            "--observation",
+            observation,
         )
         self.assertEqual(d["stage"], 0)
         return output
@@ -135,7 +139,7 @@ class FinalizationTests(unittest.TestCase):
         )
         launch = {"fork_turns": "none", "required": True}
         self.assertEqual(prepared["reviewer_launch_context"], launch)
-        sources = {}
+        sources = json.loads(Path(prepared["selection_draft_path"]).read_text())
         for axis, raw in prepared["axes"].items():
             identity = json.loads(Path(raw).read_text())
             self.assertEqual(identity["launch_context"], launch)
@@ -167,10 +171,11 @@ class FinalizationTests(unittest.TestCase):
                     "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
                 },
             )
-            sources[axis] = {"report": str(report_path), "receipt": str(receipt)}
-            if identity.get("handoff_required"):
-                cp = closure_source(raw, report_path)
-                sources[axis]["closure"] = json.loads(cp.read_text())["path"]
+            sources[axis].update(
+                report=str(report_path),
+                receipt=str(receipt),
+                observation=stop_observation(report_path),
+            )
         round_path = Path(prepared["round_path"])
         selection = round_path.parent / "selection.json"
         self.put(selection, sources)
@@ -259,7 +264,7 @@ class FinalizationTests(unittest.TestCase):
             report,
         )
         receipt = self.put(folder / "receipt.json", answer)
-        closure = closure_source(fixer_dispatch, report)
+        observation = self.put(folder / "observation.json", stop_observation(report))
         stage = d["stage_dispatch"]["path"]
         self.call(
             "fixer-accept",
@@ -269,8 +274,8 @@ class FinalizationTests(unittest.TestCase):
             report,
             "--receipt",
             receipt,
-            "--closure",
-            closure,
+            "--observation",
+            observation,
         )
         return {
             "dispatch": self.bind(fixer_dispatch),
@@ -278,12 +283,13 @@ class FinalizationTests(unittest.TestCase):
             "receipt": self.bind(receipt),
         }
 
-    def gate(self, dispatch):
+    def gate(self, dispatch, exit_code=0):
         binary = self.h.root / "bin/just"
         binary.write_text(
             "#!"
             + sys.executable
             + '\nimport sys\nif sys.argv[1:]==["--summary"]: print(\'install test gate-core gate-full\')\nelse: print("collected 1 check")\n'
+            + f"sys.exit(0 if sys.argv[1:]==['--summary'] else {exit_code})\n"
         )
         binary.chmod(0o755)
         result = subprocess.run(
@@ -303,7 +309,270 @@ class FinalizationTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, exit_code, result.stdout + result.stderr)
+
+    def assert_finalizer_verification_blocked(self, stage):
+        before = list(stage.parent.glob("verification-*"))
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(OPS),
+                "run-verification",
+                "--dispatch",
+                str(stage),
+                "--recipe",
+                "gate-full",
+                "--delivery",
+            ],
+            cwd=self.h.root,
+            env=self.h.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("收尾", result.stderr)
+        self.assertEqual(list(stage.parent.glob("verification-*")), before)
+
+    def test_final_repair_context_contains_only_current_failure_and_reuses_binding(self):
+        stage = self.stage()
+        self.done_document(stage)
+        self.gate(stage)
+        self.review(stage, blocking=True)
+        _, receipt = self.assemble(stage, outcome="code_failure")
+        repair = self.stage(previous=stage, receipt=receipt, continuation="repair")
+        source = self.stage_info["active_stage_context_source"]
+        context = json.loads(Path(source["path"]).read_text())
+        self.assertEqual(len(context["blocking_findings"]), 1)
+        fixer = json.loads(Path(self.stage_info["fixer_dispatch"]).read_text())
+        self.assertNotIn("prior_verification", fixer)
+        self.assertNotIn("prior_reviews", fixer)
+        self.assertEqual(fixer["active_stage_context_source"], source)
+        self.assertEqual(self.stage(), repair)
+        self.assertEqual(self.stage_info["active_stage_context_source"], source)
+        self.done_fixer(self.stage_info["fixer_dispatch"])
+        self.review(repair, blocking=True)
+        _, receipt = self.assemble(repair, outcome="code_failure")
+        next_stage = self.stage(previous=repair, receipt=receipt, continuation="repair")
+        self.assert_finalizer_verification_blocked(next_stage)
+        context = json.loads(
+            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        )
+        view = json.loads(Path(context["verification_view_source"]["path"]).read_text())
+        self.assertEqual(len(context["blocking_findings"]), 1)
+        self.assertEqual(len(view["entries"]), 1)
+        self.assertNotIn(str(stage.parent), view["entries"][0]["run_path"])
+        Path(context["verification_view_source"]["path"]).write_text("{}")
+        error = self.stage(ok=False)
+        self.assertIn("error", error)
+
+    def test_review_findings_survive_a_gate_failure_without_new_review(self):
+        stage0 = self.stage()
+        self.done_document(stage0)
+        self.gate(stage0)
+        original = self.review(stage0, blocking=True)
+        _, receipt = self.assemble(stage0, outcome="code_failure")
+        stage1 = self.stage(previous=stage0, receipt=receipt, continuation="repair")
+        writer = Path(self.stage_info["fixer_dispatch"])
+        self.gate(writer, exit_code=1)
+
+        def last_failure():
+            files = list(writer.parent.glob("verification-*/result.json"))
+            return max(
+                files,
+                key=lambda p: json.loads((p.parent / "started.json").read_text())["started_ns"],
+            )
+
+        for n in range(3):
+            self.call("begin-gate-repair", "--dispatch", writer, "--failure", last_failure())
+            (self.h.wt / "gate-repair.txt").write_text(str(n))
+            self.h.h.git(self.h.wt, "add", "gate-repair.txt")
+            self.h.h.git(self.h.wt, "commit", "-m", f"修正 gate {n}")
+            self.gate(writer, exit_code=1)
+        report = writer.parent / "report.json"
+        draft = {
+            "status": "BLOCKED",
+            "outcome": "code_failure",
+            "verification_notes": {},
+            "stopped_tasks": True,
+            "blockers": ["完整 gate 仍失败"],
+            "remaining_work": ["继续修复 gate"],
+            "dispositions": [{"source": "gate-full", "action": "修正三次仍失败；未完成其他处置"}],
+            "uncommitted_files": [],
+        }
+        result = self.call(
+            "fixer-assemble",
+            "--dispatch",
+            writer,
+            "--draft",
+            self.put(writer.parent / "draft.json", draft),
+            "--output",
+            report,
+        )
+        self.call(
+            "fixer-accept",
+            "--dispatch",
+            stage1,
+            "--report",
+            report,
+            "--receipt",
+            self.put(writer.parent / "receipt.json", result),
+            "--observation",
+            self.put(writer.parent / "observation.json", stop_observation(report)),
+        )
+        self.stage()
+        self.assertIsNone(self.stage_info["fixer_dispatch"])
+        with self.assertRaisesRegex(ValueError, "终态"):
+            final_state.require_writer(json.loads(writer.read_text()))
+        _, receipt = self.assemble(stage1, outcome="code_failure")
+        self.stage(previous=stage1, receipt=receipt, continuation="repair")
+        context = json.loads(
+            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        )
+        original_findings = json.loads(original.read_text())["pair"]["standards"]["findings"]
+        self.assertEqual(context["blocking_findings"], original_findings)
+        self.assertEqual(context["selected_review_source"], self.bind(original))
+        self.assertEqual(context["previous_dispositions"], draft["dispositions"])
+        view = json.loads(Path(context["verification_view_source"]["path"]).read_text())
+        self.assertTrue(view["entries"])
+        self.assertTrue(all(str(writer.parent) in entry["run_path"] for entry in view["entries"]))
+        source = self.stage_info["active_stage_context_source"]
+        self.stage()
+        self.assertEqual(self.stage_info["active_stage_context_source"], source)
+
+    def test_stage_zero_gate_failure_has_current_verification_without_review(self):
+        stage = self.stage()
+        self.done_document(stage)
+        self.gate(stage, exit_code=1)
+        _, receipt = self.assemble(stage, outcome="code_failure")
+        self.stage(previous=stage, receipt=receipt, continuation="repair")
+        context = json.loads(
+            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        )
+        self.assertEqual(context["blocking_findings"], [])
+        self.assertIsNone(context["selected_review_source"])
+        view = json.loads(Path(context["verification_view_source"]["path"]).read_text())
+        self.assertEqual(view["entries"][0]["exit_code"], 1)
+
+    def test_supplemental_failure_after_fixer_done_can_enter_next_stage(self):
+        stage0 = self.stage()
+        self.done_document(stage0)
+        self.gate(stage0, exit_code=1)
+        _, receipt = self.assemble(stage0, outcome="code_failure")
+        stage1 = self.stage(previous=stage0, receipt=receipt, continuation="repair")
+        self.done_fixer(self.stage_info["fixer_dispatch"])
+        self.gate(stage1, exit_code=1)
+        _, receipt = self.assemble(stage1, outcome="code_failure")
+        stage2 = self.stage(previous=stage1, receipt=receipt, continuation="repair")
+        self.assertEqual(self.stage_info["stage"], 2)
+        self.assertIsNotNone(self.stage_info["fixer_dispatch"])
+        context = json.loads(
+            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
+        )
+        view = json.loads(Path(context["verification_view_source"]["path"]).read_text())
+        self.assertTrue(
+            any(
+                row["exit_code"] == 1 and Path(row["run_path"]).parent == stage1.parent
+                for row in view["entries"]
+            )
+        )
+        self.done_fixer(self.stage_info["fixer_dispatch"])
+        self.review(stage2)
+        self.assemble(stage2, status="READY_TO_MERGE", outcome="passed")
+        delivered = self.call(
+            "final-deliver",
+            "--dispatch",
+            self.root,
+            "--output",
+            self.root.parent / "supplemental-recovery.json",
+        )
+        self.h.deliver(json.loads(Path(delivered["report_path"]).read_text()))
+        self.h.accept()
+
+    def test_fixer_resume_requires_dispatcher_stop_confirmation(self):
+        stage = self.stage()
+        self.done_document(stage)
+        self.gate(stage, exit_code=1)
+        _, receipt = self.assemble(stage, outcome="code_failure")
+        repair = self.stage(previous=stage, receipt=receipt, continuation="repair")
+        writer = Path(self.stage_info["fixer_dispatch"])
+
+        self.assert_finalizer_verification_blocked(repair)
+        draft = {
+            "status": "BLOCKED",
+            "outcome": "interrupted",
+            "verification_notes": {},
+            "stopped_tasks": True,
+            "blockers": ["会话中断"],
+            "remaining_work": ["继续当前修复"],
+            "dispositions": [],
+            "uncommitted_files": [],
+        }
+        for number, observed in enumerate((False, True)):
+            report = writer.parent / f"blocked-{number}.json"
+            result = self.call(
+                "fixer-assemble",
+                "--dispatch",
+                writer,
+                "--draft",
+                self.put(writer.parent / f"draft-{number}.json", draft),
+                "--output",
+                report,
+            )
+            self.call(
+                "fixer-accept",
+                "--dispatch",
+                repair,
+                "--report",
+                report,
+                "--receipt",
+                self.put(writer.parent / f"receipt-{number}.json", result),
+                "--observation",
+                self.put(
+                    writer.parent / f"observation-{number}.json",
+                    stop_observation(report, observed_stopped=observed),
+                ),
+            )
+            self.stage()
+            if observed:
+                self.assertEqual(self.stage_info["fixer_dispatch"], str(writer))
+                final_state.require_writer(json.loads(writer.read_text()))
+                self.gate(repair)
+            else:
+                with self.assertRaisesRegex(ValueError, "停止"):
+                    final_state.require_writer(json.loads(writer.read_text()))
+                self.assertIsNone(self.stage_info["fixer_dispatch"])
+                self.assert_finalizer_verification_blocked(repair)
+
+    def test_review_observation_cannot_advance_unstopped_axis(self):
+        stage = self.stage()
+        self.done_document(stage)
+        self.gate(stage)
+        collection_path = self.review(stage)
+        collection = json.loads(collection_path.read_text())
+        selection = {
+            axis: {
+                "report": source["report"]["path"],
+                "receipt": source["receipt"]["path"],
+                "observation": stop_observation(source["report"]["path"], observed_stopped=False),
+            }
+            for axis, source in collection["sources"].items()
+        }
+        checkpoints = list(self.root.parent.glob("checkpoint-*.json"))
+        output = collection_path.parent / "unaccepted.json"
+        error = self.call(
+            "review-collect",
+            "--round",
+            collection["round"]["path"],
+            "--input",
+            self.put(collection_path.parent / "unstopped.json", selection),
+            "--output",
+            output,
+            ok=False,
+        )
+        self.assertIn("停止", error["error"])
+        self.assertFalse(output.exists())
+        self.assertEqual(list(self.root.parent.glob("checkpoint-*.json")), checkpoints)
 
     def test_current_passing_stage_reaches_root_acceptance(self):
         stage = self.stage()

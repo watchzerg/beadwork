@@ -7,6 +7,7 @@ import dispatch_contract
 import document_sync
 import draft_contracts
 import evidence
+import final_active_context
 import final_state
 import final_state as fs
 import final_verification as fv
@@ -198,6 +199,7 @@ def prepare_stage(dispatch_path, facts):
     evidence.write(d["report_schema_path"], report_io.verifier("finalizer", "--schema"))
     evidence.write(d["receipt_schema_path"], report_io.verifier("finalizer", "--receipt-schema"))
     draft_contracts.publish(d, "finalizer")
+    d["active_stage_context_source"] = final_active_context.publish(directory, d) if stage else None
     evidence.write(d["dispatch_path"], d)
     # 已通过 fixer 的同阶段恢复只接续验证/review，不再派 writer。
     fixer_done = False
@@ -289,23 +291,34 @@ def check_report(expected, report, *, review_checks=None):
             f["blocking"] for axis in report["review_rounds"][-1].values() for f in axis["findings"]
         )
         if not new_blocking:
+            rows = fv.check(d, report)
+            failed_checks = [
+                row
+                for row in rows
+                if row[4]
+                and row[3]["exit_code"] > 0
+                and row[2]["dispatch_path"] == d["dispatch_path"]
+                and row[2]["before"]["head"] == report["head_commit"]
+                and not row[2]["before"]["status"]
+            ]
             if d["stage"] == 0:
-                rows = fv.check(d, report)
                 code_failure_evidence = any(
-                    row[-1]["gate"] == "gate-full"
-                    and row[2].get("delivery") is True
-                    and row[4]
-                    and row[3]["exit_code"] > 0
-                    and row[2]["dispatch_path"] == d["dispatch_path"]
-                    and row[2]["before"]["head"] == report["head_commit"]
-                    for row in rows
+                    row[-1]["gate"] == "gate-full" and row[2].get("delivery") is True
+                    for row in failed_checks
                 )
             else:
-                code_failure_evidence = bool(
-                    fixes
+                current_fix = (
+                    evidence.read(evidence.bound(fixes[-1]["report"]))
+                    if fixes
                     and evidence.read(evidence.bound(fixes[-1]["dispatch"]))["stage"] == d["stage"]
-                    and evidence.read(evidence.bound(fixes[-1]["report"]))["outcome"]
-                    == "code_failure"
+                    else None
+                )
+                code_failure_evidence = bool(
+                    current_fix
+                    and (
+                        current_fix["outcome"] == "code_failure"
+                        or (current_fix["status"] == "DONE" and failed_checks)
+                    )
                 )
     if report["outcome"] == "code_failure":
         repository.require(
@@ -648,6 +661,16 @@ def publish_fixer(d, previous, fixer_done):
             "report_schema_path": str(folder / "report-schema.json"),
             "receipt_schema_path": str(folder / "receipt-schema.json"),
         }
+        for key in (
+            "prior_reviews",
+            "prior_fixes",
+            "prior_documents",
+            "prior_verification",
+            "previous_stages",
+            "previous_result",
+            "previous_receipt",
+        ):
+            fd.pop(key, None)
         for name, flag in (
             ("report_schema_path", "--schema"),
             ("receipt_schema_path", "--receipt-schema"),

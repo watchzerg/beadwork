@@ -1,81 +1,52 @@
-# 单票执行协议
+# 单票执行
 
-controller 创建并交接 `ticket_scope: root` 的 executor dispatch。executor 使用以下入口管理 stage；implementer 使用独立 `role: implementer` dispatch。root、stage、implementer 的报告路径不能互换，controller 只关闭已通过整票验收的 ticket。
+controller 交接 root dispatch；executor 用 stage dispatch 协调当前阶段，implementer 使用独立 writer dispatch。整票 BASE 固定为开工 base_commit，stage_base 记录当前阶段起始 HEAD；review 覆盖原 BASE 到候选 HEAD。
 
-## 阶段准备与恢复
+## 正常阶段循环
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor ticket-stage --dispatch <root-dispatch.json> --input <facts.json>
 ```
 
-首次 facts 为 `{}`。返回 `stage`、`stage_dispatch`、`implementer_dispatch`、`active_stage_context_source`、`models`、`prior_implementer`、`selected_stage`、`selected_review`、`review_round`和 `review_started`。executor 读取 stage dispatch；向 implementer 交接 implementer dispatch，并按 `models.implementer` 派发。两轴模型分别来自 `models.standards/spec`。
+首次 facts 为 `{}`。后续代码修复使用 `{"continuation":"repair"}`。返回 stage_dispatch、implementer_dispatch、models、active_stage_context_source 和已选交付/review 来源。派发使用返回的模型配置与独立上下文。
 
-- `continuation: resume`：恢复当前阶段；无阶段时建立 stage 0。恢复返回原 dispatch、已选中的交付来源和 review 状态，不重新分配额度。
-- `continuation: repair`：前阶段必须有已验收的 `code_failure`，且旧任务已结束；建立下一阶段，新 implementer，最多到当前授权上限（dispatch.stage_limit，未设置时为默认 stage 5）。
-- `continuation: recover`：仅恢复已按 `blocked` 封存的未登记 gate 修正。review 尚未开始、当前干净 HEAD 必须与阶段报告一致并且是修正前候选的不同后继，旧任务必须结束，同时提供非空 `recovery_reason`。已有已绑定 repair 候选时直接引用；首次修正在 `begin-gate-repair` 前提交、尚无候选时必须另传 `recovery_failure`，绑定修正前原始 delivery gate 失败的 `result.json`。脚本验证失败的 stage identity、日志哈希、干净 HEAD、退出状态和 ancestry，在旧阶段目录追加 `unregistered-gate-repair-recovery.json`，再建立下一阶段并消耗一个 stage。普通环境、spec、seam 或证据阻塞不能使用该入口。
-- `continuation: extend`：每张 ticket 仅可追加一次，仅在默认 stage 5 交付 `code_failure` 且旧任务已停止后使用。controller 交接用户明确追加的额度与授权说明，executor 传入 `additional_stages`（整数 1–5）和非空 `extension_reason`；普通“继续”、自动重试或接替会话不构成追加授权。三个角色默认使用 `gpt-6-astra` / `medium`；授权时可用 `model_overrides` 逐角色覆盖并填写 `model_override_reason`，例如 reviewers 保持 Sol-high，或 implementer 使用 Astra-high。未指定角色采用 Astra-medium。先应用覆盖，再检查不低于该角色此前实际档位。脚本持久化追加数量、授权说明、覆盖配置及最终模型；repair/resume 继承已选模型和计数，不重新应用 Astra 默认值。扩展上限耗尽后停止，不能再次 extend。
-- 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
-
-stage 0 的 `active_stage_context_source` 为 null。`repair`、`recover` 或 `extend` 建立后续 stage 时，脚本从 checkpoint 明确选中的前阶段生成内容绑定的紧凑上下文：保留当前 blockers、requested_context、concerns、最终 blocking findings、直接前阶段 implementer 的 verification view，以及前阶段、writer、review 和恢复/扩展证据绑定；不复制累计 verification、历史 review rounds、非阻塞 smells 或 reviewer notes。同 stage `resume` 原样复用该绑定。implementer 默认只读这份上下文，需要时沿其中的绑定定向读取原始证据；完整累计 stage report 继续用于脚本验收与审计。
-
-模型与矩阵以 `../scripts/workflow_policy.py` 为准。常规三档依次为 GPT-6 Luna-high、Sol-medium、Sol-high；普通 implementer 六阶段各档两次。授权扩展额外允许 Astra-medium、Astra-high，普通阶段禁止选择 Astra。档位表示工作流升级顺序，不是实测能力排名。executor 本体普通票使用 Sol-medium，`complex_ticket` 使用 Sol-high，并将 implementer 下限设为 Sol-medium、两轴 reviewer 下限设为 Sol-high；提前升档后不要求再凑齐低档次数。跨模块协议、并发恢复、资源生命周期或共同不变量适合标记复杂票；文件多或测试慢本身不构成复杂票。
-
-`base_commit` 始终为整票开工 BASE；`stage_base` 是当前阶段起始 HEAD，仅用于阶段实现归属。双轴 review 始终覆盖原 BASE 到当前 HEAD，不缩为 fix diff。新阶段继承已有 commits 和未完成现场，不 reset 或重新实现正确部分。
-
-root 目录的 `checkpoint-NNNNNN.json` 保存 hash 绑定的连续检查点，关联当前 stage、明确选中的 implementer、完整 review collection 和阶段报告。脚本只接受连续且来源一致的链路，不按目录时间选择报告。每个检查点独占创建，不覆盖已有记录；同票只能有一个 executor 更新检查点。
-
-恢复前由 executor 核实旧 writer、reviewer 和命令是否结束。`review_started: true` 时复用原 stage 的 round 和轴 dispatch，只继续缺失的审查或更正；不能重派 writer。已有 implementer `DONE` 且未开始 review 时直接验收并开始 review。已有完整阶段报告时按 outcome 交付、修复或恢复，不重复实现。
-
-## implementer 交付
-
-首次执行前，implementer 读取 dispatch 指向的 draft_schema_path 指向的输入 schema。输入事实、规则/spec、必要 gate 范围和恢复来源由 executor 显式交接。`inspect`/`check-layer` 的用法见 `executor-operations.md`；验证记录和三次修复见 `verification.md`。
-
-```bash
-python3 <skill-dir>/scripts/beadwork.py executor implementer-assemble --dispatch <implementer-dispatch.json> --draft <draft.json> --output <report.json>
-python3 <skill-dir>/scripts/beadwork.py executor implementer-check --dispatch <implementer-dispatch.json> --report <report.json>
-```
-
-draft 结构读取生成的输入 schema。只提供语义判断：acceptance 的证据映射、test_plan 的判断依据与 red 证据、未采集的人工验证、实际收尾与阻塞事项。verification_notes 按运行目录记录有效 red、验证覆盖说明或未知运行收尾。脚本生成 mode/seams、身份和验证来源，不手工复制。
-
-组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求以采集器的 `--delivery` 运行无参数 `gate-core`，并在当前干净交付 HEAD 通过；`test` 的行为 red、直接验证与 acceptance 覆盖由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器固定交付时的 verification_sources（运行目录及 started/result 的内容绑定，缺失文件显式为 null）；后续新增运行不改变历史报告，新报告仍采集全部当前来源。来源缺失或损坏时，verification_issues 保存原绑定与实际错误；只能返回 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
-
-stdout 为短回执；executor 确认 implementer 及命令结束，保存到该 implementer 目录下的新 receipt 文件，然后执行：
-
-```bash
-python3 <skill-dir>/scripts/beadwork.py executor implementer-accept --dispatch <stage-dispatch.json> --report <implementer-report.json> --receipt <implementer-receipt.json> --closure <closure-source.json>
-```
-
-该入口重新校验身份、Git 和验证来源，并将选择追加到 root 检查点。重复验收同一来源幂等。实现的 passed/code_failure 一经验收，不能改报中断来继续旧 writer；成功或代码失败阶段不再接受新的实现来源，阶段/审查报告更正仍可在同 HEAD 完成。blocked/interrupted 阶段按原 stage 恢复；writer 与计划适配共用状态约束，review 预留后保持冻结。验收失败按证据/报告问题处理，不消耗 stage。合法部分报告也保留来源，但只有实现 DONE 才可准备 review。
-
-## 阶段报告与整票交付
-
-实现通过后按 `review.md` 准备并验收本阶段唯一的一轮双轴 review。首次 prepare 在 checkpoint 预留 round 后写入材料；准备命令在 round.json 写出前失败时，确认没有已派发 reviewer 后使用 `review-prepare --resume` 补齐原目录。已有完整 round 时继续原 round 或更正，不能另开一轮；review 开始后不恢复 writer。
-
-`review-collect` 成功时将 collection 的 path/sha256 写入检查点的 `selected_review`，即使尚未组装阶段报告，恢复也保留该选择。collection 已写出但检查点尚未追加时中断，保留原件，用原 round 和明确的 selection 输入重新 collect 到新文件；不按目录时间选择来源。缺轴或校验失败不更新选择。
-
-同 HEAD 的审查更正必须来自同一 round；选中新 collection 后清除当前 `selected_stage`，重新组装前不能整票交付或推进 stage。原阶段报告和检查点保留。进入下一 stage 后，旧 stage 不再接受新的 collection 选择。
+1. 派发全新 implementer，交接 writer dispatch、项目规则、需求来源和实际进度通信目标。实现与交付见 [writer-delivery.md](writer-delivery.md) 的 implementer 部分。
+2. 确认 writer 与命令结束，保存回执；核对 acceptance、Test plan、失败处置与候选 gate-core，执行 implementer-accept。
+3. 实现通过后，按 [review.md](review.md) 派发一轮并行双轴审查。候选保持冻结。
+4. 填写本阶段 draft_schema_path 所需语义判断，组装阶段报告：
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor ticket-assemble --dispatch <stage-dispatch.json> --draft <stage-draft.json> --output <stage-report.json>
 ```
 
-stage draft 使用本阶段 draft_schema_path；verification 只填额外核对的人工场景，实现与前阶段日志自动纳入。
+组装器使用 checkpoint 选中的实现与 review，自动生成完整来源、验证历史、receipt 和阶段选择。stage draft 的 verification 仅填写额外核对的人工场景。
 
-组装器自动读取 checkpoint 选中的 review 与完整历史，不接受手工来源列表。缺轴或未完成轮次保留在 concerns，不能伪造完整 review。组装器保留两轴原始报告、前阶段与 implementer 的 dispatch/report/receipt hash 绑定；自动生成旁边的 `<stage-report-stem>-receipt.json` 并追加阶段选择检查点。stdout 同样是短回执。
+| outcome | 下一步 |
+| --- | --- |
+| passed | 整票交付。 |
+| code_failure | 未到授权上限时 repair，派发新 implementer；用尽后交付阻塞。 |
+| blocked | 保存具体缺项，交回 controller；解除后恢复原阶段。 |
+| interrupted | 保存现场与剩余工作，恢复原阶段。 |
 
-- gates 通过且两轴 PASS：DONE/passed。
-- implementer 三次 gate-fix 后仍失败，或完整双轴代码类 blocking：BLOCKED/code_failure；未达到当前授权上限时 executor 内部 repair。
-- 环境/spec/seam/证据阻塞：BLOCKED/blocked。
-- 未完成阶段的中断：BLOCKED/interrupted。已完成 blocking review 不能标作中断重置阶段。
+代码失败依据是 implementer 用尽 gate-fix 后的失败，或完整双轴中的代码类 blocking findings。未完成审查属于 blocked；smells 留作非阻塞证据。每 stage 至多一轮完整 review，review 后的代码修复进入下一 stage。
 
-完成整票或必须交还 controller 时：
+## 当前失败上下文
+
+stage 0 的 active_stage_context_source 为 null；后续 stage 提供内容绑定的当前 blockers、findings 和前阶段验证视图。implementer 从该视图定点追查原始证据，完整历史由脚本保留。相同 stage 恢复复用原绑定与 context_sources。
+
+## 整票交付
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor ticket-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
-该入口将明确选中的阶段报告原样复制到 root 目录，重新执行完整验收并返回 root 短回执；不重跑 gates 或 review。未达到当前授权上限的 code_failure 不允许交付给 controller 作为最终代码失败。controller 使用 root dispatch 和这份报告/回执运行 `accept`；成功后生成 completion 并关闭 ticket。
+交付 checkpoint 明确选中的阶段报告，执行完整自检并返回 root 短回执。DONE 需要 acceptance、必要验证与最后双轴 PASS 覆盖交付 HEAD，现场干净且任务已结束。未到授权上限的 code_failure 继续内部修复。controller 验收 root 交付后记录 completion 并关闭 ticket。
 
-所有输出使用新文件名。更正只能补事实，不改源码、不增加阶段或 review 次数；原件保留。验证与完整双轴 review 未通过时不能返回 ticket DONE。
+## 条件入口
 
-必要派发输入来自已验收 preflight：linked_spec 必须显式存在，plan_source/environment_evidence 保留核实来源。收尾来源及 context-add 的用法见 report-delivery.md；恢复返回的 context_sources 必须交接给当前 implementer。
+- 原 BASE 已满足行为或验证方式需要适配：[baseline-adaptation.md](baseline-adaptation.md)。
+- 同阶段接续、接替或漏登记 gate 修正：[recovery-ticket.md](recovery-ticket.md)。
+- complex_ticket、模型升档或用户授权追加：[model-policy.md](model-policy.md)。
+- review 准备中断、collection 更正或部分报告：[recovery-report.md](recovery-report.md)。
+
+checkpoint 保存连续且内容绑定的明确选择。恢复使用该选择；同票仅一个 executor 更新检查点。文件报告与更正规则见 [report-delivery.md](report-delivery.md)。

@@ -2,19 +2,11 @@
 
 你负责 `standards` 或 `spec` 中指定的一轴。审查固定 BASE/HEAD 的变更，只写本轴证据目录；源码、Git 引用和 Beads 只读。你直接完成审查，不派发下级 reviewer。
 
-先读适用仓库规则、`report_schema_path`、`receipt_schema_path` 指向的文件、dispatch 和 `../references/report-delivery.md`。派发必须提供 worktree、axis、完整 reviewed_base/reviewed_head、审查范围与来源、report_path、report_schema_path、receipt_schema_path 和自检入口。缺事实或必要来源不可读取时交付 BLOCKED，不能用空 findings 代替未完成审查。
+读取 dispatch.required_reads、适用规则和 report_schema_path。固定 axis、BASE/HEAD、范围与来源均取自 dispatch。必要事实缺失时交付 BLOCKED。
 
 `review_kind: existing_behavior` 时读取 dispatch 的 hash 绑定 `acceptance_evidence`：审查本票（finalizer 为 parent）的已有实现和完整验收证据；BASE=HEAD 不意味着自动 PASS。Standards 仅检查本范围相关的明确规则，Spec 核实全部 acceptance。其他情况沿用 change 审查。
 
 从 dispatch 的 writer_source、verification_view_source、stage_source 和 context_sources 读取实现与覆盖证据；先读 verification view，并默认只展开 selected_sources，存在矛盾或覆盖疑问时再从绑定的完整来源定点追查。复审的历史判断来源使用本轴 prior_axis_source。核对 Git 引用、BASE ancestry、当前 HEAD 与派发一致；change 使用固定 SHA 的 diff 和 commit 列表，existing_behavior 使用固定 HEAD 的实现与验收证据。为核实本轮范围可读取相关调用方、实现和测试，报告范围内的问题。逐票以当前 child acceptance 为范围，parent/linked spec 提供约束；最终审查才检查整个批次的完整性。真正的来源冲突须引用双方原文并报告阻塞。
-
-按 `../references/testing-contract.md` 定位共享测试契约与项目事实，只选择一个固定组合：
-
-- 单票 review 先从 dispatch 绑定的 `plan_source` 读取 Test plan mode。`direct_verification` 的 Standards 轴只读 `testing-gates.md`，Spec 轴读 `testing-plan.md` 和 `testing-gates.md`。
-- `TDD` 单票 review 的两轴均读 `testing-plan.md`、`testing-seams.md`、`testing-tdd.md` 和 `testing-gates.md`。
-- 批次 review 没有单一 Test plan mode，两轴均读四份 testing 文件。
-
-不得因后续可能需要而预读其他组合；所需规则不可读取时报告 BLOCKED。
 
 单票审查核对干净候选的 `gate-core` 和足以证明本票 acceptance 的行为证据；完整项目回归由 parent finalize 执行 `gate-full`。真实数据库、浏览器或进程行为应有能够观察相应边界的验证。最终审查核对整个 parent 的覆盖；测试框架、筛选或 gate 定义发生变化时，审查是否遗漏必要验收。
 
@@ -24,7 +16,7 @@
 
 读取适用的 AGENTS、架构/领域约束、编码规范及相关 ADR，按文件/hunk 检查文档化规则违例；规则证据与代码证据都要具体。工具已负责的机械检查不重复枚举，但通过测试或 lint 不证明运行时行为正确。
 
-另检查下列完整 smell baseline。每项都是判断性建议；仓库明确认可的设计优先。仅在变更中存在具体问题时报告，不为凑列表建议抽象或重构：
+下列 smell baseline 供识别具体维护问题时参考；仓库明确认可的设计优先。只报告本次变更中有明确影响的发现：
 
 - **Mysterious Name**：名称未表达实际含义。
 - **Duplicated Code**：变更中重复同一逻辑。

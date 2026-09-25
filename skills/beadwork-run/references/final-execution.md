@@ -1,73 +1,52 @@
-# 最终阶段交接
+# 最终阶段执行
 
-新派发使用 `workflow_contract_version: 9`。controller 管 root 与集成，finalizer 管 attempt 检查点；document-syncer 是 stage 0 文档 writer，fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收文档同步、fixer、唯一 round、selected_review、selected_stage 及其来源。
+controller 管 root 与集成，finalizer 管 attempt 的阶段循环。stage 0 派 document-syncer；stage 1..5 派 fixer。源码与验证串行，review 使用固定 reviewed_main 到候选 HEAD 的范围。
 
-## 准备与恢复
+## 正常阶段循环
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor final-stage --dispatch <root-dispatch.json> --input <facts.json>
 ```
 
-首次 facts 为 `{}`；恢复使用 `continuation: resume`，推进使用 `continuation: repair`。已有检查点时脚本使用明确选择；显式 previous_stage 必须匹配当前阶段。repair 只接受已选 code_failure，最多 stage 5。同阶段恢复返回原 dispatch、document_dispatch、selected_document、selected_fixer、review_round、selected_review、selected_stage 和 context_sources，不重新分配额度。
+首次 facts 为 `{}`，代码修复使用 `{"continuation":"repair"}`。prepare 返回 stage、模型、writer dispatch 和已选来源。
 
-当前 document-syncer/fixer DONE 已验收或 review 已开始时，不再派 writer。恢复前先由派发者确认旧 agent 和命令结束；未知停止状态不会授予接替 writer。gate-fix 继续使用 verification.md 的三次额度。
-
-模型与矩阵以 `../scripts/workflow_policy.py` 为准。stage 0 派发独立 document-syncer，固定使用 GPT-6 Sol-medium（DOCUMENT_SYNC_MODEL），无 fixer；stage 1..5 的 fixer 默认为 GPT-6 Sol-medium 两次、Sol-high 三次。Standards 首轮使用 Sol-medium，修复后使用 Sol-high；Spec 始终使用 Sol-high。新阶段可用 `model_overrides` 覆盖 fixer/standards/spec，并提供非空 `model_override_reason`；只允许常规档位内升档，后续继承且不降档，同阶段恢复沿用原模型。finalization 不使用 Astra。
-
-## 最终验证
-
-stage 0 先验收 document-syncer 的 DONE 及收尾，再由 finalizer 用 `beadwork.py run-verification` 采集一次无参数 `gate-full`，交付验证加 `--delivery`。stage 1..5 由 fixer 采集同一入口；fixer 已验收停止后 finalizer 可以补验证，仍不修改源码。review 开始后冻结验证候选。
-
-最终成功依据 started/result/output.log 的绑定、正常退出码、相同干净 HEAD 和进程组结束事实。相同 gate 在交付 HEAD 取最新结果，较早成功不能覆盖较晚失败。未知结果需要实际收尾说明；日志损坏时可以组装 BLOCKED/blocked 或 interrupted，组装器自动保留 verification_issues，不能据此通过或推进代码修复。
-
-fixer 的开发定向验证全部保留在运行快照中，包括 dirty 工作区中的正常 red/green；它们不替代最终交付。成功与 gate-fix 额度耗尽由完整 `gate-full` 的候选运行支撑；交付 HEAD 上完整成功之后出现失败或无效验证时，仍须重跑 `gate-full`。
-
-`gate-full` 的实际覆盖由当前项目 justfile 及其调用文件定义。finalizer/reviewer 核对 parent acceptance 和各票行为证据，尤其审查测试或 gate 定义变化是否削减必要覆盖。完整验收不得传筛选参数或拼接不同运行；完整失败后从 `gate-full` 入口重新执行，同一有效候选可复用已有完整成功。
-
-## 文档同步交付
-
-final-stage 为 stage 0 返回 document_dispatch、document_launch_context 和 selected_document；按返回上下文及该 dispatch 的 model/reasoning_effort 派发 document-syncer，不手工构造 dispatch。规则见 [documentation-sync.md](documentation-sync.md)。
-
-```bash
-python3 <skill-dir>/scripts/beadwork.py executor document-assemble --dispatch <document-dispatch.json> --draft <draft.json> --output <report.json>
-python3 <skill-dir>/scripts/beadwork.py executor document-check --dispatch <document-dispatch.json> --report <report.json>
-python3 <skill-dir>/scripts/beadwork.py executor document-accept --dispatch <stage-dispatch.json> --report <report.json> --receipt <receipt.json> --closure <closure-source.json>
-```
-
-同步器读取 draft_schema_path，填写 inspected、summary、result、verification_notes、实际收尾与剩余工作。身份、BASE/HEAD、commits、changed_files 和验证来源由脚本生成。DONE 需要干净现场、已完成检查、无剩余工作；当前 HEAD 的每项定向检查按完整 argv 分别取最新结果，不得用另一组 test 参数的成功掩盖失败。有修改为 updated，无修改为 no_change_needed，不要求空提交或 gate-full。BLOCKED/blocked|interrupted 使用 incomplete，不触发新的修复 stage。
-
-finalizer 先核对文档范围与语义，再按 report-delivery.md 保存回执和收尾观察并 accept。源码 writer 未结束时不运行验证；stage 0 完整 gate/review 必须覆盖同步器交付 HEAD。检查点保留 document_sources，最终报告单独列出 document_commits；后续 fixer 的提交继续使用 fix_sources/fix.commits，全部最终新增提交必须可追溯到这两类来源。
-
-## fixer 交付
-
-```bash
-python3 <skill-dir>/scripts/beadwork.py executor fixer-assemble --dispatch <fixer-dispatch.json> --draft <draft.json> --output <report.json>
-python3 <skill-dir>/scripts/beadwork.py executor fixer-check --dispatch <fixer-dispatch.json> --report <report.json>
-python3 <skill-dir>/scripts/beadwork.py executor fixer-accept --dispatch <stage-dispatch.json> --report <report.json> --receipt <receipt.json> --closure <closure-source.json>
-```
-
-fixer 读取 dispatch.draft_schema_path，只填写处置、verification_notes、实际收尾和剩余工作。身份、HEAD、commits、验证运行及来源由脚本生成；stdout 为短回执，保存原件。
-
-DONE 需当前 HEAD 的一次完整 `gate-full`；code_failure 需三次 gate-fix 已用尽及第三次候选正常非零交付结果。blocked/interrupted 可保留部分证据，不伪造成功。直接派发者先按 report-delivery.md 记录收尾，再 accept；验收会保存 fixer 选择。成功或代码失败终态不能改报中断继续写入。
-
-## review 与阶段报告
-
-按 review.md 派两轴；review-prepare 校验文档同步结果、验证来源及 fixer 选择，并固定唯一 round。只剩半成品准备时使用 `review-prepare --resume`；已完成 round 从 final-stage 返回值恢复。review-collect 同时保存 selected_review。同 round 更正使原 selected_stage 失效，重新组装后才可交付或推进。
+1. stage 0 派 document-syncer，按 [writer-delivery.md](writer-delivery.md) 验收文档范围、必要覆盖和实际收尾。updated 与有依据的 no_change_needed 均可继续；incomplete 交付阻塞。
+2. stage 0 由 finalizer 按 [verification.md](verification.md) 采集带 `--delivery` 的无参数 gate-full；修复阶段由 fixer 完成该验证，finalizer 验收处置与覆盖。
+3. 完整验证通过后按 [review.md](review.md) 派发两轴。BASE=HEAD 时按 [baseline-adaptation.md](baseline-adaptation.md) 提供 parent acceptance 证据，执行 existing_behavior 审查。
+4. 填写当前 draft_schema_path 的语义判断并组装：
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor final-assemble --dispatch <stage-dispatch.json> --draft <draft.json> --output <stage-report.json>
 ```
 
-finalizer 使用阶段 draft_schema_path 填写语义判断。组装器从 checkpoint 读取已选文档同步、fixer、review 和历史，生成运行记录、完整报告、receipt 并追加 selected_stage；不接受手工来源数组。
+组装器读取 checkpoint 中的文档、fixer、review 与历史来源，生成完整报告、receipt 和 selected_stage。文档提交与 fixer 提交分别归属 document_sources 和 fix_sources。
 
-stage 0 的实测代码失败或完整代码类 blocking review 允许推进；修复阶段无完整 blocking review 时，必须由本阶段 fixer 的 code_failure 支撑推进。非代码阻塞停留原 stage。
+## 最终验证判断
 
-## root 交付
+项目 justfile 及调用文件定义完整 gate-full。finalizer 核对它与 parent acceptance、各票行为证据的对应关系，尤其检查测试或 gate 变更是否削减覆盖。
+
+成功需要同一干净 HEAD 的完整 gate-full、正常退出与运行来源绑定。相同候选的有效结果复用；后续失败或无效验证使旧成功失效，修复后从完整入口重跑。未知运行填写实际收尾说明；来源损坏仅支持 blocked/interrupted 交付。
+
+## 当前修复上下文
+
+fixer 读取 active_stage_context_source：当前 blockers、最近完整 review 的 blocking findings、此后各阶段处置、前一阶段验证视图及文档来源。新的完整 review 更新 findings；中间阶段 gate 失败时继续保留。累计历史由 stage dispatch 和原报告绑定保存，fixer 按具体疑问定点追查。恢复原 stage 复用同一绑定。
+
+writer 的交付入口见 [writer-delivery.md](writer-delivery.md)。fixer DONE 后，finalizer 可补充验证，再进入 review；后续文档维护由 fixer 负责。补充验证在当前干净 HEAD 正常退出但发现代码失败时，组装 code_failure 并进入下一修复阶段，不重新打开已完成的 fixer；环境失败或未知运行仍按 blocked/interrupted 处理。
+
+## 推进与 root 交付
+
+- READY_TO_MERGE：文档覆盖完成，完整 gate-full 与最后两轴 PASS 对应交付 HEAD；现场干净、任务结束、无 blockers/remaining_work。
+- code_failure：stage 0 实测代码失败，修复阶段 fixer 用尽 gate-fix 后失败，fixer DONE 后 finalizer 补充验证确认代码失败，或完整双轴代码类 blocking。stage < 5 时继续 repair，stage 5 交付阻塞。
+- blocked/interrupted：保存具体原因、现场和恢复来源，交付 controller。非代码阻塞在解除后恢复原阶段。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor final-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
-入口只交付检查点选中的阶段报告：保持原字节，生成同目录 `<root-report-stem>-receipt.json` 并重新完整验收。不运行 gates、不派 review；stage 0..4 的 code_failure 先继续内部修复，stage 5 用尽才交还 controller。
+该入口交付 checkpoint 选中的报告并自检，包含合法 BLOCKED。finalizer 的终态回复使用生成的 root 短回执；controller 验收后决定集成。
 
-交付中断后保留已有文件，换新文件名重试；不得覆盖或手改 receipt。controller 记录 finalizer 的收尾来源后执行 accept。成功需当前 HEAD 和完整来源一致，BLOCKED 保留恢复指针，未知停止状态不能授权后续写入或集成。
+## 条件入口
+
+- attempt、writer 或验证中断：[recovery-finalizer.md](recovery-finalizer.md)。
+- review 半成品、报告更正：[recovery-report.md](recovery-report.md)。
+- 模型升档：[model-policy.md](model-policy.md)。

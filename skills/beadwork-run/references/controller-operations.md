@@ -16,10 +16,10 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 | kind | 输入与 controller 前置核对 |
 | --- | --- |
 | claim | expected_assignee：实际领取身份；parent 需 install/gate-core 快速基线通过，child 需刷新后的 claim frontier 与 sync_result |
-| comment | body_source：核对后正文文件的 path/sha256 binding；completion/integration-ready 直接使用 controller comment 返回的 comment_source，不读取或复制全文 |
+| comment | body_source：正文文件的 path/sha256 binding；completion/integration-ready 使用已验收报告生成的 comment_source |
 | close | reason、prerequisite（path/sha256）；child 绑定成功 acceptance，parent 绑定成功 merge checkpoint；controller 另核对对应 completion 已写入 |
 
-脚本保存 V2 intent，写后读回 show/comments；它验证 body_source/prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。result 只保留操作所需的状态投影，execute 返回 result_source 短回执；comment 另含唯一读回的字符串 `comment_id`，用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。旧版内联 body intent 只读保留，不执行或迁移。
+脚本保存 V2 intent，写后读回 show/comments；它验证 body_source/prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。result 只保留操作所需的状态投影，execute 返回 result_source 短回执；comment 另含唯一读回的字符串 `comment_id`，用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。
 
 未知结果使用原 intent 重试，先读回协调；不创建新 intent 盲目重发。claim 竞争失败重新计算 frontier；已由其他身份领取时不采用。
 
@@ -111,14 +111,14 @@ finalizer root dispatch 建立 attempt 身份；finalizer 使用 final-stage 管
 
 脚本定位 primary、检查 `.worktrees` 已被忽略、生成固定 branch/worktree 路径和唯一 dispatch 目录，写入 `dispatch.json`、报告/回执 schema；executor root 写入 `expected-plan.json`。新票从干净 worktree 记录 BASE；恢复票保留传入 BASE；finalizer 新 attempt 从已合入 main 的干净现场核对传入的 `reviewed_main` 并记录 `start_head`，同阶段恢复按恢复来源保留原值及修复现场。
 
-返回文件路径和本轮 SHA；dispatch 保留报告/回执 schema 路径；需要填写 draft 的角色另外生成 `draft_schema_path`，正常只读取输入契约。controller 将生成的 dispatch 字段、角色入口及本轮事实交给子 agent，schema 按共享交付契约传路径；额外输入事实会保留在 dispatch。脚本不 claim、不写 start comment、不安装环境。
+返回文件路径和本轮 SHA；dispatch 保留报告/回执 schema 路径；需要填写 draft 的角色另外生成 `draft_schema_path`，正常只读取输入契约。controller 交接 dispatch 路径及额外事实；子角色按 required_reads 建立上下文，schema 按共享交付契约传路径；额外输入事实会保留在 dispatch。脚本不 claim、不写 start comment、不安装环境。
 
 ## 机械验收
 
 先确认子 agent 及其命令已结束，将其回执原样保存到本轮证据目录。报告路径由 controller 指定，更正报告显式选中。
 
 ```bash
-python3 <skill-dir>/scripts/beadwork.py controller accept --dispatch <dispatch.json> --report <report.json> --receipt <receipt.json> --output <acceptance-N.json> --closure <closure-source.json>
+python3 <skill-dir>/scripts/beadwork.py controller accept --dispatch <dispatch.json> --report <report.json> --receipt <receipt.json> --output <acceptance-N.json> --observation <observation.json>
 ```
 
 复用现有 verifier 检查报告、回执和身份；executor 另核验整票 root、阶段和 implementer 来源链并执行现有 Git 验收，finalizer 检查实际 branch/HEAD、ancestry、`.beads`，成功状态要求 implementation worktree 干净。非成功报告按原状态规则允许部分证据和未提交工作。成功输出并保存绑定 dispatch/report/receipt hash 的机械验收记录；校验失败不生成通过记录。
@@ -133,7 +133,7 @@ controller 完成交付验收后调用：
 python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
 ```
 
-只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、最终 gate 摘要、review 次数、当前阶段、原始非阻塞 smells 和 report/receipt/acceptance bindings。ticket completion 另从绑定运行来源生成本票 core 实测、去重后的定向行为证据，并说明完整项目回归由 parent finalize 验收；完整验证历史、执行来源树和模型矩阵只留在绑定报告，不复制进 tracker。controller 用 `--evidence` 加入更正前报告或补证的 binding；命令返回 comment_source，直接作为 tracker comment 的 body_source，不读取或手工包装正文。integration-ready 中的 JSON 身份块保持原样。
+只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、最终 gate 摘要、review 次数、当前阶段、原始非阻塞 smells 和 report/receipt/acceptance bindings。ticket completion 另从绑定运行来源生成本票 core 实测、去重后的定向行为证据，并说明完整项目回归由 parent finalize 验收；完整验证历史、执行来源树和模型矩阵只留在绑定报告，不复制进 tracker。controller 在生成前完成报告语义验收，用 `--evidence` 加入补证 binding。生成器负责事实投影；返回 comment_source 直接作为 tracker body_source。存在疑问时查看生成正文或原报告。
 
 ## 合入本地 main
 

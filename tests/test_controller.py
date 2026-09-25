@@ -256,26 +256,15 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.acceptance = self.dispatch.parent / f"acceptance-{self.counter}.json"
         extra = []
         if (
-            self.d.get("workflow_contract_version") == 9
+            self.d.get("workflow_contract_version") == 10
             and self.d.get("role") == "finalizer"
             and self.d.get("attempt_id")
         ) or self.d.get("preflight_acceptance"):
-            import handoff
+            from fixture_support import stop_observation
 
-            closure = handoff.close(
-                str(self.dispatch),
-                str(self.report),
-                {
-                    "task_id": "fixture-task",
-                    "stopped": json.loads(self.report.read_text()).get("stopped_tasks", True),
-                    "observed_at": "2026-09-16T00:00:00Z",
-                    "evidence": "临时 CLI 已退出",
-                    "unresolved": [],
-                },
-            )
-            cp = self.dispatch.parent / f"closure-source-{self.counter}.json"
-            self.put(cp, closure["closure_source"])
-            extra = ["--closure", cp]
+            observation = self.dispatch.parent / f"observation-{self.counter}.json"
+            self.put(observation, stop_observation(self.report))
+            extra = ["--observation", observation]
         return self.call(
             "accept",
             "--dispatch",

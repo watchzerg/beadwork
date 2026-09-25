@@ -5,194 +5,75 @@ description: "按批准顺序串行实现一个 Beads parent 下的 ticket 依�
 
 # Beadwork Run
 
-给定一个完整的 Beads parent ID，串行实现它的 direct child tickets。每个 ticket 使用一个全新的 executor 协调整票；其每个 stage 派发全新 implementer，同一时刻只有一个 writer。每张新票开工前按需同步本地 `main`；所有 children 完成后，把最新 `main` 合入 implementation branch，同步本批必要文档，执行最终验证和 review，再 fast-forward 合入本地 `main`。
-
-完整交付止于本地 commits、合入本地 `main`、关闭 Beads tickets 和安全清理。不执行 Git 或 Beads push，也不自动执行 `bd dolt pull`。
-
-## Interface
-
-输入为一个完整 Beads parent ID，parent 的 Beads type 不受限制：
+给定完整 Beads parent ID，按批准顺序完成其 direct children，经逐票实现与双轴 review、最终文档同步和完整验收，合入本地 main、关闭 tickets 并清理。交付止于本地；Git/Beads push 和 bd dolt pull 属于单独操作。
 
 ```text
 $beadwork-run <full-parent-bead-id>
-```
-
-固定布局：
-
-```text
 branch:   implement/<full-parent-id>
 worktree: .worktrees/<full-parent-id>
 ```
 
-## 执行约定
+parent 的 Beads type 不受限制。controller 管批次、Git/worktree、环境、Beads 写入与最终集成；每票派全新 executor，后者管理 implementer 与双轴 reviewers；全部 tickets 完成后派 finalizer，管理 document-syncer、fixer 与最终 reviewers。
 
-- controller 开始执行前读取 `references/testing-contract.md` 定位共享测试契约与项目事实；建立快速基线或核对最终覆盖前读取 `testing-gates.md`，遇到 TDD 交付矛盾需追查时读取 `testing-tdd.md` 和 `testing-seams.md`；计划缺证或冲突时读取 `testing-plan.md`，处理 seam 授权问题时读取 `testing-seams.md`。不预读出票模板或尚未触发的 TDD 细节。
-- Beads 读取结构化结果使用 `--json`；未列出的命令语法按需查询 CLI 帮助。
-- controller 将 `<skill-dir>` 解析为本 skill 的绝对目录。内置脚本使用 python3 ≥ 3.14（仅标准库和 skill 自带模块），在待检查 repository/worktree 中运行；正常调用无需读取源码。stdout 为 JSON，非零退出按停止处理，不能当作空结果。executor 的命令采集入口另按 `references/verification.md` 区分验证失败（可核对 TDD red）、记录器异常和中断。
-- 项目安装与验证经目标仓库的 `just` recipes 执行，recipe 检查由 preflight 负责。Beads 的 claim/comment/close 统一使用 controller-operations.md 的 tracker intent/读回入口。
-- controller 派发前读取 `references/report-delivery.md` 与 `references/controller-operations.md`；后者定义准备、机械验收、comment 生成、合入和清理命令。
+## 开始执行
 
-## 宿主能力
+- 解析 skill 与项目规则的真实绝对路径。内置 Python CLI 使用 python3 ≥ 3.14，在目标 repository/worktree 执行；stdout 为 JSON，普通操作非零退出时保留现场并处理原因。验证采集的退出码另见 [verification.md](references/verification.md)。
+- 读取 [testing-contract.md](references/testing-contract.md)、[report-delivery.md](references/report-delivery.md) 和 [controller-operations.md](references/controller-operations.md)。建立基线和核对最终覆盖时读 testing-gates.md；测试计划或 seam 冲突按共享测试契约路由。
+- 宿主为 Codex，支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → document-syncer/fixer/reviewers 的独立上下文派发、并行只读 review、文件报告和任务结束观察。写入前确认这些能力。
+- 子 agent 按 prepare 返回的模型配置派发，使用 `fork_turns: "none"`，交接 dispatch 路径、required_reads、适用规则、任务来源及进度通信目标。preflight/finalizer 默认 Sol-medium，复杂现场可用 Sol-high；controller 建议 Sol-medium，复杂恢复可用 high。模型政策和明确授权扩展见 [model-policy.md](references/model-policy.md)。
+- Beads 查询使用结构化 `--json`；写入统一走 controller 的 tracker intent/readback 入口。
 
-仅支持 Codex；其他宿主直接中止。假定下述模型均可用，派发时按就地规则显式指定 `model` 和 reasoning effort（参数名以当前工具声明为准）。ticket 按阶段 dispatch 的模型派发；报告更正沿用原模型组合，其他角色接替沿用原规则。
+## 1. Preflight 与初始化
 
-controller 主会话建议使用 `gpt-6-sol` / `medium`，复杂恢复或证据冲突时使用 `high`；skill 不切换主会话模型。方案设计可由用户使用 Astra 完成。执行期间 Astra 仅用于用户明确授权的 ticket 扩展阶段，不作为普通阶段或 finalization 的自动 fallback。
+执行 `controller prepare preflight`，使用返回的 primary、固定 branch/worktree 和证据目录派发 preflight。controller 先交接来源，票据和 spec 正文由 preflight 收集。
 
-写入前确认当前宿主能创建独立 executor、执行内置双轴审查的两个并行只读 reviewers、接收完整报告并确认任务结束。需要支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → document-syncer/fixer/reviewers 的嵌套派发。能力不足时报告并停止。
+按共享交付协议执行 accept，核对结论与来源。READY 固定首次 expected_children、执行计划及逐票测试计划；controller 按疑问读取相关原文。BLOCKED 修复准入缺项后重新派发，沿用首次 children 集合。
 
-controller 派发 preflight、executor 和 finalizer 时必须照抄 prepare 返回的 `launch_context`，显式使用独立上下文；不得省略 `fork_turns: "none"` 或改用 `all`，宿主无法满足时返回阻塞。显式交接仓库规则入口、任务事实和证据路径；恢复时补充已有 commits、未提交现场、剩余工作与未解决 findings。
+进入初始化前复核 `.beads` 无 diff，branch/worktree、checkout 与 dirty 状态符合报告。READY 后仍需 install、安装后 gate-core 基线和原子 claim。
 
-## 不变量
+- 新批次：按 controller-operations 执行 update-main，再 batch-initialize prepare/execute；脚本完成 worktree、环境、基线、parent claim 和批次 comment。
+- 已有现场：[recovery-batch.md](references/recovery-batch.md)。
+- parent 或全部 children 已关闭：[recovery-post-merge.md](references/recovery-post-merge.md)。
+- 初始化失败：保留原 intent 和日志，按 controller-operations 恢复。
 
-- controller 独占 Git/worktree 生命周期、ticket 选择、Beads 写入和最终集成；子 agent 对 Beads 只读。
-- preflight/finalizer 只写证据；源码由当前 ticket implementer 或最终修复阶段的唯一 fixer 写入，最终 stage 0 的文档由独立 document-syncer 写入，只读研究与双轴 reviewers 可并行。
-- 不 stash、不 reset、不 amend、不 squash、不 force-remove。
-- review 后不改写已 review 的 commit。
-- 旧 writer 及其写入任务未确认停止时，不派发接替 writer，不恢复、还原、合并或清理其现场。
-
-## 1. 读取事实并执行 preflight
-
-controller 先确认宿主能力，解析 skill 和规则的绝对路径，按 controller 脚本入口执行 `prepare preflight`。使用返回的 primary、固定 branch/worktree 和证据目录，不预读 ticket/spec 正文。
-
-preflight 默认 `gpt-6-sol` / `medium`；复杂恢复现场核对或计划冲突可用 `gpt-6-sol` / `high`。
-
-派发全新 preflight agent，交接 `prepare preflight` 生成的 dispatch 字段，并要求子 agent 先读取 `<skill-dir>/agents/preflight.md`。
-
-按 controller 脚本的 `accept` 入口验收。阶段报告缺少可查询事实时，补齐再派发；接替沿用已有现场与已用轮次。`READY` 验收脚本固定报告的执行计划来源；使用报告的首次 `expected_children` 固定本批次范围，逐票 test mode/seams 用于 3.3 派发。controller 核对报告来源与结论一致，不重复全文读取所有 tickets/spec；缺证或冲突时只打开相关来源。
-
-进入第 2 节前重新确认 `.beads` 无 diff，branch/worktree 的存在性、checkout 与未提交状态符合报告及恢复规则；状态变化时停止，不按旧建议继续。claim 仍是原子操作；后续 `beadwork.py graph next` 刷新并检查 children 集合。preflight 的 `READY` 不替代 install、安装后 `gate-core` 快速基线或 claim。
-
-`BLOCKED` 不推进流程。修复准入缺项后派新 preflight 复查；已获得首次 children 集合时将其作为 `expected_children` 一并传入，不重置范围。初始化的安装或工具链失败保留原 intent 和日志，按 controller-operations.md 恢复。缺事实、冲突或失败沿用停止处理，不自动补写 ticket。
-
-全部 direct children 已关闭时，先读取 `references/recovery-post-merge.md`，决定进入最终集成还是补全关闭与清理。
-
-## 2. 创建或恢复 implementation worktree
-
-已有 branch/worktree 或 preflight 建议恢复时，读取 `references/recovery-batch.md`；仅新批次执行以下初始化步骤。
-
-按 `references/controller-operations.md` 的初始化入口保存 `update-main` 结果，准备并执行固定基线的初始化 intent。脚本完成 worktree/workspace、环境与 BASE 验证、parent claim 和批次 comment；收到完成记录后进入 ticket 循环。失败保留现场，使用原 intent 恢复；未完成初始化不得领取 child。
-
-## 3. 串行 ticket 循环
-
-### 3.1 选择 ticket
-
-每轮调用只读脚本，传入 preflight 记录的完整 children ID 集合（逐个参数，不是逗号拼接）：
+## 2. 串行 ticket 循环
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py graph next <parent-id> <expected-child-id>...
 ```
 
-脚本读取 parent 执行计划，核对固定计划、children、blocking 依赖及状态，仅选择批准序列中第一张未关闭的票；`bd ready` 只判断该票是否可领取。计划缺失、变化或下一张被阻塞时停止，不回退 priority／票号排序。规划、发布和显式改序见 [serial-planning.md](references/serial-planning.md)，只在这些场景读取。按 `next` 处理：
+expected children 逐个传参。脚本核对固定范围、计划、依赖和实时状态，选择批准序列中第一张未关闭的票。
 
-- `resume`：恢复返回的 `ticket_id`。
-- `claim`：确认旧 writer 及命令已结束，按 `references/controller-operations.md` 的 `sync-main` 入口同步本地 main 并验证基线。只处理本次固定 SHA，不 fetch。成功后按返回的刷新 frontier 处理；仍为 `claim` 才原子领取，竞争失败重新计算。同步失败执行停止记录，不领取新票、不消耗 ticket 修复阶段。
-- `done`：所有 direct children 已关闭，进入第 4 节。
-- `blocked`：按返回的 reason 和 IDs/unfinished 列表执行“停止记录”，不得进入最终集成。`reason: no_ready` 时可用 `bd ready --parent <parent-id> --explain` 获取依赖阻塞原因。
+1. `claim` frontier：确认旧 writer 及命令结束，执行 sync-main；仅按返回的刷新 frontier 原子领取。同步变化时脚本按安装输入决定 install，并建立 gate-core 基线。冲突按项目规则及 resolving-merge-conflicts 处理后恢复原同步。
+2. 领取成功后 prepare executor（mode=new，带 sync_result 和 READY preflight_acceptance）。写 start comment，记录 parent、branch、worktree、完整 BASE、root dispatch 与 sync_result；成功后派发 executor。
+3. `resume` frontier：按 [recovery-ticket.md](references/recovery-ticket.md) 核实原 BASE/root，prepare mode=resume 后接续。`done` 进入最终集成；其他阻塞按停止处理。
+4. executor 自行完成 stage 循环。controller 接收进度，等待 root 交付；按共享契约确认后代任务结束并 accept。
+5. 核对整票来源、最终状态、gate-core、本票行为证据与最后 review 的 HEAD、现场和收尾。日常 Test plan/red/seam/acceptance 语义由 executor 验收；矛盾、缺证或越界时追查。误写 primary 时保留现场并停止。
+6. DONE：调用 controller comment，以已验收报告生成 completion；直接将 comment_source 用作 tracker body_source。写入成功后 close，绑定 acceptance，再刷新 frontier。
+7. NEEDS_CONTEXT 按 [recovery-needs-context.md](references/recovery-needs-context.md) 补事实；BLOCKED 按 [recovery-blocked.md](references/recovery-blocked.md) 保存停止与恢复入口。
 
-`resume`（包括中断接续和代码修复）保留原 BASE，不同步 main。用户可在 primary 编辑、暂存和提交；新提交由下一张新票吸收。implementer/document-syncer/fixer 的文件写入仍限于 implementation worktree。
+补证使用 append-only acceptance-evidence-N.json，字段为 report_path、report_sha256、sources（source/evidence）。completion 引用原报告、更正和补证。
 
-领取由 controller 使用 tracker claim 执行；成功读回后才建立恢复点。
+## 3. 最终验证与 review
 
-### 3.2 建立恢复点
+1. graph next 确认固定 children 全部关闭。update-main 固定本地 main，使用返回完整 SHA 作为 reviewed_main 执行 sync-final；已有未完成 intent 时恢复原输入。同步成功后派 finalizer。
+2. prepare finalizer，交接 reviewed_main、final_sync_result、linked spec、ticket/completion pointers、规则和通信目标。首次 prior_finalization 为 null；接替时读 [recovery-finalizer.md](references/recovery-finalizer.md)。
+3. finalizer 管文档同步、完整 gate-full、修复与双轴 review。controller 等待 final-deliver 的 root 交付，确认任务结束并 accept。
+4. READY_TO_MERGE 时核对批次身份、固定 children、reviewed_main、文档结果、完整 gate-full、parent acceptance 覆盖、最后双轴 PASS、提交和原始 findings 来源，以及干净现场和实际收尾。有矛盾时定点追查；通过后复用有效 gates/review。
 
-新 ticket 领取成功后，按 controller 脚本入口执行 `prepare executor`（`mode: new`，传入同步返回的 `sync_result`），脚本核对同步证据绑定当前 HEAD 后保存 dispatch、BASE 和证据路径。随后给 ticket 添加 start comment，记录 parent、branch、worktree、完整 BASE SHA 和 `sync_result` 路径；写入成功才派发 executor。
+BLOCKED 保存 parent 停止记录；根因不明时读 [recovery-diagnosis.md](references/recovery-diagnosis.md)。
 
-恢复 `in_progress` ticket 时，先读取 `references/recovery-ticket.md`，核实 BASE 后执行 `prepare executor`（`mode: resume`）。
+## 4. 集成与清理
 
-### 3.3 派发整票 executor
+1. 从已验收报告生成 integration-ready，直接将 comment_source 写入 parent。
+2. 使用实际 comment ID 调用 controller merge，checkpoint 留在本轮证据目录。脚本复核现场后 fast-forward。仅 primary dirty 时恢复干净后复用验收；main 已移动则重新最终集成。中断或失败按 [recovery-merge.md](references/recovery-merge.md) 核对。
+3. `merged: true` 后使用返回 reviewed_head，写 parent completion，只记录该 SHA 与 integration-ready comment ID；已有对应 completion 则复用。
+4. completion 成功后 close parent，绑定 merge checkpoint。再调用 cleanup，检查 ancestry、归属和干净状态后非强制清理，保留证据目录。
 
-`prepare executor` 返回整票 root dispatch 和 `coordinator_model`；按该模型派发一个负责整张 ticket 的 executor，要求先读取 `<skill-dir>/agents/ticket-executor.md`。提供已验收 READY preflight 的 preflight_acceptance 来源绑定；交接 linked spec、已验证环境和冒烟证据、实际进度通信目标、规则与 schema 路径；不复制 ticket 正文。
+## 停止与最终报告
 
-executor 负责内部实现、阶段修复和双轴 review。controller 收到进度继续等待，只验收 root 最终交付；恢复沿用原 root，不重新授予额度。
+检查失败或契约不满足时保留现场。恢复先核实原因已解除、旧 writer 与命令已结束，沿用既有证据和额度。
 
-### 3.4 验收 executor 结果
+parent 已领取后的实际批次停止，controller 先写中文 parent comment：停止原因、已完成进度、确定判断与不确定性、推荐下一步及依据、恢复入口。child 阻塞详情在 child comment，parent 留指针。只有用户决定会改变行为、范围或风险时提出选择。executor 内部自动修复仅追加检查点并报告进度。
 
-按共享交付契约确认 executor 及后代任务结束，保存原始回执，按 report-delivery.md 保存直接派发者的收尾观察，并带 --closure 执行 controller `accept`。脚本绑定 root、当前阶段、implementer 来源、BASE/HEAD、完整 commits、验证与原始双轴证据；失败停止，不把 implementer DONE 当成 ticket DONE。
-
-controller 核对整票交付来源、最终状态、交付候选的 `gate-core` 与本票行为证据和最后 review 的 HEAD、现场与任务收尾事实；验收与报告有矛盾、缺证或越界迹象时打开相关源码/日志追查。test plan、TDD red、seams 和 acceptance 的日常语义验收由 executor 承担，不再逐 stage 重做。确认误写 primary 时保留现场并停止，不自动还原。
-
-补证沿用 append-only `acceptance-evidence-N.json`，字段为 report_path、report_sha256 与 sources（source/evidence）；不替代原报告或 PASS。completion comment 引用原始、更正与补证来源。
-
-- `DONE`：验收通过后进入 3.5，保留所有非阻塞 smells。
-- `NEEDS_CONTEXT`：按 `recovery-needs-context.md` 补齐具体事实，恢复原 root。
-- `BLOCKED`：按 `recovery-blocked.md` 保存停止与恢复入口。最终 code_failure 表示当前已授权阶段用尽；controller 记录停止。用户明确追加额度时按 recovery-blocked.md 恢复原 root。中断保留原 stage、writer 现场和额度，非代码阻塞解除后恢复。
-
-### 3.5 完成 ticket
-
-验收成功后：
-
-1. 执行 controller 脚本的 `comment` 生成中文 completion，提供交付摘要和补证路径；核对生成的 test mode、seams、commits、最终 gate 摘要、review、原始 smells 与证据 binding。将返回的 `comment_source` 直接作为 tracker comment 的 `body_source`，不读取或复制全文。
-2. 使用 tracker close 关闭 ticket，绑定成功 acceptance，reason 概括完成内容与验证；先确认 completion 已成功写入。
-
-3. 回到 3.1，重新计算 frontier。
-
-
-## 4. 最终集成与 review
-
-### 4.1 controller 准备现场
-
-1. 用 `beadwork.py graph next` 和固定 children 集合重新确认结果为 `done`；范围变化或未全部关闭即停止。
-2. 执行 controller 的 `update-main` 固定当前本地 `main`。已有未完成 `sync-final` 时直接用原输入恢复，不重新选取 main。
-3. 使用返回的 `main_commit` 作为完整 `REVIEWED_MAIN` SHA，按 controller-operations.md 执行 `sync-final`：合入该 SHA，安装输入有变化时刷新依赖。成功后才派发 finalizer；冲突由 controller 加载 `resolving-merge-conflicts` 组织解决，再恢复原同步。
-4. 确认所有先前 writer 及命令已结束，准备 finalizer 输入。
-
-### 4.2 派发 finalizer
-
-finalizer 默认 `gpt-6-sol` / `medium`；复杂证据整合或恢复可用 `gpt-6-sol` / `high`。
-
-执行 `prepare finalizer`，传入已合入的 `reviewed_main: REVIEWED_MAIN` 和本次 `final_sync_result`，交接生成的 dispatch 字段，要求子 agent 先读取 `<skill-dir>/agents/finalizer.md`。controller 提供 ticket 证据和 completion pointers，要求 finalizer 核对整个 parent 的验收覆盖，并交接实际进度通信目标（若有）。
-
-`prior_finalization` 首次为 `null`；接替或重新运行最终集成时，先读取 `references/recovery-finalizer.md`。
-
-finalizer 自行管理 stage 0 文档同步、最终验证、修复和 review；controller 等待 final-deliver 生成的 root 交付，包括 BLOCKED，并按共享交付契约保存收尾观察后执行 accept。中断与基线变化按 recovery-finalizer.md 区分，不自行重置 attempt。
-
-### 4.3 controller 验收
-
-`READY_TO_MERGE` 才能进入第 5 节。修复处置、验证覆盖和 review 的日常语义验收由 finalizer 负责；controller 除机械校验外，核对最终交付与集成条件：
-
-- parent、固定 children 集合、`reviewed_main` 和交付来源属于本次批次。
-- 文档同步来源完整，必要变更或无需变更的依据已由 finalizer 验收；后续修复的关联文档纳入最终 review。
-- 项目完整 `gate-full`、parent 验收覆盖和最后两轴 PASS 对应交付 HEAD，fix commits 和原始 review 证据来源完整。
-- 现场满足集成条件，所有命令及子任务已结束，没有 blockers 或 remaining work，smells 已保留。
-
-交付与现场有矛盾、缺证或越界迹象时，controller 打开相关源码、日志和原始 reviewer 证据追查；不逐 stage 重做 finalizer 的日常语义验收。
-
-通过后复用实测验证与 review，不重复运行 gates 或再开一轮 review。`BLOCKED` 按停止处理，parent 停止 comment 引用本次 dispatch、报告和证据路径；根因不明时读取 `references/recovery-diagnosis.md`。
-
-## 5. 合入本地 main
-
-最终 review 与语义验收通过后：
-
-1. 执行 controller 脚本的 `comment` 生成 integration-ready，核对证据 binding，并将返回的 `comment_source` 直接作为 tracker `body_source` 写入 parent；不读取或复制全文，写入失败停止。
-2. 使用实际 comment ID 执行 `merge`，checkpoint 留在本轮证据目录。脚本复查 BASE/HEAD、干净状态与 comment 身份，再 fast-forward；仅 primary dirty 时恢复干净后重试，复用原验收；main 已移动时重新执行第 4 节。命令中断或失败后恢复前，读取 `references/recovery-merge.md`。
-3. 仅 `merged: true` 后继续；`REVIEWED_HEAD` 使用脚本返回的 `reviewed_head`。
-
-4. 给 parent 添加中文 completion comment，只记录已合入的 `REVIEWED_HEAD` 和对应 `integration-ready` comment 的 ID；完整验证、review 和 smells 证据通过该引用读取，不再复制。已有对应 completion comment 则复用。
-5. 确认 completion 已写入后，使用 tracker close 关闭 parent，绑定成功 merge checkpoint；reason 概括 children、验证和最终 review。
-
-## 6. 安全清理
-
-parent completion 已写入并关闭后，执行 controller 脚本的 `cleanup`，传入本次 merge checkpoint。脚本检查 parent 已关闭，验证合入 ancestry、branch/HEAD、worktree 归属及干净状态后非强制清理，保留证据目录；已删除部分可重跑，失败停止。
-
-## 停止处理
-
-前述检查失败或执行契约不满足时，保留现场，不继续领取 ticket，也不合入或清理。恢复执行先核实停止原因已解除和旧写入任务已结束，并保留既有证据。
-
-### 停止记录
-
-parent 已领取之后发生的实际批次停止（含 ticket 修复额度耗尽或外部阻塞、frontier 阻塞、最终 review 阻塞、状态不一致），controller 都必须先给 parent 添加一条中文 comment，至少记录：当前停止的流程原因、已完成进度、已确定的技术判断与剩余不确定性、推荐下一步及依据、恢复证据入口。只有用户决定会改变产品行为、范围或风险时才提出选择；不把可继续核对的技术问题包装成产品选择，也不因此越过修复额度继续实现。ticket 级 `BLOCKED` 的详情在该 child 的 comment，parent comment 只留指针。preflight 阶段（parent 尚未领取）的失败直接向用户报告即可。executor 内部自动推进 stage 时，只追加单票检查点并发送进度，不写 parent 停止记录。实际交还 controller 并停止批次时才写停止记录。
-
-## 最终报告
-
-向用户报告：
-
-- parent ID 和关闭状态
-- 按执行顺序列出的 ticket IDs 与 commit ranges
-- 每票和最终验证命令的实际结果
-- 每票和最终 review 结论
-- 文档同步结果、变更文件与提交；无需修改时说明依据
-- 所有记录到 ticket 或 parent 的非阻塞 smells
-- 本地 `main` 的最终 SHA
-- worktree/branch 是否已清理
-- 保留的证据目录路径（`<primary>/.worktrees/.evidence/<parent-id>/`，供审计，不随 worktree 清理删除）
-- 本次仅完成本地交付，未执行 Git 或 Beads push
+向用户报告 parent 状态、按顺序的 tickets/commit ranges、每票与最终验证/review、文档结果、非阻塞 smells、本地 main SHA、清理结果和保留证据路径 `<primary>/.worktrees/.evidence/<parent-id>/`，说明本次本地交付范围。

@@ -79,10 +79,7 @@ def run(args):
             document_sync.require_done(d, selected["documents"], exact_head=d["stage"] == 0)
             if d["stage"]:
                 repository.require(
-                    selected["fixes"]
-                    and evidence.read(evidence.bound(selected["fixes"][-1]["report"]))[
-                        "stopped_tasks"
-                    ],
+                    final_state.fixer_stopped(selected),
                     "补充验证前需验收 fixer 收尾",
                 )
     repository.git(

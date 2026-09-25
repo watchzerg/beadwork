@@ -148,6 +148,17 @@ def closure_binding(source):
     return source
 
 
+def acceptance_closure(args):
+    """验收时保存观察；来源仍由正常验收入口重新核对。"""
+    observation = getattr(args, "observation", None)
+    closure = getattr(args, "closure", None)
+    repository.require(not (observation and closure), "observation 与 closure 选择其一")
+    if observation:
+        child = Path(args.report).parent / "dispatch.json"
+        return close(str(child), args.report, evidence.read(observation))["closure_source"]
+    return closure_binding(evidence.read(closure)) if closure else None
+
+
 def check_close(dispatch_path, report_path, source, required=True):
     source = closure_binding(source)
     repository.require(source or not required, "缺少直接派发者的收尾确认来源")

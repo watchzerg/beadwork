@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import evidence
+import role_instructions
 from schema_validation import SHA, TEXT, TEXTS, object_schema, schema_errors
 
 
@@ -112,6 +113,7 @@ def schema(role):
 
 
 def publish(dispatch, role):
+    role_instructions.publish(dispatch, role)
     path = Path(dispatch["dispatch_path"]).parent / "draft-schema.json"
     evidence.write(path, schema(role))
     dispatch["draft_schema_path"] = str(path)

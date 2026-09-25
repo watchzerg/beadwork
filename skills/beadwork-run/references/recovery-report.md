@@ -26,3 +26,9 @@ python3 <skill-dir>/scripts/beadwork.py verify worker --check-report <implemente
 需核对 schema 时，对应 verifier 使用 `--schema` / `--receipt-schema`，phase/worker 后带角色，ticket 不带角色。仅按已知角色与身份生成，不猜测不可读取的 schema 或更改 dispatch 绕过失败。无法形成合法报告时向派发者返回具体错误、已有文件与未知事项，恢复材料后再正式交付。
 
 自检非零退出不产生有效回执；修正使用新文件，保留旧报告和错误。派发者仍使用正常 accept/collect；历史报告只能作为诊断材料，不导入当前执行流程。
+
+## Review 准备与选择中断
+
+review-prepare 已预留 round，但 round.json 尚未写出时，先确认没有已派发 reviewer，再用 `review-prepare --resume` 补齐原目录。已有完整 round 时继续其缺失轴或更正报告。
+
+collection 已写但 checkpoint 尚未追加时，保留原件，用原 round 和明确 selection 重新 collect 到新文件。两轴不完整时不更新选择。同 round 更正清除 selected_stage，重新 assemble 后再交付或推进；旧报告与 checkpoint 保留。

@@ -19,6 +19,7 @@ import finalization
 import handoff
 import report_io
 import repository
+import role_instructions
 import ticket_execution
 import ticket_reports
 import ticket_verification
@@ -217,6 +218,7 @@ def prepare(args):
         )
     if args.role == "preflight":
         draft_contracts.publish(d, "preflight")
+    role_instructions.publish(d)
     write(d["dispatch_path"], d)
     return {
         "repository_root": root,
@@ -283,9 +285,7 @@ def accept(args):
         "验收记录必须留在 dispatch 证据目录",
     )
     d, r, result = inspect(args.dispatch, args.report, args.receipt)
-    closure = (
-        handoff.closure_binding(read(args.closure)) if getattr(args, "closure", None) else None
-    )
+    closure = handoff.acceptance_closure(args)
     handoff.check_close(
         str(args.dispatch),
         str(args.report),

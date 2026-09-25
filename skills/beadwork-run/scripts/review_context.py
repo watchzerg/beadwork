@@ -41,7 +41,10 @@ def _record(item):
 
 def build(sources, reviewed_head, notes, context_source, source_manifest):
     repository.require(isinstance(notes, dict), "review verification notes 无效")
-    rows = [(_record(item), item) for item in sources]
+    rows = sorted(
+        ((_record(item), item) for item in sources),
+        key=lambda pair: (pair[0]["started_ns"], pair[0]["run_path"]),
+    )
     reasons = defaultdict(set)
     by_command = defaultdict(list)
     by_delivery = defaultdict(list)

@@ -12,6 +12,7 @@ import handoff
 import implementer_reports
 import report_io
 import repository
+import role_instructions
 import stage_policy
 import ticket_reports
 import ticket_state
@@ -574,5 +575,6 @@ def adapt_plan_dispatch(args, recovery):
     evidence.write(
         result["receipt_schema_path"], report_io.verifier("executor", "--receipt-schema")
     )
+    role_instructions.publish(result)
     evidence.write(result["dispatch_path"], result)
     return result

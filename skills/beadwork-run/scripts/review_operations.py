@@ -14,6 +14,7 @@ import report_io
 import repository
 import review_context
 import review_evidence
+import role_instructions
 import ticket_execution
 import ticket_state
 import workflow_contract
@@ -170,6 +171,7 @@ def prepare_review(args):
             "rules_paths": d["rules_paths"],
             "parent_id": d["parent_id"],
             "ticket_id": d.get("ticket_id"),
+            "test_mode": d.get("test_mode"),
             "linked_spec": d.get("linked_spec"),
             "dispatch_path": str(folder / "dispatch.json"),
             "report_path": str(folder / "report.json"),
@@ -195,18 +197,38 @@ def prepare_review(args):
             "--emit-receipt",
         )
         workflow_contract.stamp(identity)
+        role_instructions.publish(identity, "reviewer")
         publish_or_match(identity["report_schema_path"], report_io.reviewer("--schema"))
         publish_or_match(identity["receipt_schema_path"], report_io.reviewer("--receipt-schema"))
         publish_or_match(identity["dispatch_path"], identity)
         record["axes"][axis] = evidence.binding(identity["dispatch_path"])
     path = directory / "round.json"
     publish_or_match(path, record)
+    selection_path = directory / "selection-draft.json"
+    publish_or_match(
+        selection_path,
+        {
+            axis: {
+                "report": str(directory / axis / "report.json"),
+                "receipt": str(directory / axis / "receipt.json"),
+                "observation": {
+                    "task_id": "",
+                    "stopped": False,
+                    "observed_at": "",
+                    "evidence": "",
+                    "unresolved": [],
+                },
+            }
+            for axis in AXES
+        },
+    )
     if final_state.strict(d):
         final_state.bind_round(d, path)
     if ticket_review:
         ticket_state.bind_review_round(d, path)
     return {
         "round_path": str(path),
+        "selection_draft_path": str(selection_path),
         "axes": {axis: item["path"] for axis, item in record["axes"].items()},
         "reviewer_launch_context": workflow_contract.launch_context(identity),
     }
@@ -215,6 +237,20 @@ def prepare_review(args):
 def collect_review(args):
     path = evidence.absolute(args.round)
     sources = evidence.read(evidence.absolute(args.input))
+    repository.require(isinstance(sources, dict) and set(sources) == set(AXES), "需要两轴选择")
+    record = evidence.read(path)
+    for axis in AXES:
+        selected = sources[axis]
+        if "observation" in selected:
+            repository.require(
+                set(selected) == {"report", "receipt", "observation"}, "每轴选择观察或 closure"
+            )
+            closure = handoff.close(
+                str(evidence.bound(record["axes"][axis])),
+                selected["report"],
+                selected.pop("observation"),
+            )
+            selected["closure"] = closure["closure_source"]["path"]
     record, d, pair, gate = review_evidence.pair_from_sources(path, sources)
     reviewed_state(d, record["reviewed_base"], record["reviewed_head"])
     result = {

@@ -4,7 +4,7 @@
 
 ## 1. 一次采集
 
-读取 controller 交接的 `dispatch_path`、`draft_schema_path` 和 `rules_paths`；按 `../references/testing-contract.md` 定位并固定读取 `testing-plan.md`、`testing-seams.md`、`testing-gates.md`，不读取 `testing-tdd.md`。路径均为绝对路径。
+读取 dispatch、draft_schema_path、required_reads 和 rules_paths。项目事实从 repository root 获取。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py preflight collect --dispatch <dispatch.json>
@@ -21,7 +21,7 @@ python3 <skill-dir>/scripts/beadwork.py preflight collect --dispatch <dispatch.j
 只填写以下两项检查，其他检查由采集器提供：
 
 - `spec_and_test_plans`：读取 linked spec 的 `## Testing Decisions`（parent 即 spec 时复用 parent）。核对每张票相对于前序成果的增量交付，明显吞票或漏依赖时报告冲突；逐张未关闭票核对 Test mode、Expected red 或 direct verification 理由、approved seam 来源，以及 Verification 的具体命令/场景与预期结果。读取当前 checkout 的 justfile、必要调用文件及项目规则，检查验证能否观察 acceptance；真实边界不能仅由基础检查代替。全部未关闭票均 direct verification 时允许无 TDD seam。缺项、冲突一次性报告，不补写计划。
-- `recovery`：先只用采集的 Git 现场、parent comments、必要的 child start/completion 和证据分类。分类完成前不读取任何 `recovery-*.md`，不得为比较候选路线而预读多份恢复文件。固定路由为：
+- `recovery`：先只用采集的 Git 现场、parent comments、必要的 child start/completion 和证据分类。按现场选择恢复参考：
   - parent 或全部 children 已关闭：`post_merge`，只读 `../references/recovery-post-merge.md`。parent 已关闭只按该规则收尾。
   - 已有 implementation 现场且有 in_progress child：`resume_tickets`，读 `../references/recovery-batch.md` 和 `../references/recovery-ticket.md`。
   - 已有 implementation 现场但无 in_progress child：只读 `../references/recovery-batch.md`，再判断继续批次或 `finalize`。

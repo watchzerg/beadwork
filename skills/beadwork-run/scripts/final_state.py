@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 import evidence
+import final_active_context
 import handoff
 import repository
 import workflow_contract
@@ -152,8 +153,7 @@ def check_delivery(root, report):
     )
 
 
-def document_stopped(item):
-    source = item["documents"][-1]
+def writer_stopped(item, source):
     report_path = str(evidence.bound(source["report"]))
     report = evidence.read(report_path)
     closure = handoff.check_close(
@@ -164,7 +164,21 @@ def document_stopped(item):
     return bool(report["stopped_tasks"] and closure["stopped"] and not closure["unresolved"])
 
 
+def document_stopped(item):
+    return writer_stopped(item, item["documents"][-1])
+
+
+def fixer_stopped(item):
+    return bool(
+        item["fixes"]
+        and item["fixes"][-1]["dispatch"] == item["fixer"]
+        and writer_stopped(item, item["fixes"][-1])
+    )
+
+
 def result(d):
+    if d["stage"]:
+        final_active_context.check(d)
     _, item = selected(d)
     writer = item["fixer"]
     current_fix = None
@@ -174,7 +188,8 @@ def result(d):
     ):
         current_fix = evidence.read(evidence.bound(item["fixes"][-1]["report"]))
     if item["round_path"] or (
-        current_fix and (current_fix["status"] == "DONE" or not current_fix["stopped_tasks"])
+        current_fix
+        and (current_fix["outcome"] in ("passed", "code_failure") or not fixer_stopped(item))
     ):
         writer = None
     fixer_dispatch = str(evidence.bound(writer)) if writer else None
@@ -200,6 +215,7 @@ def result(d):
         "selected_document": item["documents"][-1] if item["documents"] else None,
         "stage_path": d["dispatch_path"],
         "stage": d["stage"],
+        "active_stage_context_source": d["active_stage_context_source"],
         "models": d["models"],
         "fixer_dispatch": fixer_dispatch,
         "fixer_launch_context": fixer_launch_context,
@@ -229,4 +245,4 @@ def require_writer(d):
     if item["fixes"] and item["fixes"][-1]["dispatch"] == item["fixer"]:
         prior = evidence.read(evidence.bound(item["fixes"][-1]["report"]))
         repository.require(prior["outcome"] in ("blocked", "interrupted"), "fixer 已交付终态")
-        repository.require(prior["stopped_tasks"], "旧 fixer 任务未确认停止")
+        repository.require(fixer_stopped(item), "旧 fixer 任务未确认停止")

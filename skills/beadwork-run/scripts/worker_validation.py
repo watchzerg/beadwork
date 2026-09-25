@@ -18,6 +18,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
+import final_active_context
 import final_verification
 import implementer_reports
 import review_context
@@ -184,6 +185,7 @@ def validate(role, report, axis_schema, expected):
             failures.append("fixer_commit_head")
     if expected.get("role") == "fixer" and "attempt_id" in expected:
         try:
+            final_active_context.check(expected)
             final_verification.check(expected, report)
         except Exception as error:
             failures.append("fixer_verification: " + str(error))
