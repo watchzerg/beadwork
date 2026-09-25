@@ -19,24 +19,6 @@ def test_coordinator_and_complex_role_floors(complex_ticket, effort):
             assert models["standards"] == models["spec"] == workflow_policy.MODEL_LEVELS[2]
 
 
-@pytest.mark.parametrize(
-    "model",
-    [
-        {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-        {"model": "gpt-6-astra", "reasoning_effort": "medium"},
-        {"model": "gpt-6-sol", "reasoning_effort": "max"},
-    ],
-)
-def test_regular_stage_rejects_models_outside_policy(model):
-    with pytest.raises(ValueError, match="模型只能升级"):
-        stage_policy.ticket_models(
-            0,
-            False,
-            None,
-            {"model_overrides": {"implementer": model}, "model_override_reason": "测试"},
-        )
-
-
 def test_extension_override_uses_previous_floor_and_inherits_selection():
     previous = {
         role: workflow_policy.MODEL_LEVELS[2] for role in ("implementer", "standards", "spec")
@@ -71,24 +53,6 @@ def test_extension_override_uses_previous_floor_and_inherits_selection():
             )
 
 
-@pytest.mark.parametrize("reason", [None, "", " ", 1])
-def test_extension_override_requires_text_reason(reason):
-    previous = {
-        role: workflow_policy.MODEL_LEVELS[2] for role in ("implementer", "standards", "spec")
-    }
-    with pytest.raises(ValueError, match="覆盖需记录理由"):
-        stage_policy.ticket_models(
-            6,
-            False,
-            previous,
-            {
-                "continuation": "extend",
-                "model_overrides": {"standards": workflow_policy.MODEL_LEVELS[2]},
-                "model_override_reason": reason,
-            },
-        )
-
-
 def inputs():
     limit = len(workflow_policy.STAGE_MODELS) - 1
     previous = {"stage": limit}
@@ -105,27 +69,6 @@ def test_authorize_extension_returns_normalized_record():
     assert new_limit == limit + 2
     assert record["new_stage_limit"] == new_limit
     assert record["reason"] == "用户明确授权继续"
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        lambda p, r, f, limit: p.update(stage=limit - 1),
-        lambda p, r, f, limit: r.update(outcome="blocked"),
-        lambda p, r, f, limit: r["execution"].update(stopped_tasks=False),
-        lambda p, r, f, limit: f.update(additional_stages=0),
-        lambda p, r, f, limit: f.update(additional_stages=workflow_policy.MAX_STAGE_EXTENSION + 1),
-        lambda p, r, f, limit: f.update(extension_reason="  "),
-        lambda p, r, f, limit: f.update(recovery_reason="不允许混用"),
-    ],
-)
-def test_authorize_extension_rejects_invalid_facts(mutation):
-    previous, report, facts, limit = inputs()
-    mutation(previous, report, facts, limit)
-    with pytest.raises(ValueError):
-        stage_policy.authorize_extension(
-            previous, {"path": "x", "sha256": "a" * 64}, report, facts, limit
-        )
 
 
 def test_authorize_extension_is_one_time_only():

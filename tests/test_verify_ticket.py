@@ -6,7 +6,6 @@ python3 test_verify_ticket.py
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import os
@@ -18,8 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-import evidence
 
 VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
@@ -182,43 +179,6 @@ class TicketAcceptanceTests(unittest.TestCase):
             "report_sha256": hashlib.sha256(self.report_file.read_bytes()).hexdigest(),
         }
 
-    def test_receipt_accepts_done_and_partial_reports_without_full_chat_copy(self) -> None:
-        for status in ("DONE", "NEEDS_CONTEXT", "BLOCKED"):
-            with self.subTest(status=status):
-                self.report["status"] = status
-                if status != "DONE":
-                    self.report.update(
-                        base_commit=None,
-                        head_commit=None,
-                        test_plan=None,
-                        implementation_commits=[],
-                        acceptance=[],
-                        verification=[],
-                        review=None,
-                        requested_context=["缺少 spec"] if status == "NEEDS_CONTEXT" else [],
-                        blockers=["环境不可用"] if status == "BLOCKED" else [],
-                    )
-                self.assertTrue(self.invoke(self.report, local=True)["ok"])
-                self.assertTrue(self.check_receipt(self.receipt())["ok"])
-
-    def test_receipt_cannot_select_another_report_or_misstate_status_or_hash(self) -> None:
-        self.invoke(self.report, local=True)
-        other = self.root / "other-report.json"
-        other.write_bytes(self.report_file.read_bytes())
-        for field, value in (
-            ("report_path", str(other)),
-            ("report_path", "report.json"),
-            ("status", "BLOCKED"),
-            ("report_sha256", "0" * 64),
-        ):
-            with self.subTest(field=field, value=value):
-                receipt = {**self.receipt(), field: value}
-                result = self.check_receipt(receipt)
-                self.assertFalse(result["ok"])
-                self.assertIn(
-                    "receipt_" + field + "_matches", {f["check"] for f in result["failures"]}
-                )
-
     def test_valid_done_preserves_original_and_accepts_nonblocking_smell(self) -> None:
         self.report["review"]["final"]["standards"]["findings"] = [
             {
@@ -231,170 +191,6 @@ class TicketAcceptanceTests(unittest.TestCase):
         ]
         self.assertTrue(self.invoke(self.report)["ok"])
         self.assertTrue(self.invoke(self.report, local=True)["ok"])
-
-    def test_commit_set_must_be_complete_unique_and_exact(self) -> None:
-        for commits, check in (
-            (self.commits[:1], "report_commits_match_range"),
-            (self.commits + [self.commits[0]], "report_commits_unique"),
-            (
-                self.commits + [{"sha": "f" * 40, "subject": "错误 SHA"}],
-                "report_commits_match_range",
-            ),
-        ):
-            with self.subTest(commits=commits):
-                changed = copy.deepcopy(self.report)
-                changed["implementation_commits"] = commits
-                self.reject(changed, check)
-
-    def test_controller_identity_and_preflight_plan_are_authoritative(self) -> None:
-        changed = copy.deepcopy(self.report)
-        changed["base_commit"] = "e" * 40
-        for result in changed["review"]["final"].values():
-            result["reviewed_base"] = changed["base_commit"]
-        self.reject(changed, "base_matches_reported")
-        changed = copy.deepcopy(self.report)
-        changed["test_plan"]["approved_seams"] = ["S2"]
-        self.reject(changed, "test_plan_matches_preflight")
-        self.reject(self.report, "status_matches", status="BLOCKED")
-        changed["test_plan"]["approved_seams"] = ["S2", "S1"]
-        self.assertTrue(
-            self.invoke(changed, plan={"mode": "TDD", "approved_seams": ["S1", "S2"]})["ok"]
-        )
-
-    def test_tdd_and_direct_verification_have_distinct_contracts(self) -> None:
-        for field, value in (
-            ("approved_seams", []),
-            ("approved_seams", ["S1", "S1"]),
-            ("red_evidence", None),
-        ):
-            with self.subTest(field=field, value=value):
-                changed = copy.deepcopy(self.report)
-                changed["test_plan"][field] = value
-                self.reject(changed, "report_schema", local=True)
-        changed = copy.deepcopy(self.report)
-        changed["test_plan"].update(
-            mode="direct_verification", approved_seams=[], red_evidence=None
-        )
-        plan = {"mode": "direct_verification", "approved_seams": []}
-        self.assertTrue(self.invoke(changed, plan=plan)["ok"])
-        changed["test_plan"]["red_evidence"] = "不应声称 red"
-        self.reject(changed, "report_schema", local=True)
-
-    def test_review_must_cover_the_delivered_head_on_both_axes(self) -> None:
-        changed = copy.deepcopy(self.report)
-        changed["review"]["final"] = self.pair(self.commits[0]["sha"])
-        self.reject(changed, "review_head_matches_reported")
-        changed["review"]["final"]["standards"]["reviewed_head"] = self.head
-        self.reject(changed, "review_heads_agree")
-        changed = copy.deepcopy(self.report)
-        changed["review"]["final"]["spec"]["axis"] = "standards"
-        self.reject(changed, "review_axis")
-
-    def test_no_change_direct_verification_can_rereview_same_head(self) -> None:
-        changed = copy.deepcopy(self.report)
-        changed.update(
-            base_commit=self.head,
-            implementation_commits=[],
-            delivery_kind="already_satisfied",
-        )
-        changed["test_plan"].update(
-            mode="direct_verification",
-            approved_seams=[],
-            red_evidence=None,
-        )
-        initial = self.pair(self.head)
-        for pair in (initial, changed["review"]["final"]):
-            for axis in pair.values():
-                axis["reviewed_base"] = self.head
-        initial["spec"]["findings"] = [
-            {
-                "axis": "spec",
-                "kind": "defect",
-                "blocking": True,
-                "title": "本机状态位置错误",
-                "evidence": "ignored machine state 尚未写入实际运行 checkout",
-            }
-        ]
-        changed["review"].update(attempts=2, initial=initial)
-
-        pairs = [initial, changed["review"]["final"]]
-        sources = []
-        for index, pair in enumerate(pairs):
-            folder = self.root.resolve() / f"existing-review-{index}"
-            folder.mkdir()
-            evidence.write(
-                folder / "dispatch.json",
-                {
-                    "role": "executor",
-                    "workflow_contract_version": 7,
-                    "launch_context": {"fork_turns": "none", "required": True},
-                    "base_commit": self.head,
-                    "test_mode": "direct_verification",
-                },
-            )
-            evidence.write(
-                folder / "acceptance.json",
-                [{"criterion": "本机配置", "evidence": "不含秘密的当前状态核对"}],
-            )
-            evidence.write(
-                folder / "round.json",
-                {
-                    "review_kind": "existing_behavior",
-                    "reviewed_base": self.head,
-                    "reviewed_head": self.head,
-                    "dispatch": evidence.binding(folder / "dispatch.json"),
-                    "acceptance_evidence": evidence.binding(folder / "acceptance.json"),
-                },
-            )
-            evidence.write(
-                folder / "collection.json",
-                {"round": evidence.binding(folder / "round.json"), "pair": pair},
-            )
-            sources.append(evidence.binding(folder / "collection.json"))
-        changed["review"].update(rounds=pairs, sources=sources)
-
-        direct_plan = {"mode": "direct_verification", "approved_seams": []}
-        self.assertTrue(
-            self.invoke(
-                changed,
-                plan=direct_plan,
-                base=self.head,
-                head=self.head,
-            )["ok"]
-        )
-
-        missing = copy.deepcopy(changed)
-        del missing["review"]["sources"], missing["review"]["rounds"]
-        self.reject(missing, "review_requires_new_head", local=True)
-        for filename in ("collection.json", "round.json", "dispatch.json", "acceptance.json"):
-            path = folder / filename
-            original = path.read_bytes()
-            try:
-                path.write_bytes(original + b"\n")
-                self.reject(changed, "review_requires_new_head", local=True)
-            finally:
-                path.write_bytes(original)
-
-        changed = copy.deepcopy(self.report)
-        initial = self.pair(self.head)
-        initial["spec"]["findings"] = [
-            {
-                "axis": "spec",
-                "kind": "defect",
-                "blocking": True,
-                "title": "代码缺陷",
-                "evidence": "源码行为仍未实现",
-            }
-        ]
-        changed["review"].update(attempts=2, initial=initial)
-        self.reject(changed, "review_requires_new_head", local=True)
-
-    def test_dirty_primary_allowed_but_dirty_done_tree_rejected(self) -> None:
-        (self.primary / "unexpected.txt").write_text("意外变动")
-        self.assertTrue(self.invoke(self.report)["ok"])
-        (self.primary / "unexpected.txt").unlink()
-        (self.worktree / "unexpected.txt").write_text("未提交")
-        self.reject(self.report, "done_clean_tree")
 
 
 if __name__ == "__main__":

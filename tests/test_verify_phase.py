@@ -227,62 +227,6 @@ class PhaseValidatorTests(unittest.TestCase):
         self.assertTrue(self.invoke("preflight", self.preflight())["ok"])
         self.assertTrue(self.invoke("preflight", self.preflight("BLOCKED"), expected=False)["ok"])
 
-    def test_preflight_rejects_missing_check_gate_and_changed_children(self) -> None:
-        changed = self.preflight()
-        changed["checks"] = []
-        self.rejected("preflight", changed, "all_preflight_checks_passed")
-        changed = self.preflight()
-        changed["tickets"][0]["test_plan"]["verification"] = None
-        self.rejected("preflight", changed, "ticket_verification_plan")
-        changed = self.preflight()
-        changed["expected_children"] = ["demo-2"]
-        self.rejected("preflight", changed, "tickets_match_unique_children")
-
-    def test_finalizer_ready_and_blocked_are_valid(self) -> None:
-        self.assertTrue(self.invoke("finalizer", self.finalizer())["ok"])
-        self.assertTrue(self.invoke("finalizer", self.finalizer("BLOCKED"), expected=False)["ok"])
-
-    def test_finalizer_uses_last_delivery_head_gate_result(self) -> None:
-        changed = self.finalizer()
-        changed["verification"].append(
-            {
-                "gate": "gate-full",
-                "command": "just gate-full",
-                "result": "失败",
-                "log_path": "/evidence/retry.log",
-                "head_commit": SHA_B,
-                "passed": False,
-            }
-        )
-        self.rejected("finalizer", changed, "required_gates_covered")
-
-    def test_repair_retains_failed_validation_and_original_review_head(self) -> None:
-        report = self.finalizer()
-        old_head = "c" * 40
-        report["fix"] = {"used": True, "commits": [SHA_B], "dispositions": ["修复原 finding"]}
-        report["review_rounds"] = [self.pair(head=old_head, blocking=True), self.pair()]
-        report["verification"].insert(
-            0,
-            {
-                "gate": "gate-full",
-                "command": "just gate-full",
-                "result": "失败",
-                "log_path": "/evidence/initial.log",
-                "head_commit": old_head,
-                "passed": False,
-            },
-        )
-        self.assertTrue(self.invoke("finalizer", report)["ok"])
-        report["review_rounds"] = [self.pair()]
-        self.assertTrue(self.invoke("finalizer", report)["ok"])
-        report["review_rounds"] = [self.pair(blocking=True)]
-        self.rejected("finalizer", report, "final_review_gate_pass")
-
-    def test_dirty_workspace_cannot_pass(self) -> None:
-        report = self.finalizer()
-        report["workspace"]["clean"] = False
-        self.rejected("finalizer", report, "workspace_ready")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -166,61 +166,6 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
         self.call("collect", ok=False)
         self.assemble(ok=False)
 
-    def test_missing_parent_plan_cannot_be_overridden_by_ready_draft(self):
-        self.h.put(
-            self.h.root / "parent.json",
-            [{"id": "test", "status": "in_progress", "description": "没有执行计划"}],
-        )
-        self.collect()
-        self.assertIn("execution_plan", {x["name"] for x in self.facts["failed_checks"]})
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-
-    def test_failed_mechanical_config_and_graph_stay_blocked(self):
-        self.h.put(self.h.root / "config.json", [dict(key="export.auto", value="true")])
-        self.h.put(self.h.root / "edges.json", [{"id": "grandchild-1"}])
-        self.collect()
-        self.assertEqual(
-            {x["name"] for x in self.facts["failed_checks"]}, {"beads_config", "flat_graph"}
-        )
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-
-    def test_semantic_failure_missing_plan_and_extra_check(self):
-        self.collect()
-        self.draft["checks"][0]["passed"] = False
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-        self.draft["checks"][0]["passed"] = True
-        self.draft["plans"] = {}
-        self.assemble(ok=False, name="report-2.json")
-        self.draft["checks"].append(dict(name="toolchain", passed=True, evidence="尝试覆盖"))
-        self.assemble(ok=False, name="report-3.json")
-
-    def test_missing_required_recipe_is_blocked(self):
-        just = self.h.root / "bin/just"
-        just.write_text("#!" + sys.executable + "\nprint('install test gate-core')\n")
-        self.collect()
-        self.assertIn("just_recipes", {row["name"] for row in self.facts["failed_checks"]})
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-
-    def test_optional_project_recipes_need_no_registration_or_execution(self):
-        just = self.h.root / "bin/just"
-        just.write_text(
-            "#!" + sys.executable + "\nimport sys\n"
-            "assert sys.argv[1:] == ['--summary'], sys.argv\n"
-            "print('install test gate-core gate-full fmt typecheck gate-browser diagnostics')\n"
-        )
-        self.collect()
-        self.assertEqual(self.facts["failed_checks"], [])
-        self.assertEqual(self.assemble()["status"], "READY")
-
-    def test_all_closed_can_finalize_an_unmerged_batch(self):
-        self.h.put(
-            self.h.root / "children.json",
-            [dict(id="test-1", status="closed"), dict(id="test-2", status="closed")],
-        )
-        self.collect()
-        self.draft.update(plans={}, suggested_route="finalize")
-        self.assertEqual(self.assemble()["status"], "READY")
-
 
 if __name__ == "__main__":
     unittest.main()

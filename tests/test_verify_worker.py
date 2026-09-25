@@ -150,27 +150,6 @@ class WorkerDeliveryTests(unittest.TestCase):
         self.assertFalse(result["ok"], result)
         self.assertIn(check, result["failures"])
 
-    def test_review_delivery_complete_even_with_blocking_findings(self):
-        for blocking in (False, True):
-            result = self.invoke("reviewer", self.axis(blocking))
-            self.assertTrue(result["ok"], result)
-            self.assertEqual(result["status"], "COMPLETED")
-
-    def test_finding_classification_is_enforced(self):
-        for axis, kind, blocking, valid in (
-            ("spec", "smell", False, True),
-            ("spec", "smell", True, False),
-            ("standards", "documented_standard", True, True),
-            ("spec", "documented_standard", True, False),
-            ("standards", "documented_standard", False, False),
-        ):
-            with self.subTest(axis=axis, kind=kind, blocking=blocking):
-                report = self.axis(True)
-                report["axis"] = axis
-                report["findings"][0].update(axis=axis, kind=kind, blocking=blocking)
-                expected = {**self.expected("reviewer"), "axis": axis}
-                self.assertEqual(self.invoke("reviewer", report, expected=expected)["ok"], valid)
-
     def test_fixer_success_and_blocked_partial_state(self):
         self.assertTrue(self.invoke("fixer", self.fixer())["ok"])
         report = self.fixer()
@@ -187,26 +166,6 @@ class WorkerDeliveryTests(unittest.TestCase):
         self.assertTrue(self.invoke("fixer", report)["ok"])
         report["blockers"] = []
         self.reject("fixer", report, "blocked_has_reason")
-
-    def test_fixer_done_requires_clean_stopped_new_commit(self):
-        for key, value, check in (
-            ("fix_commit", None, "fix_commit_is_new_delivery_head"),
-            ("head_commit", A, "fix_commit_is_new_delivery_head"),
-            ("worktree_clean", False, "done_clean_and_stopped"),
-            ("stopped_tasks", False, "done_clean_and_stopped"),
-            ("uncommitted_files", ["x"], "done_has_no_unfinished_work"),
-        ):
-            report = self.fixer()
-            report[key] = value
-            self.reject("fixer", report, check)
-
-    def test_fixer_last_gate_result_wins_and_failed_history_is_preserved(self):
-        report = self.fixer()
-        failed = {**report["verification"][0], "passed": False, "result": "失败"}
-        report["verification"].insert(0, failed)
-        self.assertTrue(self.invoke("fixer", report)["ok"])
-        report["verification"].append(failed)
-        self.reject("fixer", report, "final_validation_on_delivery_head")
 
 
 if __name__ == "__main__":

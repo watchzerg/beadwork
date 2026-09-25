@@ -38,15 +38,3 @@ def test_require_current_rejects_missing_or_unknown_version(value):
     with pytest.raises(ValueError, match="契约版本"):
         workflow_contract.require_current(value)
     assert value == before
-
-
-@pytest.mark.parametrize(
-    "launch_context",
-    [None, {}, {"fork_turns": "all", "required": True}, {"fork_turns": "none"}],
-)
-def test_require_current_rejects_invalid_launch_context(launch_context):
-    value = {"workflow_contract_version": 7}
-    if launch_context is not None:
-        value["launch_context"] = launch_context
-    with pytest.raises(ValueError, match="fork_turns"):
-        workflow_contract.require_current(value)

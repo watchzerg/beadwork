@@ -70,7 +70,7 @@ implementer/fixer 完成并停止写入后，才开始对应 review；两轴 rev
 
 外部报告校验统一使用 `beadwork.py verify ticket|phase|worker`，实现分别位于 [verify_ticket.py](../skills/beadwork-run/scripts/verify_ticket.py)、[phase_validation.py](../skills/beadwork-run/scripts/phase_validation.py) 和 [worker_validation.py](../skills/beadwork-run/scripts/worker_validation.py)。工作流内部通过 Python API 直接调用校验实现，避免为 schema 或报告检查重复启动解释器。`self_check_argv` 由 [command_argv.py](../skills/beadwork-run/scripts/command_argv.py) 统一构造，不经过 shell。仓库级 [maintenance_check.py](../scripts/maintenance_check.py) 只负责结构、链接和 Python 语法检查；完整门禁由根目录 justfile 编排。
 
-`handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排；verifier facade 不使用动态 import 掩盖依赖方向。`test_module_boundaries.py` 检查静态及字面量动态 import 回路、依赖方向、schema 冷启动和安装 symlink 入口。
+`handoff.py` 维护 context/closure 证据；schema、模型政策、进程组和运行记录分别由既有基础模块维护。基础模块与报告读取不反向导入 controller/executor 入口；状态模块不调用阶段编排；verifier facade 不使用动态 import 掩盖依赖方向。独立分发与安装入口由 `test_distribution.py` 验证。
 
 验证来源由 `verification_records.py` 统一发现和读取；ticket 的固定快照逐条解析一次，同时供报告摘要和 gate 覆盖判断使用。缺失 started 也有明确的目录身份，只能形成部分阻塞交付。新报告检查当前来源完整性，历史报告不重新扫描新增运行。具体快照契约见[验证采集](../skills/beadwork-run/references/verification.md)。
 

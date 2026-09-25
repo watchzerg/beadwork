@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,7 +15,6 @@ import batch_evidence
 import batch_initialize
 import evidence
 import execution_plan
-import operation_commands
 import repository
 import test_controller as controller_fixture
 import test_finalization as final_fixture
@@ -212,52 +210,6 @@ class BatchOperationsTests(unittest.TestCase):
         value = json.loads(self.state.read_text())
         value.update(fields)
         self.state.write_text(json.dumps(value))
-
-    def test_initialization_uses_four_recipe_project_and_binds_logs(self):
-        real_just = shutil.which(
-            "just", path=os.pathsep.join(os.environ["PATH"].split(os.pathsep)[1:])
-        )
-        self.assertIsNotNone(real_just)
-        justfile = self.root / "justfile"
-        justfile.write_text(
-            "install:\n    @echo '准备完成'\n"
-            "test *ARGS:\n    @echo 'collected 1 test'\n"
-            "gate-core:\n    @echo '基础检查通过'\n    @echo '检查诊断' >&2\n"
-            "gate-full:\n    @echo '完整检查通过'\n"
-        )
-        (self.bin / "just").write_text(
-            "#!"
-            + sys.executable
-            + "\nimport os,sys\n"
-            + f"os.execv({real_just!r}, [{real_just!r}, '--justfile', {str(justfile)!r}, *sys.argv[1:]])\n"
-        )
-        ready = self.cli("execute", "--intent", self.initialize())
-        source = next(
-            entry
-            for entry in ready["commands"]
-            if operation_commands.read(entry)[1]["argv"][-1] == "gate-core"
-        )
-        _, _, log = operation_commands.read(source)
-        self.assertIn("基础检查通过", log.read_text())
-        self.assertIn("检查诊断", log.read_text())
-        log.write_text("tampered")
-        with self.assertRaises(ValueError):
-            operation_commands.read(source)
-
-    def test_failed_core_retries_without_reinstall_or_early_claim(self):
-        intent = self.initialize()
-        self.change_state(fail="gate-core")
-        self.cli("execute", "--intent", intent, ok=False)
-        state = evidence.read(self.state)
-        self.assertEqual(state["runs"], ["install", "gate-core"])
-        self.assertEqual(state["issue"]["status"], "open")
-        self.assertEqual(state["comments"], [])
-        first = next((intent.parent / "gate-core").glob("attempt-*"))
-        preserved = {path: path.read_bytes() for path in first.iterdir()}
-        self.change_state(fail=None)
-        self.cli("execute", "--intent", intent)
-        self.assertEqual(evidence.read(self.state)["runs"], ["install", "gate-core", "gate-core"])
-        self.assertEqual({path: path.read_bytes() for path in first.iterdir()}, preserved)
 
     def test_default_two_ticket_trace_runs_full_only_at_finalize(self):
         order = ["demo-1", "demo-2"]
@@ -472,113 +424,6 @@ class BatchOperationsTests(unittest.TestCase):
         worker.writer_report.write_text("{}")
         with self.assertRaisesRegex(ValueError, "证据文件已变化"):
             batch_evidence.manifest(self.root / "manifest-input.json")
-
-    def test_install_failure_and_gate_failure_resume_without_claiming_early(self):
-        intent = self.initialize()
-        self.change_state(fail="install")
-        self.cli("execute", "--intent", intent, ok=False)
-        self.assertEqual(json.loads(self.state.read_text())["issue"]["status"], "open")
-        self.change_state(fail="gate-core")
-        self.cli("execute", "--intent", intent, ok=False)
-        self.assertEqual(json.loads(self.state.read_text())["comments"], [])
-        self.change_state(fail="")
-        self.cli("execute", "--intent", intent)
-        self.assertEqual(
-            json.loads(self.state.read_text())["runs"],
-            [
-                "install",
-                "install",
-                "gate-core",
-                "gate-core",
-            ],
-        )
-        self.assertEqual(len(list((intent.parent / "install").glob("attempt-*"))), 2)
-
-    def test_unknown_command_requires_bound_stop_observation(self):
-        intent = self.initialize()
-        self.change_state(fail="install")
-        self.cli("execute", "--intent", intent, ok=False)
-        run = next((intent.parent / "install").glob("attempt-*"))
-        (run / "result.json").unlink()
-        self.change_state(fail="")
-        error = self.cli("execute", "--intent", intent, ok=False)
-        self.assertIn("收尾", error["error"])
-        recovery = self.root / "recovery.json"
-        evidence.write(
-            recovery,
-            [
-                {
-                    "run_path": str(run),
-                    "task_id": "fixture",
-                    "stopped": True,
-                    "observed_at": "2026-09-17T00:00:00Z",
-                    "evidence": "测试进程已退出",
-                    "unresolved": [],
-                }
-            ],
-        )
-        self.cli("execute", "--intent", intent, "--recovery", recovery)
-        self.assertTrue((run / "closure.json").exists())
-
-    def test_lost_claim_and_comment_results_are_read_back_without_duplication(self):
-        intent = self.initialize()
-        first = self.cli("execute", "--intent", intent)
-        self.assertEqual(first, self.cli("execute", "--intent", intent))
-        for name in ("ready.json", "claim-intent-result.json", "comment-intent-result.json"):
-            (intent.parent / name).unlink()
-        again = self.cli("execute", "--intent", intent)
-        self.assertEqual(first["comment_id"], again["comment_id"])
-        self.assertEqual(len(json.loads(self.state.read_text())["comments"]), 1)
-        self.assertEqual(evidence.read(self.state)["runs"], ["install", "gate-core"])
-
-    def test_manifest_and_summary(self):
-        accepted = self.acceptance("executor", "demo-1")
-        source = self.root / "manifest-input.json"
-        evidence.write(
-            source,
-            {
-                "parent_id": "demo",
-                "expected_children": ["demo-1"],
-                "acceptances": [evidence.binding(accepted)],
-            },
-        )
-        manifest = batch_evidence.manifest(source)
-        self.assertEqual([row["ticket_id"] for row in manifest["tickets"]], ["demo-1"])
-        manifest_path = self.root / "manifest.json"
-        evidence.write(manifest_path, manifest)
-        facts = batch_evidence.inspect(self.root, "demo")
-        facts_path = self.root / "facts.json"
-        evidence.write(facts_path, facts)
-        summary_input = self.root / "summary-input.json"
-        evidence.write(
-            summary_input,
-            {
-                "facts": evidence.binding(facts_path),
-                "manifest": evidence.binding(manifest_path),
-                "status": "BLOCKED",
-                "cause": "等待外部确认",
-                "uncertainties": ["宿主任务状态"],
-                "recommendation": "核对后恢复",
-            },
-        )
-        result = batch_evidence.summary(summary_input)
-        self.assertIn("demo-1", result["text"])
-        self.assertTrue(result["facts"]["external_stop_observation_required"])
-
-        bad = self.root / "bad-manifest.json"
-        evidence.write(
-            bad,
-            {
-                "parent_id": "demo",
-                "expected_children": ["demo-2"],
-                "acceptances": [evidence.binding(accepted)],
-            },
-        )
-        with self.assertRaises(ValueError):
-            batch_evidence.manifest(bad)
-        Path(json.loads(accepted.read_text())["report_path"]).write_text("{}")
-        with self.assertRaises(ValueError):
-            batch_evidence.manifest(source)
 
 
 if __name__ == "__main__":

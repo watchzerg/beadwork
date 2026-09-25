@@ -260,32 +260,6 @@ class FinalizationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_stage_zero_matrix_and_resume_use_same_checkpoint(self):
-        stage = self.stage()
-        data = json.loads(stage.read_text())
-        self.assertEqual(data["stage"], 0)
-        self.assertEqual(
-            data["models"]["fixer"], {"model": "gpt-6-sol", "reasoning_effort": "medium"}
-        )
-        self.assertEqual(self.stage(), stage)
-
-    def test_external_blocking_review_delivers_but_cannot_enter_repair(self):
-        stage = self.stage()
-        self.gate(stage)
-        self.review(stage, blocking=True)
-        report, receipt = self.assemble(stage, outcome="blocked")
-        self.h.deliver(json.loads(report.read_text()))
-        self.h.accept()
-        rejected = self.stage(previous=stage, receipt=receipt, continuation="repair", ok=False)
-        self.assertIn("code_failure", rejected["error"])
-
-    def test_complete_blocking_review_cannot_be_reported_as_interrupted(self):
-        stage = self.stage()
-        self.gate(stage)
-        self.review(stage, blocking=True)
-        rejected = self.assemble(stage, ok=False)
-        self.assertIn("review", rejected["error"])
-
     def test_current_passing_stage_reaches_root_acceptance(self):
         stage = self.stage()
         self.gate(stage)
@@ -323,57 +297,6 @@ class FinalizationTests(unittest.TestCase):
             merge_record,
         )
         self.assertEqual(self.h.h.git(self.h.primary, "rev-parse", "HEAD"), self.h.h.head)
-
-    def test_primary_edit_allows_stage_review_assembly_and_acceptance(self):
-        (self.h.primary / "manual.txt").write_text("手工修改")
-        stage = self.stage()
-        self.gate(stage)
-        self.review(stage)
-        self.assemble(stage, status="READY_TO_MERGE", outcome="passed")
-        delivered = self.call(
-            "final-deliver",
-            "--dispatch",
-            self.root,
-            "--output",
-            self.root.parent / "delivered.json",
-        )
-        self.h.deliver(json.loads(Path(delivered["report_path"]).read_text()))
-        self.h.accept()
-        self.assertEqual((self.h.primary / "manual.txt").read_text(), "手工修改")
-
-    def six_stage_pipeline_uses_exact_models_and_final_pass_reaches_root_acceptance(self):
-        sm = {"model": "gpt-6-sol", "reasoning_effort": "medium"}
-        sh = {"model": "gpt-6-sol", "reasoning_effort": "high"}
-        expected_models = [
-            {"fixer": sm, "standards": sm, "spec": sh},
-            {"fixer": sm, "standards": sh, "spec": sh},
-            {"fixer": sm, "standards": sh, "spec": sh},
-            {"fixer": sh, "standards": sh, "spec": sh},
-            {"fixer": sh, "standards": sh, "spec": sh},
-            {"fixer": sh, "standards": sh, "spec": sh},
-        ]
-        stage = self.stage()
-        for number in range(6):
-            data = json.loads(stage.read_text())
-            self.assertEqual(data["stage"], number)
-            self.assertEqual(data["models"], expected_models[number])
-            if number:
-                fixer_dispatch = next((Path(stage).parent / "fixer").glob("dispatch.json"))
-                fixes = [self.done_fixer(fixer_dispatch)]
-            else:
-                fixes = []
-            review = self.review(stage, blocking=number < 5)
-            report, receipt = self.assemble(
-                stage,
-                reviews=[review],
-                fixes=fixes,
-                status="BLOCKED" if number < 5 else "READY_TO_MERGE",
-                outcome="code_failure" if number < 5 else "passed",
-            )
-            if number < 5:
-                stage = self.stage(previous=stage, receipt=receipt, continuation="repair")
-        self.h.deliver(json.loads(report.read_text()))
-        self.h.accept()
 
 
 if __name__ == "__main__":

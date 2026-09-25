@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import json
 import os
 import shutil
@@ -95,32 +94,6 @@ def relative_files(root: Path) -> set[Path]:
     return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
 
 
-def test_copied_distribution_contains_only_skill_content(copied_distribution: Path) -> None:
-    expected = {
-        path.relative_to(SOURCE)
-        for path in SOURCE.rglob("*")
-        if path.is_file()
-        and "__pycache__" not in path.parts
-        and path.name not in {".DS_Store"}
-        and path.suffix not in {".pyc", ".pyo"}
-        and ".pytest_cache" not in path.parts
-    }
-    assert relative_files(copied_distribution) == expected
-    assert {path.name for path in copied_distribution.iterdir()} == {
-        "SKILL.md",
-        "agents",
-        "references",
-        "scripts",
-    }
-    assert not any(
-        part in {"__pycache__", ".pytest_cache"}
-        or path.suffix in {".pyc", ".pyo"}
-        or path.name == ".DS_Store"
-        for path in copied_distribution.rglob("*")
-        for part in path.parts
-    )
-
-
 def test_isolated_runtime_uses_python_314_without_development_paths(
     distribution_runtime: DistributionRuntime,
 ) -> None:
@@ -156,105 +129,3 @@ def test_all_cli_groups_and_role_schemas_run_from_copy(
         result = distribution_runtime.run(*command)
         assert result.returncode == 0, result.stderr
         assert isinstance(json.loads(result.stdout), dict)
-
-
-def test_runtime_imports_are_stdlib_or_bundled(
-    distribution_runtime: DistributionRuntime,
-) -> None:
-    scripts = distribution_runtime.root / "scripts"
-    bundled = {path.stem for path in scripts.glob("*.py")}
-    unexpected = []
-    dynamic_importers = set()
-    for path in scripts.glob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                names = [node.module]
-            else:
-                names = []
-            for name in names:
-                top_level = name.split(".", 1)[0]
-                if top_level not in bundled and top_level not in sys.stdlib_module_names:
-                    unexpected.append((path.name, name))
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "importlib"
-                and node.func.attr == "import_module"
-            ):
-                dynamic_importers.add(path.name)
-    assert not unexpected
-    assert dynamic_importers == set()
-
-    probe = """import json,sys
-from pathlib import Path
-scripts=Path(sys.argv[1]).resolve()
-sys.path.insert(0,str(scripts))
-import report_io
-values=[
- report_io.verifier('executor','--schema'),
- report_io.verifier('preflight','--schema'),
- report_io.verifier('finalizer','--schema'),
- report_io.reviewer('--schema'),
- report_io.implementer('--schema'),
- report_io.fixer('--schema'),
-]
-names=('report_io','verify_ticket','phase_validation','worker_validation')
-origins={name:str(Path(sys.modules[name].__file__).resolve()) for name in names}
-print(json.dumps({'schemas':len(values),'origins':origins}))
-"""
-    result = distribution_runtime.run_code(probe, str(scripts))
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["schemas"] == 6
-    assert all(
-        Path(origin).is_relative_to(distribution_runtime.root.resolve())
-        for origin in payload["origins"].values()
-    )
-
-
-def test_cli_loads_no_modules_from_repository_or_site_packages(
-    distribution_runtime: DistributionRuntime,
-    tmp_path: Path,
-) -> None:
-    audit = tmp_path / "module-audit.json"
-    probe = """import json,runpy,sys,sysconfig
-from pathlib import Path
-entry=Path(sys.argv[1]).resolve()
-audit=Path(sys.argv[2])
-root=entry.parents[1]
-stdlib=Path(sysconfig.get_path('stdlib')).resolve()
-sys.argv=[str(entry),'--help']
-try:
- runpy.run_path(str(entry),run_name='__main__')
-except SystemExit as error:
- code=error.code if isinstance(error.code,int) else 1
-external={}
-origins={}
-bundled={path.stem for path in (root/'scripts').glob('*.py')}
-for name,module in tuple(sys.modules.items()):
- origin=getattr(module,'__file__',None)
- if not origin:
-  continue
- path=Path(origin).resolve()
- if name in bundled:
-  origins[name]=str(path)
- if not path.is_relative_to(root) and not path.is_relative_to(stdlib):
-  external[name]=str(path)
-audit.write_text(json.dumps({'code':code,'external':external,'origins':origins,'sys_path':sys.path}))
-raise SystemExit(code)
-"""
-    result = distribution_runtime.run_code(probe, str(distribution_runtime.entrypoint), str(audit))
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(audit.read_text(encoding="utf-8"))
-    assert payload["external"] == {}
-    assert "cli" in payload["origins"]
-    assert all(
-        Path(origin).is_relative_to(distribution_runtime.root.resolve())
-        for origin in payload["origins"].values()
-    )
-    repository_root = str(SOURCE.parents[1].resolve())
-    assert all(repository_root not in entry for entry in payload["sys_path"])

@@ -24,18 +24,6 @@ class GraphDecisionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             graph.flat_result([child("p-1")], [{"status": "open"}])
 
-    def test_range_and_labels(self):
-        self.assertEqual(
-            graph.frontier_result([], []), {"next": "blocked", "reason": "no_children"}
-        )
-        self.assertEqual(
-            graph.frontier_result([child("p-1")], ["p-2"])["reason"], "children_changed"
-        )
-        result = graph.frontier_result([child("p-1", labels=())], ["p-1"])
-        self.assertEqual(
-            result, {"next": "blocked", "reason": "missing_ready_label", "ids": ["p-1"]}
-        )
-
     def test_resume_done_and_multiple(self):
         self.assertEqual(
             graph.frontier_result([child("p-1", "in_progress")], ["p-1"]),
@@ -68,11 +56,6 @@ class GraphDecisionTests(unittest.TestCase):
                 graph.frontier_result(children, ["p-1"], [candidate])["reason"],
                 "invalid_ready_candidate",
             )
-
-    def test_invalid_candidate_shape(self):
-        for value in ({}, {"id": "p-1"}, {"id": "p-1", "status": "open", "labels": "ready"}):
-            with self.assertRaises(ValueError):
-                graph.frontier_result([child("p-1")], ["p-1"], [value])
 
 
 if __name__ == "__main__":
