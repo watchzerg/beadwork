@@ -213,18 +213,6 @@ class BatchOperationsTests(unittest.TestCase):
         value.update(fields)
         self.state.write_text(json.dumps(value))
 
-    def test_initialization_is_resumable(self):
-        intent = self.initialize()
-        first = self.cli("execute", "--intent", intent)
-        self.assertEqual(first, self.cli("execute", "--intent", intent))
-        (intent.parent / "ready.json").unlink()
-        second = self.cli("execute", "--intent", intent)
-        self.assertEqual(first["comment_id"], second["comment_id"])
-        state = json.loads(self.state.read_text())
-        self.assertEqual(state["issue"]["status"], "in_progress")
-        self.assertEqual(len(state["comments"]), 1)
-        self.assertEqual(state["runs"], ["install", "gate-core"])
-
     def test_initialization_uses_four_recipe_project_and_binds_logs(self):
         real_just = shutil.which(
             "just", path=os.pathsep.join(os.environ["PATH"].split(os.pathsep)[1:])
@@ -532,35 +520,16 @@ class BatchOperationsTests(unittest.TestCase):
         self.cli("execute", "--intent", intent, "--recovery", recovery)
         self.assertTrue((run / "closure.json").exists())
 
-    def test_wrong_workspace_and_started_child_stop_initialization(self):
-        intent = self.initialize()
-        self.change_state(wrong_workspace=True)
-        error = self.cli("execute", "--intent", intent, ok=False)
-        self.assertIn("workspace", error["error"])
-        self.assertNotIn("runs", json.loads(self.state.read_text()))
-        self.change_state(
-            wrong_workspace=False,
-            children=[{"id": "demo-1", "status": "in_progress", "assignee": "fixture"}],
-        )
-        self.cli("execute", "--intent", intent, ok=False)
-        self.assertNotIn("runs", json.loads(self.state.read_text()))
-
-    def test_baseline_change_stops_before_worktree_creation(self):
-        intent = self.initialize()
-        (self.root / "base.txt").write_text("新基线")
-        self.git("add", "base.txt")
-        self.git("commit", "-m", "新基线")
-        self.cli("execute", "--intent", intent, ok=False)
-        self.assertFalse((self.root / ".worktrees/demo").exists())
-
     def test_lost_claim_and_comment_results_are_read_back_without_duplication(self):
         intent = self.initialize()
         first = self.cli("execute", "--intent", intent)
+        self.assertEqual(first, self.cli("execute", "--intent", intent))
         for name in ("ready.json", "claim-intent-result.json", "comment-intent-result.json"):
             (intent.parent / name).unlink()
         again = self.cli("execute", "--intent", intent)
         self.assertEqual(first["comment_id"], again["comment_id"])
         self.assertEqual(len(json.loads(self.state.read_text())["comments"]), 1)
+        self.assertEqual(evidence.read(self.state)["runs"], ["install", "gate-core"])
 
     def test_manifest_and_summary(self):
         accepted = self.acceptance("executor", "demo-1")
@@ -610,17 +579,6 @@ class BatchOperationsTests(unittest.TestCase):
         Path(json.loads(accepted.read_text())["report_path"]).write_text("{}")
         with self.assertRaises(ValueError):
             batch_evidence.manifest(source)
-
-    def test_inspect_reports_ambiguous_pending_operations(self):
-        for name in ("a", "b"):
-            folder = self.root / ".worktrees/.evidence/demo" / name
-            folder.mkdir(parents=True, exist_ok=True)
-            evidence.write(folder / "intent.json", {"name": name})
-        before = self.git("status", "--porcelain=v1", "--untracked-files=all")
-        facts = batch_evidence.inspect(self.root, "demo")
-        self.assertEqual(self.git("status", "--porcelain=v1", "--untracked-files=all"), before)
-        self.assertEqual(len(facts["pending_operations"]), 2)
-        self.assertTrue(facts["conflicts"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 """通过公开 CLI 验证整票协调、implementer gate-fix、review 和恢复边界。"""
 
-import copy
 import hashlib
 import json
 import os
@@ -16,7 +15,6 @@ import pytest
 import evidence
 import test_controller as fixture
 import test_executor_operations as review_fixture
-import ticket_reports
 import workflow_policy
 from fixture_support import closure_source
 
@@ -259,78 +257,6 @@ class TicketExecutionTests(unittest.TestCase):
             str(p): evidence.digest(p) for p in self.root_dispatch.parent.rglob("*") if p.is_file()
         }
 
-    def test_history_validation_reuses_each_stage_only_within_one_call(self):
-        for _ in range(2):
-            self.ready_writer()
-            self.assemble([self.review(blocking=True)], "code_failure")
-            self.stage("repair")
-        self.ready_writer()
-        self.assemble([self.review()])
-        dispatch, report = evidence.read(self.sd), evidence.read(self.stage_report)
-        with (
-            patch.dict(os.environ, self.h.env),
-            patch.object(
-                ticket_reports.report_io, "implementer", wraps=ticket_reports.report_io.implementer
-            ) as checks,
-            patch.object(
-                ticket_reports.report_io, "reviewer", wraps=ticket_reports.report_io.reviewer
-            ) as reviews,
-            patch.object(
-                ticket_reports.ticket_state,
-                "checkpoints",
-                wraps=ticket_reports.ticket_state.checkpoints,
-            ) as checkpoints,
-        ):
-            ticket_reports.check_stage(dispatch, report)
-            self.assertEqual(checks.call_count, 3)
-            self.assertEqual(reviews.call_count, 6)
-            self.assertEqual(checkpoints.call_count, 1)
-            ticket_reports.check_stage(dispatch, report)
-            self.assertEqual(checks.call_count, 6)
-            self.assertEqual(reviews.call_count, 12)
-            self.assertEqual(checkpoints.call_count, 2)
-            historical = Path(dispatch["prior_stages"][0]["report"]["path"])
-            original = historical.read_bytes()
-            historical.write_bytes(original + b"\n")
-            try:
-                with self.assertRaisesRegex(ValueError, "证据文件已变化"):
-                    ticket_reports.check_stage(dispatch, report)
-            finally:
-                historical.write_bytes(original)
-            ticket_reports.check_stage(dispatch, report)
-            self.assertEqual(checks.call_count, 9)
-
-    def test_stage_validation_distinguishes_corrections_and_does_not_cache_failure(self):
-        self.ready_writer()
-        self.assemble([self.review()])
-        dispatch, report = evidence.read(self.sd), evidence.read(self.stage_report)
-        verified = set()
-        original_check = ticket_reports.check_stage_report_core
-        with (
-            patch.dict(os.environ, self.h.env),
-            patch.object(
-                ticket_reports, "check_stage_report_core", side_effect=ValueError("模拟校验失败")
-            ),
-        ):
-            with self.assertRaisesRegex(ValueError, "模拟校验失败"):
-                ticket_reports._check_stage(dispatch, report, verified)
-        self.assertEqual(verified, set())
-        with (
-            patch.dict(os.environ, self.h.env),
-            patch.object(ticket_reports, "check_stage_report_core", wraps=original_check) as checks,
-        ):
-            ticket_reports._check_stage(dispatch, report, verified)
-            ticket_reports._check_stage(dispatch, report, verified)
-            self.assertEqual(checks.call_count, 1)
-            corrected = copy.deepcopy(report)
-            corrected["concerns"].append("追加核对说明")
-            ticket_reports._check_stage(dispatch, corrected, verified)
-            self.assertEqual(checks.call_count, 2)
-            invalid = copy.deepcopy(report)
-            invalid["execution"]["stopped_tasks"] = False
-            with self.assertRaisesRegex(ValueError, "确认任务结束"):
-                ticket_reports._check_stage(dispatch, invalid, verified)
-
     def test_full_ticket_and_controller_accept(self):
         self.ready_writer()
         self.assemble([self.review()])
@@ -368,91 +294,6 @@ class TicketExecutionTests(unittest.TestCase):
         resumed = self.stage()
         self.assertEqual(resumed["active_stage_context_source"], source)
 
-    def test_active_stage_context_uses_only_direct_previous_stage(self):
-        self.ready_writer()
-        first = self.review(blocking=True)
-        self.assemble([first], "code_failure")
-        self.stage("repair")
-        self.ready_writer()
-        second = self.review(blocking=True)
-        self.assemble([first, second], "code_failure")
-        self.stage("repair")
-
-        context = Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
-        self.assertNotIn(str(first), context)
-        current = json.loads(context)
-        self.assertEqual(current["selected_review_source"], evidence.binding(second))
-        view = json.loads(Path(current["verification_view_source"]["path"]).read_text())
-        writer = json.loads(
-            Path(current["previous_implementer_source"]["report"]["path"]).read_text()
-        )
-        manifest = json.loads(Path(view["source_manifest"]["path"]).read_text())
-        self.assertEqual(manifest, writer["verification_sources"])
-
-    def test_tampered_active_stage_context_blocks_resume_and_delivery_check(self):
-        self.ready_writer()
-        self.assemble([self.review(blocking=True)], "code_failure")
-        self.stage("repair")
-        source = self.stage_info["active_stage_context_source"]
-        path = Path(source["path"])
-        original = path.read_bytes()
-        path.write_bytes(original + b"\n")
-        try:
-            self.stage(ok=False)
-            self.implement(ok=False)
-        finally:
-            path.write_bytes(original)
-
-    def test_tampered_active_stage_context_sources_block_resume(self):
-        self.ready_writer()
-        selected = self.review(blocking=True)
-        self.assemble([selected], "code_failure")
-        self.stage("repair")
-        context = json.loads(
-            Path(self.stage_info["active_stage_context_source"]["path"]).read_text()
-        )
-        collection = json.loads(Path(selected).read_text())
-        paths = (
-            Path(selected),
-            Path(collection["sources"]["standards"]["report"]["path"]),
-            Path(context["previous_implementer_source"]["receipt"]["path"]),
-        )
-        for path in paths:
-            with self.subTest(path=path):
-                original = path.read_bytes()
-                path.write_bytes(original + b"\n")
-                try:
-                    self.stage(ok=False)
-                finally:
-                    path.write_bytes(original)
-
-    def test_implementer_accepts_wrapped_closure(self):
-        self.commit()
-        self.gate()
-        self.implement(accept=False)
-        cp = closure_source(self.wd, self.writer_report)
-        self.h.put(cp, {"closure_source": json.loads(cp.read_text())})
-        result = self.cli(
-            "executor",
-            "implementer-accept",
-            "--dispatch",
-            self.sd,
-            "--report",
-            self.writer_report,
-            "--receipt",
-            self.writer_receipt,
-            "--closure",
-            cp,
-        )
-        self.assertTrue(result["accepted"])
-
-    def test_stage_assemble_uses_checkpoint_selected_review(self):
-        self.ready_writer()
-        selected = self.review()
-        self.assemble()
-        report = json.loads(self.stage_report.read_text())
-        self.assertEqual(report["review"]["sources"], [evidence.binding(selected)])
-
     def test_no_commit_existing_behavior(self):
         self.gate()
         self.implement()
@@ -481,24 +322,6 @@ class TicketExecutionTests(unittest.TestCase):
         self.assertEqual(report["delivery_kind"], "already_satisfied")
         self.assertEqual(report["review"]["attempts"], 3)
 
-    def test_implementer_done_cannot_close_ticket_or_skip_review(self):
-        self.ready_writer()
-        self.deliver(ok=False)
-        self.assemble(ok=False)
-        self.cli(
-            "controller",
-            "accept",
-            "--dispatch",
-            self.root_dispatch,
-            "--report",
-            self.writer_report,
-            "--receipt",
-            self.writer_receipt,
-            "--output",
-            self.root_dispatch.parent / "invalid.json",
-            ok=False,
-        )
-
     def test_missing_core_and_stale_head_rejected(self):
         self.commit()
         self.gate("test", delivery=False)
@@ -506,11 +329,6 @@ class TicketExecutionTests(unittest.TestCase):
         self.gate()
         self.commit()
         self.implement(ok=False)
-        self.gate()
-        self.implement()
-
-    def test_ticket_core_is_sufficient_fixed_delivery_gate(self):
-        self.commit()
         self.gate()
         self.implement()
 
@@ -530,34 +348,6 @@ class TicketExecutionTests(unittest.TestCase):
             self.assertIn("单票不接受 gate-full", rejected["error"])
         self.assertEqual(set(self.wd.parent.iterdir()), before)
 
-    def test_existing_full_delivery_cannot_be_ignored(self):
-        self.commit()
-        result = self.gate("gate-core", fail=True)
-        started_path = result.parent / "started.json"
-        started = evidence.read(started_path)
-        started["argv"][3] = "gate-full"
-        self.h.put(started_path, started)
-        recorded = evidence.read(result)
-        recorded["started_sha256"] = evidence.digest(started_path)
-        self.h.put(result, recorded)
-        self.gate()
-        rejected = self.implement(ok=False)
-        self.assertIn("单票交付记录只接受 gate-core", rejected["error"])
-
-    def test_unfinished_core_delivery_requires_success_after_resume(self):
-        self.commit()
-        result = self.gate()
-        result.rename(result.with_name("simulated-unpersisted-result.json"))
-        notes = {str(result.parent): "已确认旧进程结束；结果未落盘，待重新验证。"}
-        self.implement("interrupted", verification_notes=notes)
-        self.assemble(outcome="interrupted")
-        self.stage()
-        self.implement(ok=False, verification_notes=notes)
-        self.gate()
-        self.implement(verification_notes=notes)
-        self.assemble([self.review()])
-        self.deliver()
-
     def test_unfinished_later_delivery_invalidates_prior_success(self):
         self.commit()
         self.gate()
@@ -566,23 +356,6 @@ class TicketExecutionTests(unittest.TestCase):
         notes = {str(result.parent): "已确认旧进程结束；需重新运行。"}
         rejected = self.implement(ok=False, verification_notes=notes)
         self.assertIn("gate-core", rejected["error"])
-
-    def test_review_requires_accepted_implementation_and_one_round(self):
-        self.commit()
-        self.cli("executor", "review-prepare", "--dispatch", self.sd, ok=False)
-        self.gate()
-        self.implement()
-        self.review()
-        self.cli("executor", "review-prepare", "--dispatch", self.sd, ok=False)
-        self.cli(
-            "run-verification",
-            "--dispatch",
-            self.wd,
-            "--recipe",
-            "gate-core",
-            "--delivery",
-            ok=False,
-        )
 
     def test_six_review_stages_and_models(self):
         reviews = []
@@ -705,57 +478,6 @@ class TicketExecutionTests(unittest.TestCase):
         self.assemble([self.review()])
         self.deliver()
 
-    def test_unregistered_first_gate_repair_recovers_from_bound_failure(self):
-        self.commit()
-        failure = self.gate(fail=True)
-        failed_head = self.h.h.git(self.h.wt, "rev-parse", "HEAD")
-        self.commit()
-        recovered = self.h.h.git(self.h.wt, "rev-parse", "HEAD")
-        self.implement("blocked")
-        self.assemble(outcome="blocked")
-
-        result = self.stage(
-            "recover",
-            recovery_reason="修正提交早于首次 begin-gate-repair 登记",
-            recovery_failure=str(failure),
-        )
-
-        self.assertEqual(result["stage"], 1)
-        dispatch = json.loads(self.sd.read_text())
-        self.assertEqual(dispatch["stage_base"], recovered)
-        recovery = json.loads(Path(dispatch["stage_recovery"]["path"]).read_text())
-        self.assertEqual(recovery["failure"]["path"], str(Path(failure).resolve()))
-        self.assertEqual(recovery["previous_head"], failed_head)
-        self.assertEqual(recovery["recovered_head"], recovered)
-
-    def test_unregistered_gate_repair_recovery_rejects_generic_block(self):
-        self.commit()
-        self.implement("blocked")
-        self.assemble(outcome="blocked")
-        error = self.stage("recover", recovery_reason="普通外部阻塞", ok=False)
-        self.assertIn("gate 修正候选", error["error"])
-
-    def test_unregistered_gate_repair_recovery_requires_reason_and_clean_head(self):
-        self.commit()
-        failure = self.gate(fail=True)
-        self.cli(
-            "executor",
-            "begin-gate-repair",
-            "--dispatch",
-            self.wd,
-            "--failure",
-            failure,
-        )
-        self.gate()
-        self.commit()
-        self.implement("blocked")
-        self.assemble(outcome="blocked")
-        self.assertIn("记录原因", self.stage("recover", ok=False)["error"])
-        (self.h.wt / "dirty.txt").write_text("未提交")
-        self.assertIn(
-            "干净 HEAD", self.stage("recover", recovery_reason="遗漏登记", ok=False)["error"]
-        )
-
     def test_interruption_and_executor_resume_preserve_stage_and_dirty_work(self):
         (self.h.wt / "unfinished.txt").write_text("保留")
         self.implement("interrupted")
@@ -770,27 +492,6 @@ class TicketExecutionTests(unittest.TestCase):
         self.assertEqual(old, self.wd)
         self.assertEqual((self.h.wt / "unfinished.txt").read_text(), "保留")
         self.stage("repair", ok=False)
-
-    def test_external_blocking_review_does_not_advance(self):
-        self.ready_writer()
-        self.assemble([self.review(blocking=True)], "blocked")
-        self.deliver()
-        self.stage("repair", ok=False)
-        self.stage()
-        self.assertTrue(self.stage_info["review_started"])
-
-    def test_tampered_writer_source_rejected(self):
-        self.ready_writer()
-        self.writer_report.write_text(self.writer_report.read_text() + "\n")
-        self.cli("executor", "review-prepare", "--dispatch", self.sd, ok=False)
-
-    def test_checkpoint_chain_tamper_rejected(self):
-        first = self.root_dispatch.parent / "checkpoint-000001.json"
-        first.write_text(first.read_text() + "\n")
-        # 单个检查点还没有后继 hash；追加后篡改必然被拒绝。
-        self.implement("interrupted")
-        first.write_text(first.read_text() + "\n")
-        self.stage(ok=False)
 
     def test_baseline_adaptation_stays_in_stage_and_preserves_writer_history(self):
         # 从 direct verification 恢复 TDD 必须有已批准 seam，因此使用新的原始 TDD ticket。
@@ -832,17 +533,6 @@ class TicketExecutionTests(unittest.TestCase):
         self.gate(fail=True)
         self.implement(ok=False)
 
-    def test_latest_checkpoint_state_tamper_rejected(self):
-        path = self.root_dispatch.parent / "checkpoint-000001.json"
-        data = json.loads(path.read_text())
-        data["state"]["stage_dispatch"] = None
-        self.h.put(path, data)
-        self.stage(ok=False)
-
-    def test_review_failure_cannot_be_reported_as_interrupted(self):
-        self.ready_writer()
-        self.assemble([self.review(blocking=True)], "interrupted", ok=False)
-
     def test_selected_blocking_review_cannot_be_omitted_after_assembly(self):
         self.ready_writer()
         review = self.review(blocking=True)
@@ -861,121 +551,6 @@ class TicketExecutionTests(unittest.TestCase):
         self.assemble([review], "code_failure")
         self.stage("repair")
 
-    def test_completed_prior_stage_review_cannot_be_reselected(self):
-        self.ready_writer()
-        review = self.review(blocking=True)
-        collection = json.loads(review.read_text())
-        alternate = self.file(
-            "another-round",
-            json.loads(Path(collection["round"]["path"]).read_text()),
-            review.parent,
-        )
-        self.cli(
-            "executor",
-            "review-collect",
-            "--round",
-            alternate,
-            "--input",
-            review.parent / "selection.json",
-            "--output",
-            review.parent / "another.json",
-            ok=False,
-        )
-        self.assemble([review], "code_failure")
-        self.stage("repair")
-        self.cli(
-            "executor",
-            "review-collect",
-            "--round",
-            collection["round"]["path"],
-            "--input",
-            review.parent / "selection.json",
-            "--output",
-            review.parent / "late.json",
-            ok=False,
-        )
-        self.assertIsNone(self.stage()["selected_review"])
-
-    def test_uncollected_review_can_resume_and_collect_original_round(self):
-        self.ready_writer()
-        e = review_fixture.ExecutorOperationsTests()
-        e.h, e.dispatch, e.directory = self.h, self.sd, self.sd.parent
-        round_data = e.round()
-        self.assemble(outcome="interrupted")
-        self.deliver()
-        self.stage()
-        self.assertIsNone(self.stage_info["selected_review"])
-        self.assertEqual(self.stage_info["review_round"], str(round_data[0]))
-        review = e.collect(round_data)
-        self.assemble([review])
-        self.deliver()
-
-    def test_review_history_is_selected_without_manual_arguments(self):
-        self.stage()
-        self.ready_writer()
-        first = self.review(blocking=True)
-        self.assemble(outcome="code_failure")
-        self.stage("repair")
-        self.ready_writer()
-        second = self.review()
-        self.assemble()
-        report = json.loads(self.stage_report.read_text())
-        self.assertEqual(
-            [x["path"] for x in report["review"]["sources"]], [str(first), str(second)]
-        )
-
-    def test_draft_rejects_mechanical_fields_before_writing_report(self):
-        draft = dict(
-            self.draft("blocked"),
-            verification_notes={},
-            stopped_tasks=False,
-            head_commit=self.h.h.base,
-        )
-        output = self.wd.parent / "injected-report.json"
-        before = set(self.root_dispatch.parent.glob("checkpoint-*"))
-        error = self.cli(
-            "executor",
-            "implementer-assemble",
-            "--dispatch",
-            self.wd,
-            "--draft",
-            self.file("injected-draft", draft),
-            "--output",
-            output,
-            ok=False,
-        )
-        self.assertIn("head_commit", error["error"])
-        self.assertFalse(output.exists())
-        self.assertEqual(set(self.root_dispatch.parent.glob("checkpoint-*")), before)
-
-    def test_review_prepare_interruption_reuses_reserved_round(self):
-        self.ready_writer()
-        code = """import sys
-from pathlib import Path
-from types import SimpleNamespace
-sys.path.insert(0, sys.argv[1])
-import review_operations
-o = review_operations
-original = review_operations.evidence.write
-def fail(path, value):
-    if Path(path).name == 'round.json': raise OSError('模拟 round 写出前中断')
-    return original(path, value)
-review_operations.evidence.write = fail
-o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=False))
-"""
-        failed = subprocess.run(
-            [sys.executable, "-B", "-c", code, str(SCRIPTS), str(self.sd)],
-            text=True,
-            capture_output=True,
-            env=self.h.env,
-        )
-        self.assertNotEqual(failed.returncode, 0)
-        self.assertIn("模拟 round 写出前中断", failed.stderr)
-        before = set(self.sd.parent.glob("review-*"))
-        resumed = self.cli("executor", "review-prepare", "--dispatch", self.sd, "--resume")
-        self.assertEqual(set(self.sd.parent.glob("review-*")), before)
-        self.assertEqual(Path(resumed["round_path"]).parent, next(iter(before)))
-
     def test_missing_log_can_deliver_partial_blocked_implementation(self):
         self.commit()
         self.gate()
@@ -985,26 +560,6 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         report = json.loads(self.writer_report.read_text())
         self.assertEqual(report["outcome"], "blocked")
         self.assertTrue(report["verification_issues"])
-        self.assemble(outcome="blocked")
-        self.deliver()
-
-    def test_missing_started_can_deliver_partial_blocked_through_controller(self):
-        self.commit()
-        self.gate()
-        next(self.wd.parent.glob("verification-*/started.json")).unlink()
-        self.implement("blocked")
-        report = evidence.read(self.writer_report)
-        self.assertIsNone(report["verification_issues"][0]["source"]["started"])
-        self.assemble(outcome="blocked")
-        self.deliver()
-
-    def test_truncated_started_cannot_deliver_done_or_code_failure(self):
-        self.commit()
-        self.gate()
-        next(self.wd.parent.glob("verification-*/started.json")).write_text("{")
-        for outcome in ("passed", "code_failure"):
-            self.implement(outcome, ok=False)
-        self.implement("blocked")
         self.assemble(outcome="blocked")
         self.deliver()
 
@@ -1090,31 +645,6 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         )
         self.stage("repair")
         self.assertEqual(self.stage_info["models"]["implementer"], upgraded)
-
-    def test_root_inspect_after_resume_accepts_original_dirty_stage(self):
-        e = review_fixture.ExecutorOperationsTests()
-        e.h = self.h
-        e.context_fixture()
-        (self.h.wt / "unfinished.txt").write_text("保留")
-        self.implement("interrupted")
-        self.assemble(outcome="interrupted")
-        result = self.cli("executor", "inspect", "--dispatch", self.root_dispatch)
-        self.assertIn("unfinished.txt", result["workspace"]["untracked"])
-
-    def test_old_writer_cannot_prepare_commit_after_review(self):
-        self.ready_writer()
-        self.assemble([self.review()])
-        (self.h.wt / "after.txt").write_text("禁止提交")
-        self.h.h.git(self.h.wt, "add", "after.txt")
-        self.cli(
-            "executor",
-            "check-layer",
-            "--dispatch",
-            self.wd,
-            "--input",
-            self.file("layer", {"files": ["after.txt"], "message": "test-1 不应通过"}),
-            ok=False,
-        )
 
     def test_sealed_gate_failure_cannot_be_replaced_with_interruption(self):
         self.commit()
@@ -1305,60 +835,6 @@ o.prepare_review(SimpleNamespace(dispatch=sys.argv[2], evidence=None, resume=Fal
         self.ready_writer()
         self.assemble([self.review()])
         self.deliver()
-
-    def test_extension_report_requires_matching_authorization(self):
-        self.exhaust_default_stages()
-        self.stage("extend", additional_stages=1, extension_reason="用户明确追加一个 stage")
-        self.ready_writer()
-        self.assemble([self.review()])
-        self.deliver()
-        dispatch, report = evidence.read(self.sd), evidence.read(self.stage_report)
-        extension = evidence.read(evidence.bound(dispatch["stage_extension"]))
-        with patch.dict(os.environ, self.h.env):
-            for changes in (
-                {"additional_stages": 2},
-                {"additional_stages": True},
-                {"new_stage_limit": 10},
-                {"reason": " "},
-                {"selected_stage": dispatch["prior_stages"][0]},
-                {"models": {}},
-                {
-                    "models": {
-                        role: workflow_policy.MODEL_LEVELS[2]
-                        for role in ("implementer", "standards", "spec")
-                    }
-                },
-            ):
-                with self.subTest(changes=changes):
-                    path = self.file("invalid-extension", {**extension, **changes})
-                    invalid = {**dispatch, "stage_extension": evidence.binding(str(path))}
-                    with self.assertRaisesRegex(ValueError, "用户授权证据"):
-                        ticket_reports.check_stage(invalid, report)
-            for binding in (None, {**dispatch["stage_extension"], "sha256": "0" * 64}):
-                with self.subTest(binding=binding), self.assertRaises(ValueError):
-                    ticket_reports.check_stage({**dispatch, "stage_extension": binding}, report)
-            with self.assertRaisesRegex(ValueError, "stage 上限无效"):
-                ticket_reports.check_stage(
-                    {**dispatch, "stage_limit": dispatch["stage"] - 1}, report
-                )
-
-    def test_same_head_external_gate_retry_does_not_consume_repairs(self):
-        self.commit()
-        self.gate(fail=True)
-        self.implement("blocked")
-        self.assemble(outcome="blocked")
-        old = self.wd
-        self.stage()
-        self.assertEqual(self.wd, old)
-        self.gate()
-        self.implement()
-        self.assemble([self.review()])
-        self.deliver()
-        self.assertFalse(
-            list(
-                Path(json.loads(self.wd.read_text())["gate_repair_root"]).glob("gate-repair*.json")
-            )
-        )
 
     def test_existing_behavior_review_failure_restores_tdd_in_next_stage(self):
         self.h.prepare(

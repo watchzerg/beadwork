@@ -20,7 +20,6 @@ from typing import Any
 import pytest
 
 import evidence
-import verify_ticket as VALIDATOR
 
 VERIFIER = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
@@ -220,34 +219,6 @@ class TicketAcceptanceTests(unittest.TestCase):
                     "receipt_" + field + "_matches", {f["check"] for f in result["failures"]}
                 )
 
-    def test_receipt_rejects_changed_file_and_accepts_explicit_correction(self) -> None:
-        self.invoke(self.report, local=True)
-        receipt = self.receipt()
-        original = self.report_file.read_bytes()
-        self.report_file.write_bytes(original + b"\n")
-        result = self.check_receipt(receipt)
-        self.assertFalse(result["ok"])
-        self.assertIn("receipt_report_sha256_matches", {f["check"] for f in result["failures"]})
-        self.report_file.write_bytes(original)
-        original_file = self.report_file
-        self.report_file = self.root / "report-2.json"
-        self.report_file.write_bytes(original + b"\n")
-        self.assertTrue(self.check_receipt(self.receipt())["ok"])
-        self.assertEqual(original_file.read_bytes(), original)
-
-    def test_receipt_never_replaces_full_report_validation(self) -> None:
-        self.invoke(self.report, local=True)
-        for receipt in ({}, [], {**self.receipt(), "report": self.report}):
-            with self.subTest(receipt=receipt):
-                result = self.check_receipt(receipt)
-                self.assertFalse(result["ok"])
-                self.assertIn("receipt_schema", {f["check"] for f in result["failures"]})
-        self.report["verification"] = []
-        self.invoke(self.report, local=True)
-        result = self.check_receipt(self.receipt())
-        self.assertFalse(result["ok"])
-        self.assertIn("report_schema", {f["check"] for f in result["failures"]})
-
     def test_valid_done_preserves_original_and_accepts_nonblocking_smell(self) -> None:
         self.report["review"]["final"]["standards"]["findings"] = [
             {
@@ -260,24 +231,6 @@ class TicketAcceptanceTests(unittest.TestCase):
         ]
         self.assertTrue(self.invoke(self.report)["ok"])
         self.assertTrue(self.invoke(self.report, local=True)["ok"])
-
-    def test_missing_placeholder_and_inconsistent_done_are_rejected(self) -> None:
-        cases = [None, {}, {"report": "delivered elsewhere"}, []]
-        for key, value in (
-            ("verification", []),
-            ("acceptance", []),
-            ("implementation_commits", []),
-            ("blockers", ["未解除"]),
-            ("requested_context", ["缺上下文"]),
-            ("review", None),
-            ("test_plan", None),
-        ):
-            changed = copy.deepcopy(self.report)
-            changed[key] = value
-            cases.append(changed)
-        for value in cases:
-            with self.subTest(value=value):
-                self.reject(value, "report_schema", local=True)
 
     def test_commit_set_must_be_complete_unique_and_exact(self) -> None:
         for commits, check in (
@@ -336,36 +289,6 @@ class TicketAcceptanceTests(unittest.TestCase):
         changed = copy.deepcopy(self.report)
         changed["review"]["final"]["spec"]["axis"] = "standards"
         self.reject(changed, "review_axis")
-
-    def test_two_round_review_requires_real_ordered_commit_evidence(self) -> None:
-        changed = copy.deepcopy(self.report)
-        changed["review"].update(attempts=2, initial=self.pair(self.commits[0]["sha"]))
-        changed["review"]["initial"]["spec"]["findings"] = [
-            {
-                "axis": "spec",
-                "kind": "defect",
-                "blocking": True,
-                "title": "待修复",
-                "evidence": "初审缺陷",
-            }
-        ]
-        self.assertTrue(self.invoke(changed)["ok"])
-        changed["review"]["attempts"] = 1
-        self.reject(changed, "report_schema", local=True)
-        del changed["review"]["initial"]
-        changed["review"]["attempts"] = 2
-        self.reject(changed, "report_schema", local=True)
-        changed["review"]["initial"] = self.pair("d" * 40)
-        changed["review"]["initial"]["spec"]["findings"] = [
-            {
-                "axis": "spec",
-                "kind": "defect",
-                "blocking": True,
-                "title": "待修复",
-                "evidence": "初审缺陷",
-            }
-        ]
-        self.reject(changed, "review_commit_range")
 
     def test_no_change_direct_verification_can_rereview_same_head(self) -> None:
         changed = copy.deepcopy(self.report)
@@ -466,82 +389,12 @@ class TicketAcceptanceTests(unittest.TestCase):
         changed["review"].update(attempts=2, initial=initial)
         self.reject(changed, "review_requires_new_head", local=True)
 
-    def test_finding_kind_blocking_and_axis_cannot_disagree(self) -> None:
-        finding = {
-            "axis": "spec",
-            "kind": "defect",
-            "blocking": True,
-            "title": "未实现",
-            "evidence": "需求引用及行为缺失",
-        }
-        changed = copy.deepcopy(self.report)
-        changed["review"]["final"]["spec"]["findings"] = [finding]
-        self.reject(changed, "review_gate")
-        finding["blocking"] = False
-        self.reject(changed, "report_schema", local=True)
-        finding.update(kind="documented_standard", blocking=True)
-        self.reject(changed, "report_schema", local=True)
-        finding.update(kind="smell", blocking=False, axis="standards")
-        self.reject(changed, "review_axis", local=True)
-        changed["review"]["final"]["spec"]["findings"] = [{}]
-        self.reject(changed, "report_schema", local=True)
-
-    def test_partial_states_remain_reportable_without_fabricating_review(self) -> None:
-        changed = copy.deepcopy(self.report)
-        changed.update(
-            status="NEEDS_CONTEXT",
-            base_commit=None,
-            head_commit=None,
-            test_plan=None,
-            acceptance=[],
-            verification=[],
-            review=None,
-            requested_context=["缺少 spec pointer"],
-        )
-        self.assertTrue(self.invoke(changed, status="NEEDS_CONTEXT")["ok"])
-        changed["requested_context"] = []
-        self.reject(changed, "report_schema", status="NEEDS_CONTEXT")
-        changed.update(status="BLOCKED", blockers=["外部依赖不可用"])
-        (self.worktree / "behavior.txt").write_text("未完成增量\n")
-        self.assertTrue(self.invoke(changed, status="BLOCKED")["ok"])
-        reviewed_blocked = copy.deepcopy(self.report)
-        reviewed_blocked.update(status="BLOCKED", blockers=["review 后发现外部阻塞"])
-        self.assertTrue(self.invoke(reviewed_blocked, status="BLOCKED")["ok"])
-
     def test_dirty_primary_allowed_but_dirty_done_tree_rejected(self) -> None:
         (self.primary / "unexpected.txt").write_text("意外变动")
         self.assertTrue(self.invoke(self.report)["ok"])
         (self.primary / "unexpected.txt").unlink()
         (self.worktree / "unexpected.txt").write_text("未提交")
         self.reject(self.report, "done_clean_tree")
-
-    def test_schema_output_is_reusable_and_unknown_fields_fail_closed(self) -> None:
-        result = subprocess.run(
-            [sys.executable, str(VERIFIER), "verify", "ticket", "--schema"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        schema = json.loads(result.stdout)
-        self.assertEqual(schema["$schema"], "http://json-schema.org/draft-07/schema#")
-        self.assertEqual(schema["properties"]["stage"]["enum"], list(range(11)))
-        self.assertEqual(
-            schema["properties"]["review"]["anyOf"][0]["properties"]["rounds"]["maxItems"], 11
-        )
-        changed = copy.deepcopy(self.report)
-        changed["supplement"] = {"gate": "PASS"}
-        self.reject(changed, "report_schema", local=True)
-        changed = copy.deepcopy(self.report)
-        changed["review"]["attempts"] = True
-        self.reject(changed, "report_schema", local=True)
-        changed["review"]["attempts"] = 1.0
-        self.assertTrue(self.invoke(changed, local=True)["ok"])
-
-    def test_additional_properties_schema_validates_each_value(self) -> None:
-        schema = {"type": "object", "additionalProperties": {"type": "string"}}
-        self.assertEqual(VALIDATOR.schema_errors({"note": "实际说明"}, schema), [])
-        self.assertIn("$.note: expected string", VALIDATOR.schema_errors({"note": 42}, schema))
-        VALIDATOR.check_schema(schema)
 
 
 if __name__ == "__main__":

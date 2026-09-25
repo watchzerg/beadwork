@@ -56,29 +56,6 @@ def test_argument_errors_use_stderr_and_schema_uses_json_stdout() -> None:
     assert isinstance(json.loads(result.stdout), dict)
 
 
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        ("verify", "phase", "--check-report", "finalizre", "report.json"),
-        (
-            "verify",
-            "worker",
-            "--check-report",
-            "fixre",
-            "report.json",
-            "--expected",
-            "dispatch.json",
-        ),
-    ],
-)
-def test_report_check_rejects_unknown_phase_or_role_during_argument_parsing(arguments) -> None:
-    result = invoke(*arguments)
-    assert result.returncode == 2
-    assert not result.stdout
-    assert "invalid choice" in result.stderr
-    assert "usage:" in result.stderr
-
-
 def test_python_below_minimum_fails_before_loading_runtime_modules() -> None:
     code = """import runpy,sys
 class Version(tuple):

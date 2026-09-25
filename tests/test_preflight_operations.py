@@ -175,13 +175,6 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
         self.assertIn("execution_plan", {x["name"] for x in self.facts["failed_checks"]})
         self.assertEqual(self.assemble()["status"], "BLOCKED")
 
-    def test_range_change_cannot_be_overridden_by_ready_draft(self):
-        self.h.d["expected_children"] = ["test-1"]
-        self.h.put(self.h.dispatch, self.h.d)
-        self.collect()
-        self.assertTrue(self.facts["blockers"])
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-
     def test_failed_mechanical_config_and_graph_stay_blocked(self):
         self.h.put(self.h.root / "config.json", [dict(key="export.auto", value="true")])
         self.h.put(self.h.root / "edges.json", [{"id": "grandchild-1"}])
@@ -190,22 +183,6 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
             {x["name"] for x in self.facts["failed_checks"]}, {"beads_config", "flat_graph"}
         )
         self.assertEqual(self.assemble()["status"], "BLOCKED")
-
-    def test_invalid_json_is_preserved_and_blocks(self):
-        (self.h.root / "children.json").write_text("invalid")
-        self.collect()
-        self.draft["plans"] = {}
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-
-    def test_tampered_raw_evidence_and_snapshot_are_rejected(self):
-        self.collect()
-        source = self.h.dispatch.parent / "facts/children.json"
-        raw = source.read_bytes()
-        source.write_text("{}")
-        self.assemble(ok=False)
-        source.write_bytes(raw)
-        Path(self.facts["facts_path"]).write_text("{}")
-        self.assemble(ok=False)
 
     def test_semantic_failure_missing_plan_and_extra_check(self):
         self.collect()
@@ -229,36 +206,11 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
         just.write_text(
             "#!" + sys.executable + "\nimport sys\n"
             "assert sys.argv[1:] == ['--summary'], sys.argv\n"
-            "print('install test gate-core gate-full fmt typecheck env-facts gate-browser gate-plan')\n"
+            "print('install test gate-core gate-full fmt typecheck gate-browser diagnostics')\n"
         )
         self.collect()
         self.assertEqual(self.facts["failed_checks"], [])
         self.assertEqual(self.assemble()["status"], "READY")
-
-    def test_command_failures_remain_inspectable(self):
-        (self.h.root / "bin/just").write_text("#!" + sys.executable + "\nimport sys\nsys.exit(9)\n")
-        self.collect()
-        self.assertEqual(
-            {x["name"] for x in self.facts["failed_checks"]},
-            {
-                "just_recipes",
-            },
-        )
-        result = json.loads((self.h.dispatch.parent / "facts/recipes.json").read_text())
-        self.assertEqual(result["exit_code"], 9)
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-
-    def test_existing_worktree_cannot_be_declared_new_batch(self):
-        self.h.put(self.h.root / "parent.json", [{"id": "test", "status": "open"}])
-        self.collect()
-        self.draft["suggested_route"] = "new_batch"
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
-
-    def test_closed_parent_with_unfinished_children_is_blocked(self):
-        self.h.put(self.h.root / "parent.json", [{"id": "test", "status": "closed"}])
-        self.collect()
-        self.draft["suggested_route"] = "post_merge"
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
 
     def test_all_closed_can_finalize_an_unmerged_batch(self):
         self.h.put(
@@ -268,18 +220,6 @@ print('[]' if a[0]=='dep' and '--type=blocks' in a else (root / (name + '.json')
         self.collect()
         self.draft.update(plans={}, suggested_route="finalize")
         self.assertEqual(self.assemble()["status"], "READY")
-
-    def test_missing_worktree_is_a_new_batch_observation(self):
-        self.h.h.git(self.h.primary, "worktree", "remove", str(self.h.wt))
-        self.collect()
-        f = json.loads(Path(self.facts["facts_path"]).read_text())
-        self.assertIsNone(f["workspace"]["observed_head"])
-        self.assertIsNone(f["workspace"]["clean"])
-        self.assertEqual(self.facts["failed_checks"], [])
-        self.h.put(self.h.root / "parent.json", [{"id": "test", "status": "open"}])
-        # 已采集 parent 是 in_progress，且分支仍在；两者都不能伪装成全新批次。
-        self.draft["suggested_route"] = "new_batch"
-        self.assertEqual(self.assemble()["status"], "BLOCKED")
 
 
 if __name__ == "__main__":

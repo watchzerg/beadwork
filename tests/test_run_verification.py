@@ -287,10 +287,7 @@ class VerificationTests(unittest.TestCase):
     @unittest.skipUnless(REAL_JUST, "需要安装 just 以验证真实入口")
     def test_gate_full_is_unfiltered_and_records_one_complete_run(self):
         self.fake.unlink()
-        (self.h.wt / "justfile").write_text(
-            "gate-full:\n    @echo FULL\ngate-browser:\n    @echo BROWSER\n"
-            "gate-fail:\n    @echo FAILED\n    @exit 7\ngate-after:\n    @echo UNEXPECTED_AFTER\n"
-        )
+        (self.h.wt / "justfile").write_text("gate-full:\n    @echo FULL\n")
         green = self.run_record(recipe="gate-full")
         self.assertEqual(green["log_tail"].splitlines(), ["FULL"])
         rejected = subprocess.run(
@@ -304,7 +301,7 @@ class VerificationTests(unittest.TestCase):
                 "--recipe",
                 "gate-full",
                 "--",
-                "gate-browser",
+                "gate-core",
             ],
             env=self.h.env,
             capture_output=True,

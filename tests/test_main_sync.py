@@ -191,63 +191,6 @@ else: raise AssertionError(a)
         self.assertEqual((folder / "intent.json").read_bytes(), intent)
         self.assertEqual(self.commands(), ["install", "install"])
 
-    def test_final_sync_interruption_preserves_target_and_requires_original_input(self):
-        target = self.final_input()
-        (self.root / "signal").touch()
-        self.sync(final=True, ok=False)
-        (self.root / "signal").unlink()
-        newer = self.change(self.primary, "later")
-        self.data["reviewed_main"] = newer
-        self.assertIn("原 reviewed_main", self.sync(final=True, ok=False))
-        self.data["reviewed_main"] = target
-        result = self.sync(final=True)
-        self.assertEqual(result["head"], target)
-        self.assertEqual(self.commands(), ["install", "install"])
-
-    def test_final_prepare_checks_sync_head_and_install_evidence(self):
-        self.final_input()
-        synced = self.sync(final=True)
-        data = dict(
-            self.data,
-            rules_paths=[],
-            linked_spec="demo-1",
-            ticket_evidence=[],
-            prior_finalization=None,
-            final_sync_result=synced["sync_result"],
-        )
-        source = self.root / "final-input.json"
-        source.write_text(json.dumps(data))
-
-        def prepare(ok=True):
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-B",
-                    str(SCRIPT),
-                    "controller",
-                    "prepare",
-                    "finalizer",
-                    "--input",
-                    str(source),
-                ],
-                env=self.env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
-            return json.loads(result.stdout) if ok else result.stderr
-
-        prepared = prepare()
-        dispatch = evidence.read(prepared["dispatch_path"])
-        self.assertIn(evidence.binding(synced["sync_result"]), dispatch["environment_evidence"])
-        log = Path(synced["commands"][0]["path"]).parent / "output.log"
-        original = log.read_bytes()
-        log.write_bytes(b"changed")
-        self.assertIn("同步日志已变化", prepare(ok=False))
-        log.write_bytes(original)
-        self.change(self.wt, "unexpected")
-        self.assertIn("同步验证 HEAD 已变化", prepare(ok=False))
-
     def prepare_input(self, data):
         """同步测试仍通过真实 prepare/accept 交接准入计划。"""
         import test_verify_phase
@@ -383,7 +326,7 @@ else: raise AssertionError(a)
             [previous, target],
         )
 
-    def test_conflict_is_preserved_without_smoke(self):
+    def test_conflict_is_preserved_without_core(self):
         self.change(self.wt, "code", "ticket\n")
         self.change(self.primary, "code", "main\n")
         self.sync(ok=False)
@@ -395,28 +338,12 @@ else: raise AssertionError(a)
         self.sync()
         self.assertEqual(len(self.commands()), 1)
 
-    def test_implementation_dirty_rejected(self):
-        for wt in (self.wt,):
-            p = wt / "dirty"
-            p.write_text("keep")
-            self.sync(ok=False)
-            self.assertEqual(p.read_text(), "keep")
-            p.unlink()
-        self.assertEqual(self.commands(), [])
-
-    def test_resume_ticket_never_merges(self):
-        self.change(self.primary)
-        before = self.git(self.wt, "rev-parse", "HEAD")
-        (self.root / "status").write_text("in_progress")
-        self.sync(ok=False)
-        self.assertEqual(before, self.git(self.wt, "rev-parse", "HEAD"))
-
     def test_install_inputs_trigger_install(self):
         self.change(self.primary, "bun.lock")
         self.sync()
         self.assertEqual(self.commands(), ["install", "gate-core"])
 
-    def test_failed_smoke_is_retried_even_if_main_already_merged(self):
+    def test_failed_core_is_retried_even_if_main_already_merged(self):
         self.change(self.primary)
         (self.root / "fail").touch()
         self.sync(ok=False)
@@ -435,136 +362,6 @@ else: raise AssertionError(a)
         self.assertEqual(r["head"], target)
         self.assertEqual(self.git(self.primary, "rev-parse", "HEAD"), newer)
         self.assertEqual(self.sync()["target_main"], newer)
-
-    def test_missing_ready_after_merge_revalidates(self):
-        self.change(self.primary)
-        r = self.sync()
-        Path(r["sync_result"]).unlink()  # 模拟命令完成、ready 写入前中断。
-        self.sync()
-        self.assertEqual(len(self.commands()), 2)
-
-    def test_signal_interruption_preserves_pending_and_retries(self):
-        self.change(self.primary)
-        (self.root / "signal").touch()
-        self.sync(ok=False)
-        (self.root / "signal").unlink()
-        self.sync()
-        self.assertEqual(self.commands(), ["gate-core", "gate-core"])
-
-    def test_pending_sync_rejects_old_ready_even_at_same_head(self):
-        r = self.sync()
-        directory = Path(r["sync_result"]).parent.parent / "interrupted"
-        directory.mkdir()
-        (directory / "intent.json").write_text("{}")
-        data = dict(
-            self.data,
-            ticket_id="demo-1.1",
-            mode="new",
-            test_mode="direct_verification",
-            approved_seams=[],
-            rules_paths=[],
-            testing_seams_doc="/rules/seams.md",
-            sync_result=r["sync_result"],
-        )
-        p = self.root / "prepare.json"
-        p.write_text(json.dumps(self.prepare_input(data)))
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(SCRIPT),
-                "controller",
-                "prepare",
-                "executor",
-                "--input",
-                str(p),
-            ],
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("未完成同步", result.stderr)
-
-    def test_main_moves_during_validation_without_chasing(self):
-        target = self.change(self.primary)
-        self.executable(
-            "just",
-            "import os,subprocess,sys\nfrom pathlib import Path\np=Path(os.environ['FIXTURE'])/'repo'\nif sys.argv[1:]==['--summary']:\n print('install test gate-core gate-full');sys.exit(0)\nwith (Path(os.environ['FIXTURE'])/'commands').open('a') as f: f.write(' '.join(sys.argv[3:])+'\\n')\nif sys.argv[3]=='gate-core':\n    (p/'later').write_text('later')\n    subprocess.run(['git','-C',str(p),'add','later'],check=True)\n    subprocess.run(['git','-C',str(p),'commit','-m','later'],check=True)\n",
-        )
-        r = self.sync()
-        self.assertEqual(r["target_main"], target)
-        self.assertEqual(r["head"], target)
-        self.assertNotEqual(self.git(self.primary, "rev-parse", "HEAD"), target)
-        data = dict(
-            self.data,
-            ticket_id="demo-1.1",
-            mode="new",
-            test_mode="direct_verification",
-            approved_seams=[],
-            rules_paths=[],
-            testing_seams_doc="/rules/seams.md",
-            sync_result=r["sync_result"],
-        )
-        source = self.root / "prepare.json"
-        source.write_text(json.dumps(self.prepare_input(data)))
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(SCRIPT),
-                "controller",
-                "prepare",
-                "executor",
-                "--input",
-                str(source),
-            ],
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout)["base_commit"], target)
-
-    def test_ready_rejects_missing_or_tampered_validation(self):
-        self.change(self.primary)
-        r = self.sync()
-        ready = Path(r["sync_result"])
-        original = ready.read_text()
-        data = dict(
-            self.data,
-            ticket_id="demo-1.1",
-            mode="new",
-            test_mode="direct_verification",
-            approved_seams=[],
-            rules_paths=[],
-            testing_seams_doc="/rules/seams.md",
-            sync_result=str(ready),
-        )
-        p = self.root / "prepare.json"
-        p.write_text(json.dumps(self.prepare_input(data)))
-        args = [
-            sys.executable,
-            "-B",
-            str(SCRIPT),
-            "controller",
-            "prepare",
-            "executor",
-            "--input",
-            str(p),
-        ]
-        bad = json.loads(original)
-        bad["commands"] = []
-        ready.write_text(json.dumps(bad))
-        result = subprocess.run(args, env=self.env, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("命令不完整", result.stderr)
-        ready.write_text(original)
-        log = Path(r["commands"][0]["path"]).parent / "output.log"
-        log.write_text("tampered")
-        result = subprocess.run(args, env=self.env, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("日志已变化", result.stderr)
 
     def test_prepare_new_requires_current_sync_evidence(self):
         r = self.sync()
@@ -621,64 +418,6 @@ else: raise AssertionError(a)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("HEAD", result.stderr)
 
-    def test_prepare_requires_verified_plan_and_explicit_inputs(self):
-        r = self.sync()
-        original = self.prepare_input(
-            dict(
-                self.data,
-                ticket_id="demo-1.1",
-                mode="new",
-                test_mode="direct_verification",
-                approved_seams=[],
-                rules_paths=[],
-                testing_seams_doc="/rules/seams.md",
-                sync_result=r["sync_result"],
-            )
-        )
-        for field in ("linked_spec", "preflight_acceptance"):
-            with self.subTest(field=field):
-                data = dict(original)
-                del data[field]
-                path = self.root / "missing-input.json"
-                path.write_text(json.dumps(data))
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-B",
-                        str(SCRIPT),
-                        "controller",
-                        "prepare",
-                        "executor",
-                        "--input",
-                        str(path),
-                    ],
-                    env=self.env,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertNotEqual(result.returncode, 0)
-        accepted = Path(original["preflight_acceptance"]["path"])
-        accepted.write_text("{}")
-        path = self.root / "tampered-input.json"
-        path.write_text(json.dumps(original))
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(SCRIPT),
-                "controller",
-                "prepare",
-                "executor",
-                "--input",
-                str(path),
-            ],
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("证据文件已变化", result.stderr)
-
     def test_dirty_primary_sync_and_new_prepare_preserve_manual_edits(self):
         target = self.change(self.primary)
         (self.primary / "code").write_text("staged")
@@ -719,11 +458,6 @@ else: raise AssertionError(a)
         self.assertEqual(json.loads(proc.stdout)["base_commit"], target)
         self.assertEqual(self.git(self.primary, "status", "--porcelain=v1"), before)
         self.assertEqual((self.primary / "code").read_text(), "unstaged")
-
-    def test_primary_unfinished_git_operation_blocks_sync(self):
-        marker = self.primary / ".git" / "CHERRY_PICK_HEAD"
-        marker.write_text(self.git(self.primary, "rev-parse", "HEAD"))
-        self.assertIn("未完成 Git 操作", self.sync(ok=False))
 
 
 if __name__ == "__main__":

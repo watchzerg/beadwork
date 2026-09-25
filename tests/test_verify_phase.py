@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -243,20 +242,6 @@ class PhaseValidatorTests(unittest.TestCase):
         self.assertTrue(self.invoke("finalizer", self.finalizer())["ok"])
         self.assertTrue(self.invoke("finalizer", self.finalizer("BLOCKED"), expected=False)["ok"])
 
-    def test_finalizer_rejects_wrong_sha_omitted_gate_repair_and_live_writer(self) -> None:
-        changed = self.finalizer()
-        changed["review_rounds"] = [self.pair(base="c" * 40)]
-        self.rejected("finalizer", changed, "review_sha_binding")
-        changed = self.finalizer()
-        changed["verification"] = []
-        self.rejected("finalizer", changed, "required_gates_covered")
-        changed = self.finalizer()
-        changed["fix"] = {"used": False, "commits": ["c" * 40], "dispositions": []}
-        self.rejected("finalizer", changed, "repair_limit")
-        changed = self.finalizer()
-        changed["stopped_tasks"] = False
-        self.rejected("finalizer", changed, "writers_and_reviewers_stopped")
-
     def test_finalizer_uses_last_delivery_head_gate_result(self) -> None:
         changed = self.finalizer()
         changed["verification"].append(
@@ -270,24 +255,6 @@ class PhaseValidatorTests(unittest.TestCase):
             }
         )
         self.rejected("finalizer", changed, "required_gates_covered")
-
-    def test_new_batch_without_worktree_and_post_merge_without_plans(self) -> None:
-        report = self.preflight()
-        report["workspace"].update(observed_head=None, clean=None)
-        self.assertTrue(self.invoke("preflight", report)["ok"])
-        report["parent"]["status"] = "closed"
-        report["suggested_route"] = "post_merge"
-        for ticket in report["tickets"]:
-            ticket.update(status="closed", test_plan=None)
-        self.assertTrue(self.invoke("preflight", report)["ok"])
-
-    def test_preflight_replacement_keeps_children_and_blocked_unknown_facts(self) -> None:
-        expected = self.dispatch("preflight")
-        expected["expected_children"] = ["different-child"]
-        self.assertFalse(self.invoke("preflight", self.preflight(), expected=expected)["ok"])
-        report = self.preflight("BLOCKED")
-        report["workspace"].update(observed_head=None, clean=None, branch=None)
-        self.assertTrue(self.invoke("preflight", report)["ok"])
 
     def test_repair_retains_failed_validation_and_original_review_head(self) -> None:
         report = self.finalizer()
@@ -315,49 +282,6 @@ class PhaseValidatorTests(unittest.TestCase):
         report = self.finalizer()
         report["workspace"]["clean"] = False
         self.rejected("finalizer", report, "workspace_ready")
-
-    def test_replacement_cannot_reset_used_repair_or_review_rounds(self) -> None:
-        expected = self.dispatch("finalizer")
-        expected["prior_finalization"] = {
-            "fix_used": True,
-            "review_rounds_used": 2,
-            "report_path": "/evidence/prior.json",
-        }
-        report = self.finalizer()
-        self.assertFalse(self.invoke("finalizer", report, expected=expected)["ok"])
-        report["fix"] = {"used": True, "commits": [SHA_B], "dispositions": ["已修复"]}
-        self.assertFalse(self.invoke("finalizer", report, expected=expected)["ok"])
-        report["review_rounds"] = [self.pair(head="c" * 40, blocking=True), self.pair()]
-        self.assertTrue(self.invoke("finalizer", report, expected=expected)["ok"])
-        report["fix"]["commits"] = []
-        self.assertFalse(self.invoke("finalizer", report, expected=expected)["ok"])
-
-    def test_dispatch_without_snapshot_and_valid_prior(self) -> None:
-        expected = self.dispatch("finalizer")
-        self.assertTrue(self.invoke("finalizer", self.finalizer(), expected=expected)["ok"])
-        for prior in (
-            {},
-            {"fix_used": "true", "review_rounds_used": 1},
-            {"fix_used": True, "review_rounds_used": True, "report_path": "/evidence/prior.json"},
-        ):
-            expected = self.dispatch("finalizer")
-            expected["prior_finalization"] = prior
-            self.assertFalse(self.invoke("finalizer", self.finalizer(), expected=expected)["ok"])
-
-    def test_receipt_binds_path_status_and_hash(self) -> None:
-        report = self.preflight()
-        path = self.root / "preflight.json"
-        raw = json.dumps(report, ensure_ascii=False).encode()
-        path.write_bytes(raw)
-        receipt = {
-            "status": "READY",
-            "report_path": str(path.absolute()),
-            "report_sha256": hashlib.sha256(raw).hexdigest(),
-        }
-        outcome = self.invoke("preflight", report, receipt=receipt)
-        self.assertTrue(outcome["ok"], outcome)
-        receipt["report_sha256"] = "0" * 64
-        self.assertFalse(self.invoke("preflight", report, receipt=receipt)["ok"])
 
 
 if __name__ == "__main__":

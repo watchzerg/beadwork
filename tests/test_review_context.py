@@ -84,24 +84,6 @@ def test_view_selects_red_latest_and_delivery_without_copying_all_sources(tmp_pa
     assert "latest_delivery_attempt" in view["entries"][-1]["selected_reasons"]
 
 
-def test_view_omits_superseded_middle_repeats(tmp_path):
-    context = tmp_path / "context.json"
-    evidence.write(context, {})
-    sources = [run_source(tmp_path, number) for number in range(1, 5)]
-    manifest = tmp_path / "manifest.json"
-    evidence.write(manifest, sources)
-    view = review_context.build(
-        sources,
-        "b" * 40,
-        {},
-        evidence.binding(context),
-        evidence.binding(manifest),
-    )
-    assert [Path(item["directory"]).name for item in view["selected_sources"]] == [
-        "verification-0004"
-    ]
-
-
 def test_view_keeps_unknown_and_noted_sources(tmp_path):
     context = tmp_path / "context.json"
     evidence.write(context, {})

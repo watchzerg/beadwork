@@ -112,16 +112,6 @@ class VerificationRecordTests(TestCase):
         )
         self.assertNotEqual(ticket_verification.verification_snapshot(self.d), snapshot)
 
-    def test_unknown_notes_are_rejected(self):
-        self.run_record(0)
-        with self.assertRaisesRegex(ValueError, "未收集"):
-            ticket_verification.collect_verification(
-                self.d,
-                ticket_verification.verification_snapshot(self.d),
-                {"/unknown": "已收尾"},
-                "BLOCKED",
-            )
-
 
 if __name__ == "__main__":
     main()

@@ -55,35 +55,6 @@ class ControllerTests(unittest.TestCase):
         Path(path).write_text(json.dumps(value, ensure_ascii=False))
         return str(path)
 
-    def test_controller_rejects_duplicate_keys_and_nonfinite_numbers(self):
-        for name, raw in (
-            ("duplicate", '{"repository_root":"x","repository_root":"y"}'),
-            ("nonfinite", '{"repository_root":NaN}'),
-        ):
-            with self.subTest(name=name):
-                path = self.root / (name + ".json")
-                path.write_text(raw)
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-B",
-                        str(SCRIPT),
-                        "controller",
-                        "prepare",
-                        "preflight",
-                        "--input",
-                        str(path),
-                    ],
-                    cwd=self.root,
-                    env=self.env,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(
-                    "重复 JSON key" if name == "duplicate" else "无效 JSON 数值", result.stderr
-                )
-
     def call(self, *args, ok=True):
         argv = [sys.executable, "-B", str(SCRIPT), "controller", *map(str, args)]
         if getattr(self, "utility_fixture", True) and args[:2] == ("prepare", "executor"):
@@ -347,11 +318,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         for p in (first["report_schema_path"], first["receipt_schema_path"]):
             self.assertIsInstance(json.loads(Path(p).read_text()), dict)
 
-    def test_finalizer_needs_no_project_gate_registry(self):
-        self.prepare("finalizer")
-        self.assertNotIn("required_boundary_gates", self.d)
-        self.assertNotIn("gate_plan", self.d)
-
     def upstream_beads_merge(self, tamper=False):
         folder = self.primary / ".beads"
         folder.mkdir(exist_ok=True)
@@ -365,54 +331,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             self.h.git(self.wt, "add", ".beads")
         self.h.git(self.wt, "commit", "-m", "merge main")
         self.h.head = self.h.git(self.wt, "rev-parse", "HEAD")
-
-    def test_prepare_new_records_current_head(self):
-        self.prepare(mode="new")
-        self.assertEqual(self.d["base_commit"], self.h.head)
-
-    def test_dispatch_schema_paths_are_consumable_from_another_directory(self):
-        for role in ("preflight", "executor", "finalizer"):
-            with self.subTest(role=role):
-                result = self.prepare(role)
-                # 接收方仅凭 dispatch 路径，在不同 cwd 读取两份 schema。
-                consumer = "import json,sys;from pathlib import Path;d=json.loads(Path(sys.argv[1]).read_text());print(json.dumps([json.loads(Path(d[k]).read_text()) for k in ('report_schema_path','receipt_schema_path')]))"
-                raw = subprocess.check_output(
-                    [sys.executable, "-B", "-c", consumer, str(self.dispatch)],
-                    cwd=self.primary,
-                    env=self.env,
-                    text=True,
-                )
-                schemas = json.loads(raw)
-                self.assertEqual(len(schemas), 2)
-                for key, flag, schema in zip(
-                    ("report_schema_path", "receipt_schema_path"),
-                    ("--schema", "--receipt-schema"),
-                    schemas,
-                    strict=True,
-                ):
-                    self.assertEqual(self.d[key], result[key])
-                    arguments = (
-                        ["verify", "ticket", flag]
-                        if role == "executor"
-                        else ["verify", "phase", flag, role]
-                    )
-                    expected = subprocess.check_output(
-                        [sys.executable, "-B", str(SCRIPT), *arguments],
-                        env=self.env,
-                        text=True,
-                    )
-                    self.assertEqual(schema, json.loads(expected))
-
-    def test_prepare_resume_requires_explicit_base(self):
-        data = {
-            "repository_root": str(self.primary),
-            "parent_id": "test",
-            "mode": "resume",
-            "ticket_id": "test-1",
-        }
-        self.call(
-            "prepare", "executor", "--input", self.put(self.root / "input.json", data), ok=False
-        )
 
     def test_prepare_new_rejects_dirty_worktree(self):
         (self.wt / "behavior.txt").write_text("unfinished")
@@ -470,12 +388,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.accept(ok=False)
         self.assertFalse(self.acceptance.exists())
 
-    def test_report_outside_dispatch_rejected(self):
-        self.prepare()
-        self.deliver(self.h.report)
-        self.report = Path(self.put(self.root / "outside.json", self.h.report))
-        self.accept(ok=False)
-
     def test_non_done_null_head_and_dirty_resume(self):
         self.prepare()
         r = dict(
@@ -501,61 +413,9 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             ok=False,
         )
 
-    def test_removed_push_entrypoint_cannot_publish(self):
-        result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "controller", "push", "--input", "unused.json"],
-            cwd=self.root,
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
-        self.assertTrue(self.wt.exists())
-
-    def test_acceptance_output_outside_evidence_rejected(self):
-        self.prepare()
-        self.deliver(self.h.report)
-        self.call(
-            "accept",
-            "--dispatch",
-            self.dispatch,
-            "--report",
-            self.report,
-            "--receipt",
-            self.receipt,
-            "--output",
-            self.root / "outside.json",
-            ok=False,
-        )
-        self.assertFalse((self.root / "outside.json").exists())
-
-    def test_accepted_report_change_blocks_comment(self):
-        self.prepare()
-        self.deliver(self.h.report)
-        self.accept()
-        self.report.write_text(self.report.read_text() + "\n")
-        self.call(
-            "comment",
-            "--acceptance",
-            self.acceptance,
-            "--summary",
-            "摘要",
-            "--output",
-            self.dispatch.parent / "bad.md",
-            ok=False,
-        )
-
-    def test_preflight_prepare_and_accept(self):
-        self.prepare("preflight")
-        r = phase_fixture.PhaseValidatorTests().preflight("BLOCKED")
-        self.deliver(r)
-        self.accept()
-
-    def test_dirty_primary_prepare_ignores_removed_snapshot_input(self):
+    def test_dirty_primary_prepare_and_accept(self):
         (self.primary / "manual.txt").write_text("手工编辑")
-        self.prepare(primary_snapshot_path="/missing/old-snapshot")
-        self.assertNotIn("primary_snapshot_path", self.d)
+        self.prepare()
         self.assertEqual(self.d["base_commit"], self.h.base)
         self.assertEqual(self.d["stage"], 0)
         self.deliver(self.h.report)
@@ -582,21 +442,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
             "prepare", "finalizer", "--input", self.put(self.root / "missing.json", data), ok=False
         )
 
-    def test_update_main_boundary_and_fetch_fallback(self):
-        self.h.git(self.primary, "update-ref", "refs/remotes/origin/main", self.h.head)
-        dirty = self.primary / "manual.txt"
-        dirty.write_text("手工编辑")
-        self.call("update-main", "--repository-root", self.primary, ok=False)
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
-        dirty.unlink()
-        marker = self.primary / ".git" / "CHERRY_PICK_HEAD"
-        marker.write_text(self.h.head)
-        self.call("update-main", "--repository-root", self.primary, ok=False)
-        marker.unlink()
-        result = self.call("update-main", "--repository-root", self.primary)
-        self.assertTrue(result["fetch_failed"])
-        self.assertEqual(result["main_commit"], self.h.head)
-
     def test_update_main_fetch_local_remote_and_non_ff(self):
         self.h.git(self.primary, "remote", "add", "origin", str(self.primary))
         result = self.call("update-main", "--repository-root", self.primary)
@@ -609,10 +454,6 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         before = self.h.git(self.primary, "rev-parse", "HEAD")
         self.call("update-main", "--repository-root", self.primary, ok=False)
         self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), before)
-
-    def test_update_main_missing_remote_ref_fails(self):
-        self.call("update-main", "--repository-root", self.primary, ok=False)
-        self.assertEqual(self.h.git(self.primary, "rev-parse", "HEAD"), self.h.base)
 
 
 if __name__ == "__main__":

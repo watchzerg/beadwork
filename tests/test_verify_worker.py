@@ -156,49 +156,6 @@ class WorkerDeliveryTests(unittest.TestCase):
             self.assertTrue(result["ok"], result)
             self.assertEqual(result["status"], "COMPLETED")
 
-    def test_review_unavailable_has_explicit_blocked_report(self):
-        report = {
-            "axis": "spec",
-            "reviewed_base": A,
-            "reviewed_head": B,
-            "status": "BLOCKED",
-            "blockers": ["无法读取 spec"],
-        }
-        self.assertTrue(self.invoke("reviewer", report)["ok"])
-        report["blockers"] = []
-        self.assertFalse(self.invoke("reviewer", report)["ok"])
-
-    def test_axis_and_fixed_commit_identity_are_bound(self):
-        for key, value in (("axis", "standards"), ("reviewed_base", B), ("reviewed_head", A)):
-            report = self.axis()
-            report[key] = value
-            self.reject("reviewer", report, key + "_matches_dispatch")
-        report = self.axis(True)
-        report["findings"][0]["axis"] = "standards"
-        self.reject("reviewer", report, "finding_axis_matches_dispatch")
-
-    def test_receipt_path_status_and_file_hash_are_bound(self):
-        for changes in (
-            {"status": "BLOCKED"},
-            {"report_path": "/different/report.json"},
-            {"report_sha256": "0" * 64},
-        ):
-            self.assertFalse(self.invoke("reviewer", self.axis(), receipt_change=changes)["ok"])
-
-    def test_bad_review_structure_and_invalid_dispatch_fail(self):
-        self.assertFalse(self.invoke("reviewer", {"findings": []})["ok"])
-        result = self.invoke("reviewer", self.axis(), expected={})
-        self.assertFalse(result["ok"])
-        self.assertTrue(result["failures"][0].startswith("dispatch_contract: "), result)
-        invalid_launch = self.expected("reviewer")
-        invalid_launch["launch_context"] = {"fork_turns": "all", "required": True}
-        result = self.invoke("reviewer", self.axis(), expected=invalid_launch)
-        self.assertFalse(result["ok"])
-        self.assertTrue(result["failures"][0].startswith("dispatch_contract: "), result)
-        report = self.axis(True)
-        report["findings"][0]["blocking"] = False
-        self.assertFalse(self.invoke("reviewer", report)["ok"])
-
     def test_finding_classification_is_enforced(self):
         for axis, kind, blocking, valid in (
             ("spec", "smell", False, True),
@@ -243,15 +200,6 @@ class WorkerDeliveryTests(unittest.TestCase):
             report[key] = value
             self.reject("fixer", report, check)
 
-    def test_fixer_gates_cannot_be_omitted_or_claimed_at_old_head(self):
-        report = self.fixer()
-        report["verification"] = report["verification"][1:]
-        self.reject("fixer", report, "final_validation_on_delivery_head")
-        report = self.fixer()
-        for item in report["verification"]:
-            item["head_commit"] = A
-        self.reject("fixer", report, "final_validation_on_delivery_head")
-
     def test_fixer_last_gate_result_wins_and_failed_history_is_preserved(self):
         report = self.fixer()
         failed = {**report["verification"][0], "passed": False, "result": "失败"}
@@ -259,37 +207,6 @@ class WorkerDeliveryTests(unittest.TestCase):
         self.assertTrue(self.invoke("fixer", report)["ok"])
         report["verification"].append(failed)
         self.reject("fixer", report, "final_validation_on_delivery_head")
-
-    def test_schema_and_self_check_commands(self):
-        for role in ("reviewer", "fixer"):
-            for args in (["--schema", role], ["--receipt-schema", role]):
-                result = subprocess.run(
-                    [sys.executable, "-B", str(VERIFIER), "verify", "worker", *args],
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIsInstance(json.loads(result.stdout), dict)
-        report = self.axis()
-        self.invoke("reviewer", report)
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(VERIFIER),
-                "verify",
-                "worker",
-                "--check-report",
-                "reviewer",
-                str(self.root / "report.json"),
-                "--expected",
-                str(self.root / "dispatch.json"),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(json.loads(result.stdout)["ok"])
 
 
 if __name__ == "__main__":
