@@ -42,7 +42,8 @@ def review_inputs(d, axis):
         writer = value["implementer_sources"][-1] if value["implementer_sources"] else None
     elif final_state.strict(d):
         _, final_selection = final_state.selected(d)
-        writer = final_selection["fixes"][-1] if final_selection["fixes"] else None
+        writers = final_selection["fixes"] if d["stage"] else final_selection["documents"]
+        writer = writers[-1] if writers else None
     previous_axis = None
     if prior:
         collection = evidence.read(evidence.bound(prior[-1]))

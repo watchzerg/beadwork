@@ -132,6 +132,11 @@ def finalizer_schema(axis: dict[str, Any]) -> dict[str, Any]:
                 "items": source,
                 "maxItems": len(workflow_policy.FINAL_STAGE_MODELS),
             },
+            "document_sources": {
+                "type": "array",
+                "items": object_schema({key: source for key in ("dispatch", "report", "receipt")}),
+            },
+            "document_commits": {"type": "array", "items": SHA, "uniqueItems": True},
             "fix_sources": {
                 "type": "array",
                 "items": object_schema({key: source for key in ("dispatch", "report", "receipt")}),

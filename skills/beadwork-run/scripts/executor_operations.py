@@ -13,6 +13,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 import dispatch_contract
+import document_sync
 import evidence
 import finalization
 import gate_repair
@@ -199,6 +200,11 @@ def execute(args):
         "fixer-assemble": lambda a: finalization.fixer_assemble(a.dispatch, a.draft, a.output),
         "fixer-check": lambda a: finalization.fixer_check(a.dispatch, a.report),
         "fixer-accept": lambda a: finalization.accept_fixer(
+            a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None
+        ),
+        "document-assemble": lambda a: document_sync.assemble(a.dispatch, a.draft, a.output),
+        "document-check": lambda a: document_sync.check(a.dispatch, a.report),
+        "document-accept": lambda a: document_sync.accept(
             a.dispatch, a.report, a.receipt, load(a.closure) if a.closure else None
         ),
         "final-stage": lambda a: finalization.prepare_stage(a.dispatch, load(a.input)),

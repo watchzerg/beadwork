@@ -81,9 +81,11 @@ def records(d, sources, allowed, notes, successful=False):
 
 
 def allowed(d, report):
-    if d["role"] == "fixer":
+    if d["role"] in ("fixer", "document-syncer"):
         return [evidence.binding(d["dispatch_path"])]
-    return report["stage_sources"] + [s["dispatch"] for s in report["fix_sources"]]
+    return report["stage_sources"] + [
+        s["dispatch"] for s in report["document_sources"] + report["fix_sources"]
+    ]
 
 
 def check_snapshot(d, report):
@@ -130,7 +132,14 @@ def check(d, report, live=False):
     head = report["head_commit"]
     current = [row for row in rows if row[2]["before"]["head"] == head]
     latest = {row[-1]["gate"]: row for row in current}
-    if passed:
+    if passed and d["role"] == "document-syncer":
+        # 不同 test 参数属于不同检查，不能用另一项成功掩盖当前失败。
+        document_checks = {tuple(row[2]["argv"]): row for row in current}
+        repository.require(
+            all(row[-1]["passed"] for row in document_checks.values()),
+            "文档定向检查仍失败或无效",
+        )
+    if passed and d["role"] != "document-syncer":
         repository.require(
             latest.get("gate-full") and latest["gate-full"][-1]["passed"],
             "交付 HEAD 缺少成功 gate-full",

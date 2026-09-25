@@ -69,11 +69,14 @@ def run(args):
     if d.get("ticket_scope"):
         ticket_state.require_writer(d)
     if final_state.strict(d):
-        if d["role"] == "fixer":
+        if d["role"] in ("fixer", "document-syncer"):
             final_state.require_writer(d)
         else:
             _, selected = final_state.selected(d)
             repository.require(not selected["round_path"], "review 已开始，验证候选冻结")
+            import document_sync
+
+            document_sync.require_done(d, selected["documents"], exact_head=d["stage"] == 0)
             if d["stage"]:
                 repository.require(
                     selected["fixes"]
@@ -110,6 +113,10 @@ def run(args):
             args.delivery and args.recipe == "gate-full",
             "finalizer 只采集带 --delivery 的无参数 gate-full",
         )
+    repository.require(
+        d["role"] != "document-syncer" or (not args.delivery and args.recipe != "gate-full"),
+        "文档同步仅采集定向检查，完整 gate-full 由 finalizer 执行",
+    )
     if args.delivery:
         repository.require(
             args.recipe

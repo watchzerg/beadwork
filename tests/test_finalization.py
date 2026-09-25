@@ -72,6 +72,60 @@ class FinalizationTests(unittest.TestCase):
             self.assertIsNone(result["fixer_launch_context"])
         return Path(result["stage_path"])
 
+    def done_document(
+        self,
+        stage,
+        *,
+        result="no_change_needed",
+        status="DONE",
+        stopped=True,
+        ok=True,
+        observed_stopped=None,
+    ):
+        d = json.loads(Path(stage).read_text())
+        dispatch = Path(stage).parent / "document-syncer/dispatch.json"
+        self.serial += 1
+        draft = {
+            "status": status,
+            "outcome": "passed" if status == "DONE" else "interrupted",
+            "result": result if status == "DONE" else "incomplete",
+            "inspected": [{"source": "README.md 与 linked spec", "assessment": "已核对本批行为"}],
+            "summary": "文档已与本批行为一致",
+            "verification_notes": {},
+            "stopped_tasks": stopped,
+            "blockers": [] if status == "DONE" else ["同步中断"],
+            "remaining_work": [] if status == "DONE" else ["继续文档同步"],
+        }
+        folder = dispatch.parent
+        output = folder / f"report-{self.serial}.json"
+        answer = self.call(
+            "document-assemble",
+            "--dispatch",
+            dispatch,
+            "--draft",
+            self.put(folder / f"draft-{self.serial}.json", draft),
+            "--output",
+            output,
+            ok=ok,
+        )
+        if not ok:
+            return answer
+        receipt = self.put(folder / f"receipt-{self.serial}.json", answer)
+        closure = closure_source(dispatch, output, observed_stopped=observed_stopped)
+        self.call(
+            "document-accept",
+            "--dispatch",
+            stage,
+            "--report",
+            output,
+            "--receipt",
+            receipt,
+            "--closure",
+            closure,
+        )
+        self.assertEqual(d["stage"], 0)
+        return output
+
     def review(self, dispatch, blocking=False, evidence=None):
         prepared = self.call(
             "review-prepare",
@@ -182,54 +236,45 @@ class FinalizationTests(unittest.TestCase):
             (self.h.wt / f"fix-{self.serial}-{index}.txt").write_text(message)
             self.h.h.git(self.h.wt, "add", ".")
             self.h.h.git(self.h.wt, "commit", "-m", message)
-        head = self.h.h.git(self.h.wt, "rev-parse", "HEAD")
-        commits = self.h.h.git(
-            self.h.wt, "rev-list", "--reverse", d["base_commit"] + ".." + head
-        ).splitlines()
-        verification = [
-            {
-                "gate": gate,
-                "command": "just " + gate,
-                "result": "通过",
-                "log_path": "/evidence/" + gate + ".log",
-                "head_commit": head,
-                "passed": True,
-            }
-            for gate in ["gate-full"]
-        ]
-        report = {
-            "stage": d["stage"],
-            "attempt_id": d["attempt_id"],
-            "outcome": "passed",
-            "fix_commits": commits,
-            "fix_commit": commits[-1],
+        self.gate(fixer_dispatch)
+        folder = Path(fixer_dispatch).parent
+        draft = {
             "status": "DONE",
-            "parent_id": d["parent_id"],
-            "branch": d["branch"],
-            "base_commit": d["base_commit"],
-            "head_commit": head,
-            "dispositions": [{"source": "review", "action": "已修复"}],
-            "verification": verification,
-            "worktree_clean": True,
+            "outcome": "passed",
+            "verification_notes": {},
             "stopped_tasks": True,
-            "uncommitted_files": [],
             "blockers": [],
             "remaining_work": [],
+            "dispositions": [{"source": "review", "action": "已修复并检查文档影响"}],
+            "uncommitted_files": [],
         }
-        report_path = Path(d["report_path"])
-        self.put(report_path, report)
-        receipt = report_path.parent / "receipt.json"
-        self.put(
+        report = folder / "report.json"
+        answer = self.call(
+            "fixer-assemble",
+            "--dispatch",
+            fixer_dispatch,
+            "--draft",
+            self.put(folder / "draft.json", draft),
+            "--output",
+            report,
+        )
+        receipt = self.put(folder / "receipt.json", answer)
+        closure = closure_source(fixer_dispatch, report)
+        stage = d["stage_dispatch"]["path"]
+        self.call(
+            "fixer-accept",
+            "--dispatch",
+            stage,
+            "--report",
+            report,
+            "--receipt",
             receipt,
-            {
-                "status": "DONE",
-                "report_path": str(report_path),
-                "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
-            },
+            "--closure",
+            closure,
         )
         return {
             "dispatch": self.bind(fixer_dispatch),
-            "report": self.bind(report_path),
+            "report": self.bind(report),
             "receipt": self.bind(receipt),
         }
 
@@ -262,6 +307,7 @@ class FinalizationTests(unittest.TestCase):
 
     def test_current_passing_stage_reaches_root_acceptance(self):
         stage = self.stage()
+        self.done_document(stage)
         self.gate(stage)
         self.review(stage)
         self.assemble(stage, status="READY_TO_MERGE", outcome="passed")

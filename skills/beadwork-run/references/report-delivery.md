@@ -24,6 +24,7 @@ draft 字段由 draft_contracts 统一生成和校验；完整报告与回执字
 | --- | --- |
 | preflight | agents/preflight.md 的 collect/assemble → controller accept |
 | implementer / executor | ticket-execution.md 的 implementer-assemble/check → implementer-accept → review → ticket-assemble → ticket-deliver → controller accept |
+| document-syncer | final-execution.md 的 document-assemble/check → document-accept；随后由 finalizer 验证和 review |
 | fixer / finalizer | final-execution.md 的 fixer-assemble/check → fixer-accept → review → final-assemble → final-deliver → controller accept |
 | reviewer | dispatch.self_check_argv → review.md 的 review-collect |
 
@@ -31,7 +32,7 @@ draft 字段由 draft_contracts 统一生成和校验；完整报告与回执字
 
 ## 派发者收尾确认
 
-新 ticket、最终阶段 fixer/reviewer 和最终 root 交付，直接派发者先确认任务及其命令结束，再记录观察：
+新 ticket、最终阶段 document-syncer/fixer/reviewer 和最终 root 交付，直接派发者先确认任务及其命令结束，再记录观察：
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor handoff-close --dispatch <child-dispatch.json> --report <child-report.json> --input <observation.json>
@@ -39,7 +40,7 @@ python3 <skill-dir>/scripts/beadwork.py executor handoff-close --dispatch <child
 
 observation 的字段为 task_id、stopped（布尔值）、observed_at、evidence、unresolved（未结束事项数组）。填写实际宿主观察，不能把收到回执、取消请求已发送或消息静默视作停止。将 `handoff-close` 的原始 JSON 输出保存到新文件，直接传给 `--closure`；也接受只保存 `closure_source` 字段值的 path/sha256 binding，内部统一保存 binding。
 
-controller accept、implementer-accept、fixer-accept 增加 `--closure <closure-source.json>`；review selection 的各轴增加 `closure: <closure_source.path>`。绑定必须对应本次 dispatch 和报告。成功或 code_failure 推进需要 stopped: true 且 unresolved 为空；未知停止状态可保存 BLOCKED 交付，但不能据此派接替 writer、合入或清理。收尾事实冲突时先更正来源，旧报告与旧观察保留。
+controller accept、implementer-accept、document-accept、fixer-accept 增加 `--closure <closure-source.json>`；review selection 的各轴增加 `closure: <closure_source.path>`。绑定必须对应本次 dispatch 和报告。成功或 code_failure 推进需要 stopped: true 且 unresolved 为空；未知停止状态可保存 BLOCKED 交付，但不能据此派接替 writer、合入或清理。收尾事实冲突时先更正来源，旧报告与旧观察保留。
 
 这些记录是派发者的观察证据；脚本不探测宿主 agent 是否停止，也不根据旧 PID 终止任务。
 

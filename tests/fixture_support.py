@@ -98,8 +98,10 @@ def prepare_utility_stage(data):
     return d
 
 
-def closure_source(dispatch, report):
+def closure_source(dispatch, report, *, observed_stopped=None):
     stopped = json.loads(Path(report).read_text()).get("stopped_tasks", True)
+    if observed_stopped is not None:
+        stopped = observed_stopped
     result = handoff.close(
         str(dispatch),
         str(report),

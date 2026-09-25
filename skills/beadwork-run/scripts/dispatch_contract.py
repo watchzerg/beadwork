@@ -44,7 +44,7 @@ def dispatch(path):
     d = evidence.read(p)
     workflow_contract.require_current(d)
     require(
-        d["role"] in ("executor", "finalizer", "implementer", "fixer"),
+        d["role"] in ("executor", "finalizer", "implementer", "fixer", "document-syncer"),
         "需要 executor、implementer 或 finalizer dispatch",
     )
     require(Path(d["dispatch_path"]) == p, "dispatch 路径不符")
@@ -79,7 +79,7 @@ def verification_dispatch(path):
     d = evidence.read(p)
     workflow_contract.require_current(d)
     repository.require(
-        d["role"] in ("executor", "implementer", "fixer", "finalizer")
+        d["role"] in ("executor", "implementer", "fixer", "finalizer", "document-syncer")
         and d["dispatch_path"] == str(p),
         "需要 executor 或 fixer dispatch",
     )

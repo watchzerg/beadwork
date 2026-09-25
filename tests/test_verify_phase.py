@@ -171,6 +171,8 @@ class PhaseValidatorTests(unittest.TestCase):
                 }
             ],
             "fix": {"used": False, "commits": [], "dispositions": []},
+            "document_sources": [],
+            "document_commits": [],
             "review_rounds": [self.pair()],
             "workspace": {"branch": "implement/demo-1", "observed_head": SHA_B, "clean": True},
             "sources": ["ticket evidence"],

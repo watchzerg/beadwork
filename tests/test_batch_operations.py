@@ -392,6 +392,7 @@ class BatchOperationsTests(unittest.TestCase):
         final.h, final.serial = h, 0
         final.root = Path(prepared["dispatch_path"])
         stage = final.stage()
+        final.done_document(stage)
         worker.cli("run-verification", "--dispatch", stage, "--recipe", "gate-full", "--delivery")
         final.review(stage)
         draft = final.draft("READY_TO_MERGE", "passed")

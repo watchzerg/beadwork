@@ -122,6 +122,10 @@ def test_all_cli_groups_and_role_schemas_run_from_copy(
         result = distribution_runtime.run("verify", kind, "--help")
         assert result.returncode == 0, result.stderr
 
+    for command in ("document-assemble", "document-check", "document-accept"):
+        result = distribution_runtime.run("executor", command, "--help")
+        assert result.returncode == 0, result.stderr
+
     commands = [("verify", "ticket", "--schema")]
     commands.extend(("verify", "phase", "--schema", phase) for phase in PHASES)
     commands.extend(("verify", "worker", "--schema", role) for role in WORKER_ROLES)

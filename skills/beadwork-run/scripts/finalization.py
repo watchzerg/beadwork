@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 import dispatch_contract
+import document_sync
 import draft_contracts
 import evidence
 import final_state
@@ -49,10 +50,7 @@ def prepare_attempt(d, head):
             repository.git(
                 d["worktree"], "merge-base", "--is-ancestor", previous["stage_base"], head
             )
-            repository.require(
-                not repository.status(d["worktree"]) or previous["stage"] > 0,
-                "仅修复阶段可接续 dirty 现场",
-            )
+            # stage 0 的文档 writer 也可能留下未提交现场；恢复保留原阶段。
         else:
             repository.require(not repository.status(d["worktree"]), "新集成尝试必须从干净现场开始")
             d["historical_finalization"] = prior
@@ -182,6 +180,9 @@ def prepare_stage(dispatch_path, facts):
         "previous_stages": history,
         "prior_reviews": reviews,
         "prior_fixes": fixes,
+        "prior_documents": report["document_sources"]
+        if report
+        else (previous["prior_documents"] if previous else []),
         "prior_verification": verification,
         "models": models(stage, previous, facts),
         "dispatch_path": str(directory / "dispatch.json"),
@@ -209,7 +210,7 @@ def prepare_stage(dispatch_path, facts):
         ):
             fixer_done = True
     fixer_path = publish_fixer(d, previous, fixer_done)
-    fs.start(d, fixer_path)
+    fs.start(d, fixer_path, document_sync.publish(d))
     return fs.result(d)
 
 
@@ -311,11 +312,17 @@ def check_report(expected, report, *, review_checks=None):
             code_failure_evidence, "代码失败须有当前阶段失败验证或 blocking review/fixer 依据"
         )
     repository.require(report["fix"]["commits"] == commits, "最终 fix commits 与原始报告不符")
+    document_commits = document_sync.read_sources(d, report["document_sources"])
+    repository.require(report["document_commits"] == document_commits, "文档提交与原始报告不符")
+    if report["outcome"] in ("passed", "code_failure"):
+        document_sync.require_done(
+            d, report["document_sources"], exact_head=d["stage"] == 0, head=report["head_commit"]
+        )
     if report["head_commit"]:
         actual = repository.git(
             d["worktree"], "rev-list", "--reverse", d["start_head"] + ".." + report["head_commit"]
         ).splitlines()
-        repository.require(actual == commits, "集成后提交遗漏或超出修复来源")
+        repository.require(actual == document_commits + commits, "集成后提交遗漏或超出 writer 来源")
     if report["outcome"] == "passed":
         repository.require(report["status"] == "READY_TO_MERGE", "passed 必须 READY_TO_MERGE")
         repository.require(
@@ -351,6 +358,8 @@ def assemble(dispatch_path, draft_path, output_path):
         stage_sources=d["previous_stages"] + [evidence.binding(dispatch_path)],
         review_sources=[evidence.binding(path) for path in reviews],
         fix_sources=fixes,
+        document_sources=selected["documents"],
+        document_commits=document_sync.read_sources(d, selected["documents"]),
         review_rounds=[
             review_evidence.collection(path, dispatch_path, verified=review_checks)[0]
             for path in reviews
@@ -376,7 +385,7 @@ def assemble(dispatch_path, draft_path, output_path):
     r["verification"].extend(current_verification)
     r["fix"] = {"used": d["stage"] > 0, "commits": commits, "dispositions": dispositions}
     inherited = []
-    for source in fixes:
+    for source in selected["documents"] + fixes:
         fr = evidence.read(evidence.bound(source["report"]))
         inherited += [s for s in fr["verification_sources"] if s not in inherited]
         r.setdefault("verification_notes", {}).update(fr.get("verification_notes", {}))
@@ -457,6 +466,7 @@ def review_ready(d):
     _, item = fs.selected(d)
     repository.require(item["round"] is None, "本阶段已有 review；复用原 round")
     head = repository.sha(d["worktree"], "HEAD")
+    document_sync.require_done(d, item["documents"], exact_head=d["stage"] == 0)
     if d["stage"]:
         repository.require(item["fixes"], "review 需要已验收 fixer")
         source = item["fixes"][-1]
@@ -474,10 +484,11 @@ def review_ready(d):
         "head_commit": head,
         "stage_sources": d["previous_stages"] + [evidence.binding(d["dispatch_path"])],
         "fix_sources": item["fixes"],
+        "document_sources": item["documents"],
         "verification_notes": selected_verification_notes(d),
     }
     inherited = []
-    for source in item["fixes"]:
+    for source in item["documents"] + item["fixes"]:
         fr = evidence.read(evidence.bound(source["report"]))
         inherited += [s for s in fr["verification_sources"] if s not in inherited]
         r["verification_notes"].update(fr.get("verification_notes", {}))

@@ -18,6 +18,8 @@
 
 单票审查核对干净候选的 `gate-core` 和足以证明本票 acceptance 的行为证据；完整项目回归由 parent finalize 执行 `gate-full`。真实数据库、浏览器或进程行为应有能够观察相应边界的验证。最终审查核对整个 parent 的覆盖；测试框架、筛选或 gate 定义发生变化时，审查是否遗漏必要验收。
 
+最终批次 review 另读 `../references/documentation-sync.md`。Standards 核对明确的文档维护规则，Spec 核对文档与需求、实际行为的一致性和必要遗漏；修复复审同时核对关联文档，不能只审产品代码。
+
 ## Standards
 
 读取适用的 AGENTS、架构/领域约束、编码规范及相关 ADR，按文件/hunk 检查文档化规则违例；规则证据与代码证据都要具体。工具已负责的机械检查不重复枚举，但通过测试或 lint 不证明运行时行为正确。

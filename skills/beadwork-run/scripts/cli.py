@@ -91,14 +91,15 @@ def _executor(subparsers) -> None:
         "ticket-assemble",
         "implementer-assemble",
         "fixer-assemble",
+        "document-assemble",
         "final-assemble",
     ):
         p = _leaf(commands, name, executor_operations.execute)
         _required(p, "dispatch", "draft", "output")
-    for name in ("implementer-check", "fixer-check", "check"):
+    for name in ("implementer-check", "fixer-check", "document-check", "check"):
         p = _leaf(commands, name, executor_operations.execute)
         _required(p, "dispatch", "report")
-    for name in ("implementer-accept", "fixer-accept"):
+    for name in ("implementer-accept", "fixer-accept", "document-accept"):
         p = _leaf(commands, name, executor_operations.execute)
         _required(p, "dispatch", "report", "receipt")
         p.add_argument("--closure")

@@ -5,7 +5,7 @@ description: "按批准顺序串行实现一个 Beads parent 下的 ticket 依�
 
 # Beadwork Run
 
-给定一个完整的 Beads parent ID，串行实现它的 direct child tickets。每个 ticket 使用一个全新的 executor 协调整票；其每个 stage 派发全新 implementer，同一时刻只有一个 writer。每张新票开工前按需同步本地 `main`；所有 children 完成后，把最新 `main` 合入 implementation branch，执行最终验证和 review，再 fast-forward 合入本地 `main`。
+给定一个完整的 Beads parent ID，串行实现它的 direct child tickets。每个 ticket 使用一个全新的 executor 协调整票；其每个 stage 派发全新 implementer，同一时刻只有一个 writer。每张新票开工前按需同步本地 `main`；所有 children 完成后，把最新 `main` 合入 implementation branch，同步本批必要文档，执行最终验证和 review，再 fast-forward 合入本地 `main`。
 
 完整交付止于本地 commits、合入本地 `main`、关闭 Beads tickets 和安全清理。不执行 Git 或 Beads push，也不自动执行 `bd dolt pull`。
 
@@ -38,14 +38,14 @@ worktree: .worktrees/<full-parent-id>
 
 controller 主会话建议使用 `gpt-6-sol` / `medium`，复杂恢复或证据冲突时使用 `high`；skill 不切换主会话模型。方案设计可由用户使用 Astra 完成。执行期间 Astra 仅用于用户明确授权的 ticket 扩展阶段，不作为普通阶段或 finalization 的自动 fallback。
 
-写入前确认当前宿主能创建独立 executor、执行内置双轴审查的两个并行只读 reviewers、接收完整报告并确认任务结束。需要支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → reviewers/fixer 的嵌套派发。能力不足时报告并停止。
+写入前确认当前宿主能创建独立 executor、执行内置双轴审查的两个并行只读 reviewers、接收完整报告并确认任务结束。需要支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → document-syncer/fixer/reviewers 的嵌套派发。能力不足时报告并停止。
 
 controller 派发 preflight、executor 和 finalizer 时必须照抄 prepare 返回的 `launch_context`，显式使用独立上下文；不得省略 `fork_turns: "none"` 或改用 `all`，宿主无法满足时返回阻塞。显式交接仓库规则入口、任务事实和证据路径；恢复时补充已有 commits、未提交现场、剩余工作与未解决 findings。
 
 ## 不变量
 
 - controller 独占 Git/worktree 生命周期、ticket 选择、Beads 写入和最终集成；子 agent 对 Beads 只读。
-- preflight/finalizer 只写证据；源码由当前 ticket implementer 或最终阶段的唯一 fixer 写入，只读研究与双轴 reviewers 可并行。
+- preflight/finalizer 只写证据；源码由当前 ticket implementer 或最终修复阶段的唯一 fixer 写入，最终 stage 0 的文档由独立 document-syncer 写入，只读研究与双轴 reviewers 可并行。
 - 不 stash、不 reset、不 amend、不 squash、不 force-remove。
 - review 后不改写已 review 的 commit。
 - 旧 writer 及其写入任务未确认停止时，不派发接替 writer，不恢复、还原、合并或清理其现场。
@@ -89,7 +89,7 @@ python3 <skill-dir>/scripts/beadwork.py graph next <parent-id> <expected-child-i
 - `done`：所有 direct children 已关闭，进入第 4 节。
 - `blocked`：按返回的 reason 和 IDs/unfinished 列表执行“停止记录”，不得进入最终集成。`reason: no_ready` 时可用 `bd ready --parent <parent-id> --explain` 获取依赖阻塞原因。
 
-`resume`（包括中断接续和代码修复）保留原 BASE，不同步 main。用户可在 primary 编辑、暂存和提交；新提交由下一张新票吸收。implementer/fixer 的源码写入仍限于 implementation worktree。
+`resume`（包括中断接续和代码修复）保留原 BASE，不同步 main。用户可在 primary 编辑、暂存和提交；新提交由下一张新票吸收。implementer/document-syncer/fixer 的文件写入仍限于 implementation worktree。
 
 领取由 controller 使用 tracker claim 执行；成功读回后才建立恢复点。
 
@@ -144,13 +144,14 @@ finalizer 默认 `gpt-6-sol` / `medium`；复杂证据整合或恢复可用 `gpt
 
 `prior_finalization` 首次为 `null`；接替或重新运行最终集成时，先读取 `references/recovery-finalizer.md`。
 
-finalizer 自行管理最终验证、修复和 review；controller 等待 final-deliver 生成的 root 交付，包括 BLOCKED，并按共享交付契约保存收尾观察后执行 accept。中断与基线变化按 recovery-finalizer.md 区分，不自行重置 attempt。
+finalizer 自行管理 stage 0 文档同步、最终验证、修复和 review；controller 等待 final-deliver 生成的 root 交付，包括 BLOCKED，并按共享交付契约保存收尾观察后执行 accept。中断与基线变化按 recovery-finalizer.md 区分，不自行重置 attempt。
 
 ### 4.3 controller 验收
 
 `READY_TO_MERGE` 才能进入第 5 节。修复处置、验证覆盖和 review 的日常语义验收由 finalizer 负责；controller 除机械校验外，核对最终交付与集成条件：
 
 - parent、固定 children 集合、`reviewed_main` 和交付来源属于本次批次。
+- 文档同步来源完整，必要变更或无需变更的依据已由 finalizer 验收；后续修复的关联文档纳入最终 review。
 - 项目完整 `gate-full`、parent 验收覆盖和最后两轴 PASS 对应交付 HEAD，fix commits 和原始 review 证据来源完整。
 - 现场满足集成条件，所有命令及子任务已结束，没有 blockers 或 remaining work，smells 已保留。
 
@@ -189,6 +190,7 @@ parent 已领取之后发生的实际批次停止（含 ticket 修复额度耗�
 - 按执行顺序列出的 ticket IDs 与 commit ranges
 - 每票和最终验证命令的实际结果
 - 每票和最终 review 结论
+- 文档同步结果、变更文件与提交；无需修改时说明依据
 - 所有记录到 ticket 或 parent 的非阻塞 smells
 - 本地 `main` 的最终 SHA
 - worktree/branch 是否已清理

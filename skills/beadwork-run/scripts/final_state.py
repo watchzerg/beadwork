@@ -14,7 +14,7 @@ import workflow_contract
 def strict(d):
     return (
         workflow_contract.current(d)
-        and d.get("role") in ("finalizer", "fixer")
+        and d.get("role") in ("finalizer", "fixer", "document-syncer")
         and "attempt_id" in d
     )
 
@@ -69,7 +69,7 @@ def selected(d, current=True):
     return value, item
 
 
-def start(d, fixer):
+def start(d, fixer, document_syncer=None):
     value, _, _ = state(d)
     repository.require(str(d["stage"]) not in value["stages"], "最终阶段已存在")
     value["current"] = d["stage"]
@@ -77,6 +77,8 @@ def start(d, fixer):
         "dispatch": evidence.binding(d["dispatch_path"]),
         "fixer": evidence.binding(fixer) if fixer else None,
         "fixes": list(d["prior_fixes"]),
+        "document_syncer": evidence.binding(document_syncer) if document_syncer else None,
+        "documents": list(d["prior_documents"]),
         "round_path": None,
         "round": None,
         "review": None,
@@ -135,6 +137,9 @@ def check_sources(d, report):
         report["review_sources"] == reviews, "阶段报告必须保留已选 review；更正后需重新组装"
     )
     repository.require(report["fix_sources"] == item["fixes"], "阶段报告必须保留已验收 fixer 来源")
+    repository.require(
+        report["document_sources"] == item["documents"], "阶段报告必须保留文档同步来源"
+    )
 
 
 def check_delivery(root, report):
@@ -145,6 +150,18 @@ def check_delivery(root, report):
     repository.require(
         evidence.read(evidence.bound(chosen["report"])) == report, "交付不是明确选中的阶段报告"
     )
+
+
+def document_stopped(item):
+    source = item["documents"][-1]
+    report_path = str(evidence.bound(source["report"]))
+    report = evidence.read(report_path)
+    closure = handoff.check_close(
+        str(evidence.bound(source["dispatch"])),
+        report_path,
+        item["closures"].get(source["report"]["sha256"]),
+    )
+    return bool(report["stopped_tasks"] and closure["stopped"] and not closure["unresolved"])
 
 
 def result(d):
@@ -164,7 +181,23 @@ def result(d):
     fixer_launch_context = None
     if fixer_dispatch:
         fixer_launch_context = workflow_contract.launch_context(evidence.read(fixer_dispatch))
+    document_writer = item["document_syncer"]
+    document_report = (
+        evidence.read(evidence.bound(item["documents"][-1]["report"]))
+        if item["documents"]
+        else None
+    )
+    if item["round_path"] or (
+        document_report and (document_report["status"] == "DONE" or not document_stopped(item))
+    ):
+        document_writer = None
+    document_path = str(evidence.bound(document_writer)) if document_writer else None
     return {
+        "document_dispatch": document_path,
+        "document_launch_context": workflow_contract.launch_context(evidence.read(document_path))
+        if document_path
+        else None,
+        "selected_document": item["documents"][-1] if item["documents"] else None,
         "stage_path": d["dispatch_path"],
         "stage": d["stage"],
         "models": d["models"],
@@ -181,6 +214,16 @@ def result(d):
 def require_writer(d):
     stage = evidence.read(evidence.bound(d["stage_dispatch"]))
     _, item = selected(stage)
+    if d["role"] == "document-syncer":
+        repository.require(
+            item["document_syncer"] == evidence.binding(d["dispatch_path"]), "不是当前文档 writer"
+        )
+        repository.require(not item["round_path"], "review 已开始，文档不可继续写入")
+        if item["documents"]:
+            prior = evidence.read(evidence.bound(item["documents"][-1]["report"]))
+            repository.require(prior["status"] != "DONE", "文档同步已完成")
+            repository.require(document_stopped(item), "旧文档任务未确认停止")
+        return
     repository.require(item["fixer"] == evidence.binding(d["dispatch_path"]), "不是当前 fixer")
     repository.require(not item["round_path"], "review 已开始，fixer 不可继续写入")
     if item["fixes"] and item["fixes"][-1]["dispatch"] == item["fixer"]:

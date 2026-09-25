@@ -10,8 +10,9 @@ EXTENSION_MODEL_LEVELS = MODEL_LEVELS + [
     {"model": "gpt-6-astra", "reasoning_effort": "high"},
 ]
 STAGE_MODELS = [(0, 1, 1), (0, 1, 2), (1, 1, 2), (1, 2, 2), (2, 2, 2), (2, 2, 2)]
-# stage 0 只验证；stage 1..5 的 fixer 依次使用 Sol-medium 两次、Sol-high 三次。
+# stage 0 先同步文档，再由 finalizer 验证；stage 1..5 的 fixer 依次使用 Sol-medium 两次、Sol-high 三次。
 FINAL_STAGE_MODELS = [(1, 1, 2), (1, 2, 2), (1, 2, 2), (2, 2, 2), (2, 2, 2), (2, 2, 2)]
+DOCUMENT_SYNC_MODEL = {"model": "gpt-6-sol", "reasoning_effort": "medium"}
 MODEL_ROLES = ("executor", "standards", "spec")
 MAX_STAGE_EXTENSION = 5
 # 静态报告 schema 覆盖一次用户授权的最大扩展；运行时仍由 dispatch 的

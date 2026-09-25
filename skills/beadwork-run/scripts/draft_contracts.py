@@ -77,6 +77,18 @@ def schema(role):
         }
         if role == "implementer":
             fields["verification_notes"] = notes
+    elif role == "document-syncer":
+        fields = {
+            "status": {"enum": ["DONE", "BLOCKED"]},
+            "outcome": {"enum": ["passed", "blocked", "interrupted"]},
+            "result": {"enum": ["updated", "no_change_needed", "incomplete"]},
+            "inspected": rows({"source": TEXT, "assessment": TEXT}),
+            "summary": TEXT,
+            "verification_notes": notes,
+            "stopped_tasks": {"type": "boolean"},
+            "blockers": TEXTS,
+            "remaining_work": TEXTS,
+        }
     elif role in ("fixer", "finalizer"):
         fields = {
             "status": {

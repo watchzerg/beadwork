@@ -1,6 +1,6 @@
 # 验证采集
 
-implementer/fixer 使用以下入口采集 `test`、`gate-core` 和 `gate-full`，一次调用一个 recipe；只有 `test` 接受定向参数。单票固定交付检查为 `gate-core`，最终交付为 `gate-full`，均须使用采集器的 `--delivery`；`--delivery` 属于采集器，不传给 just。finalizer 只采集带 `--delivery` 的无参数 `gate-full`。其他开发操作按项目规则执行并保留必要证据，controller 的 `install` 使用初始化/同步入口。
+implementer/fixer 使用以下入口采集 `test`、`gate-core` 和 `gate-full`，一次调用一个 recipe；只有 `test` 接受定向参数。单票固定交付检查为 `gate-core`，最终交付为 `gate-full`，均须使用采集器的 `--delivery`；`--delivery` 属于采集器，不传给 just。document-syncer 仅采集不带 --delivery 的 test/gate-core，文档检查按项目规则执行；finalizer 只采集带 `--delivery` 的无参数 `gate-full`。其他开发操作按项目规则执行并保留必要证据，controller 的 `install` 使用初始化/同步入口。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
@@ -38,6 +38,6 @@ writer 确认交付失败由代码导致后，在修改前调用上述入口申�
 
 当前 writer 集中修正，运行必要的定向验证；提交后以 `--delivery` 重跑本阶段交付入口（单票 `gate-core`，最终 `gate-full`）。重跑绑定修正后的干净候选 HEAD；该候选仍有代码失败时，有余额则申请下一次修正，三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，环境修复可在同 HEAD 重跑；review 开始后不能申请修正。
 
-机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。finalizer stage 0 没有 writer，不享有机会；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，executor/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。
+机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。stage 0 的 document-syncer 不享有交付 gate-fix 机会；文档同步后由 finalizer 执行完整验收；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，executor/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。
 
 最终阶段的运行快照、单次 `gate-full`、未知/损坏来源和 fixer 完整验收见 final-execution.md。finalizer 不获得 gate-fix 权限；stage 0 代码失败直接进入下一 stage。收尾说明仍不能由 process_group_gone 替代宿主和外部资源观察。

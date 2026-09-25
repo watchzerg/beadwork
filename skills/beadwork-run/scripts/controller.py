@@ -436,7 +436,12 @@ def comment(args):
             "Commits：" + ", ".join(c["sha"] for c in r["implementation_commits"]),
         ]
     if final:
-        lines += ["最终验证：" + json.dumps(final_gate_summary(r), ensure_ascii=False)]
+        document = read(evidence.bound(r["document_sources"][-1]["report"]))
+        lines += [
+            "最终验证：" + json.dumps(final_gate_summary(r), ensure_ascii=False),
+            "文档同步：" + document["result"] + "；" + document["summary"],
+            "文档同步提交：" + ", ".join(r["document_commits"]),
+        ]
     lines += [
         "",
         "残留非阻塞 smells：",
