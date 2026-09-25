@@ -100,6 +100,7 @@ worker = report_io.implementer
 
 
 def stage_result(d, state):
+    dispatch_contract.validate_plan(d)
     selected = state["implementer_sources"][-1] if state["implementer_sources"] else None
     writer = evidence.read(evidence.bound(d["implementer_dispatch"]))
     active_stage_context.check(writer, validate_sources=True)
@@ -215,12 +216,7 @@ def prepare_stage(root_path, facts):
                 not {"additional_stages", "extension_reason"}.intersection(facts),
                 "resume 不接受额度扩展字段",
             )
-            if state["selected_stage"]:
-                _, report = resolve_source(state["selected_stage"])
-                repository.require(
-                    report["outcome"] in ("interrupted", "blocked"),
-                    "已完成或代码失败阶段不可作为中断恢复",
-                )
+            ticket_state.require_resumable(state)
             return stage_result(previous, state)
         repository.require(state["selected_stage"], "推进 stage 需要已验收的阶段报告")
         old, report = resolve_source(state["selected_stage"])
@@ -375,11 +371,7 @@ def accept_implementer(stage_path, report_path, receipt_path, closure=None):
         repository.require(report["stopped_tasks"], "implementer 任务尚未停止")
     if state["implementer_sources"] and state["implementer_sources"][-1] == item:
         return {"accepted": True, "source": item}
-    if state["selected_stage"]:
-        _, selected = resolve_source(state["selected_stage"])
-        repository.require(
-            selected["outcome"] in ("interrupted", "blocked"), "阶段已封存，不能用新实现报告覆盖"
-        )
+    ticket_state.require_resumable(state)
     if state["implementer_sources"]:
         _, prior = resolve_source(state["implementer_sources"][-1])
         repository.require(
@@ -391,10 +383,7 @@ def accept_implementer(stage_path, report_path, receipt_path, closure=None):
             repository.require(
                 report["outcome"] == prior["outcome"], "已验收实现终态不能改报中断或外部阻塞"
             )
-    repository.require(
-        not (Path(d["gate_repair_root"]) / "gate-review-started.json").exists(),
-        "review 后只能更正审查/阶段报告",
-    )
+    ticket_state.require_before_review(d, state)
     state.setdefault("closures", {})[item["report"]["sha256"]] = closure
     state["implementer_sources"].append(item)
     state["selected_stage"] = None
@@ -448,15 +437,39 @@ def deliver(root_path, output):
 def adapt_plan(args):
     d = dispatch_contract.dispatch(args.dispatch)
     repository.require(d.get("ticket_scope") == "stage", "执行计划由当前 stage executor 核准")
-    state, _, _ = checkpoints(d)
+    state, previous_checkpoint, _ = checkpoints(d)
     repository.require(
         state["stage_dispatch"] == evidence.binding(args.dispatch), "不是当前执行上下文"
     )
-    repository.require(
-        not (Path(d["gate_repair_root"]) / "gate-review-started.json").exists(),
-        "review 后不能适配计划",
+    ticket_state.require_writable(d, state)
+    context_sources = handoff.contexts(d)
+    if state["implementer_sources"]:
+        item = state["implementer_sources"][-1]
+        observation = handoff.check_close(
+            item["dispatch"]["path"],
+            item["report"]["path"],
+            state.get("closures", {}).get(item["report"]["sha256"]),
+            required=bool(d.get("preflight_acceptance")),
+        )
+        repository.require(
+            observation is None or (observation["stopped"] and not observation["unresolved"]),
+            "恢复计划适配需要派发者收尾观察确认旧任务停止",
+        )
+    for item in ([state["selected_stage"]] if state["selected_stage"] else []) + state[
+        "implementer_sources"
+    ][-1:]:
+        _, report = resolve_source(item)
+        repository.require(
+            report.get("stopped_tasks", report.get("execution", {}).get("stopped_tasks")),
+            "恢复计划适配前必须确认旧任务停止",
+        )
+        repository.require(
+            not report["requested_context"] or context_sources,
+            "恢复计划适配前需要 context-add 补齐事实来源",
+        )
+    adjusted = adapt_plan_dispatch(
+        args, {"checkpoint": previous_checkpoint, "context_sources": context_sources}
     )
-    adjusted = adapt_plan_dispatch(args)
     old_writer = evidence.read(evidence.bound(d["implementer_dispatch"]))
     adjusted["verification_dispatches"] = []
     folder = Path(adjusted["dispatch_path"]).parent / "adapted"
@@ -487,7 +500,7 @@ def assemble_stage(args):
     return receipt
 
 
-def adapt_plan_dispatch(args):
+def adapt_plan_dispatch(args, recovery):
     """记录已核准的执行计划；新单票由 ticket-adapt-plan 调用并更新检查点。"""
     d = dispatch_contract.dispatch(args.dispatch)
     repository.require(d["role"] == "executor", "需要 executor")
@@ -498,12 +511,6 @@ def adapt_plan_dispatch(args):
         )
     repository.workspace(d)
     directory = Path(args.dispatch).parent
-    repository.require(
-        not (directory / "gate-review-started.json").exists()
-        and not any(x.is_dir() for x in directory.glob("review-*"))
-        and not Path(d["report_path"]).exists(),
-        "计划适配须在当前阶段 review/交付前完成",
-    )
     facts = evidence.read(args.input)
     repository.require(
         set(facts) == {"reason", "acceptance", "verification", "mode"},
@@ -544,6 +551,7 @@ def adapt_plan_dispatch(args):
         "observed_head": repository.sha(d["worktree"], "HEAD"),
         "original_plan": old_plan,
         "effective_plan": {**old_plan, "mode": facts["mode"]},
+        "recovery": recovery,
     }
     evidence.write(target / "plan-adjustment.json", record)
     result = dict(

@@ -19,6 +19,9 @@ pytestmark = pytest.mark.workflow
 
 
 class TicketExecutionTests(unittest.TestCase):
+    initial_mode = "direct_verification"
+    initial_seams: list[str] = []
+
     def setUp(self):
         self.h: Any = fixture.ControllerTests()
         self.h.setUp()
@@ -26,8 +29,8 @@ class TicketExecutionTests(unittest.TestCase):
         self.h.utility_fixture = False
         self.h.prepare(
             mode="new",
-            test_mode="direct_verification",
-            approved_seams=[],
+            test_mode=self.initial_mode,
+            approved_seams=self.initial_seams,
         )
         self.root_dispatch = self.h.dispatch
         self.serial = 0
@@ -287,6 +290,237 @@ class TicketExecutionTests(unittest.TestCase):
             failure,
         )
         self.assertEqual(result["repair_number"], 1)
+
+
+@pytest.fixture
+def adaptation():
+    h = TicketExecutionTests()
+    h.initial_mode = "TDD"
+    h.initial_seams = ["S1"]
+    try:
+        h.setUp()
+        yield h
+    finally:
+        h.doCleanups()
+
+
+def adapt(h, mode="direct_verification", ok=True):
+    facts = h.file(
+        "adapt",
+        {
+            "mode": mode,
+            "reason": "完整基线行为与覆盖已核对",
+            "acceptance": [{"criterion": "目标行为", "evidence": "基线源码与测试"}],
+            "verification": [{"command": "基线验证", "result": "通过"}],
+        },
+    )
+    result = h.cli("executor", "ticket-adapt-plan", "--dispatch", h.sd, "--input", facts, ok=ok)
+    if ok:
+        h.sd, h.wd = Path(result["stage_dispatch"]), Path(result["implementer_dispatch"])
+    return result
+
+
+def block_stage(h, status, outcome, filename, stopped=True):
+    output = h.sd.parent / filename
+    draft = dict(
+        h.draft(outcome),
+        status=status,
+        stopped_tasks=stopped,
+        requested_context=["补齐基线事实"] if status == "NEEDS_CONTEXT" else [],
+    )
+    h.cli(
+        "executor",
+        "ticket-assemble",
+        "--dispatch",
+        h.sd,
+        "--draft",
+        h.file("blocked-draft", draft),
+        "--output",
+        output,
+    )
+    return output
+
+
+def add_context(h):
+    import hashlib
+
+    source = h.file("context", {"fact": "已核对基线要求，需求与 seam 不变"})
+    facts = h.file(
+        "context-input",
+        {
+            "reason": "补齐恢复事实",
+            "sources": [
+                {"path": str(source), "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
+            ],
+        },
+    )
+    return h.cli("executor", "context-add", "--dispatch", h.root_dispatch, "--input", facts)
+
+
+@pytest.mark.parametrize("filename", ["report.json", "blocked-custom.json"])
+@pytest.mark.parametrize(
+    "status,outcome",
+    [
+        ("NEEDS_CONTEXT", "blocked"),
+        ("BLOCKED", "blocked"),
+        ("BLOCKED", "interrupted"),
+    ],
+)
+def test_blocked_plan_adaptation_completes_same_stage(adaptation, filename, status, outcome):
+    h = adaptation
+    original = json.loads(h.sd.read_text())
+    # 保留已有验证来源和已接纳的部分实现交付。
+    h.gate()
+    h.implement("blocked")
+    old_report = block_stage(h, status, outcome, filename)
+    old_bytes = old_report.read_bytes()
+    checkpoints = {p: p.read_bytes() for p in h.root_dispatch.parent.glob("checkpoint-*.json")}
+    if status == "NEEDS_CONTEXT":
+        add_context(h)
+    h.stage()
+    result = adapt(h)
+    current = json.loads(h.sd.read_text())
+    for key in (
+        "base_commit",
+        "stage",
+        "stage_base",
+        "models",
+        "approved_seams",
+        "gate_repair_root",
+    ):
+        assert current[key] == original[key]
+    assert result["stage"] == 0
+    assert old_report.read_bytes() == old_bytes
+    assert all(p.read_bytes() == content for p, content in checkpoints.items())
+    adjustment = json.loads(Path(current["plan_adjustment"]["path"]).read_text())
+    prior = json.loads(Path(adjustment["recovery"]["checkpoint"]["path"]).read_text())
+    assert prior["state"]["selected_stage"]["report"]["path"] == str(old_report)
+    h.stage()
+    # 同阶段再次适配不重置阶段或来源；最终按已有行为完成整票验收。
+    adapt(h, "TDD")
+    adapt(h)
+    h.gate()
+    h.implement()
+    h.assemble([h.review()])
+    h.deliver()
+    report = json.loads(h.root_report.read_text())
+    assert report["delivery_kind"] == "already_satisfied"
+    assert len(report["execution"]["implementers"]) == 2
+    assert report["stage"] == 0
+
+
+def test_adaptation_requires_stopped_tasks_and_context(adaptation):
+    h = adaptation
+    block_stage(h, "NEEDS_CONTEXT", "blocked", "report.json", stopped=False)
+    assert "停止" in adapt(h, ok=False)["error"]
+    block_stage(h, "NEEDS_CONTEXT", "blocked", "corrected.json")
+    assert "context-add" in adapt(h, ok=False)["error"]
+    add_context(h)
+    adapt(h)
+
+
+def test_adaptation_rejects_delivered_writer(adaptation):
+    h = adaptation
+    h.ready_writer()
+    assert "实现已交付" in adapt(h, ok=False)["error"]
+    # 阶段报告的部分状态不能解冻已经成功交付的 writer。
+    block_stage(h, "BLOCKED", "blocked", "report.json")
+    assert "实现已交付" in adapt(h, ok=False)["error"]
+
+
+def test_adaptation_rejects_review_and_terminal_stage(adaptation):
+    h = adaptation
+    h.ready_writer()
+    review = h.review(blocking=True)
+    assert "review" in adapt(h, ok=False)["error"]
+    h.assemble([review], outcome="code_failure")
+    assert "代码失败" in adapt(h, ok=False)["error"]
+    h.stage("repair")
+    adapt(h)
+    h.commit()
+    h.gate()
+    h.implement()
+    h.assemble([h.review()])
+    assert "已完成" in adapt(h, ok=False)["error"]
+
+
+def test_adaptation_and_writer_freeze_on_reserved_review(adaptation):
+    import sys
+    from unittest.mock import patch
+
+    with patch.object(sys, "path", [str(SCRIPTS), *sys.path]):
+        import dispatch_contract
+        import ticket_state
+
+        h = adaptation
+        ticket_state.reserve_review(dispatch_contract.dispatch(str(h.sd)))
+        assert "review" in adapt(h, ok=False)["error"]
+        with pytest.raises(ValueError, match="review"):
+            ticket_state.require_writer(dispatch_contract.dispatch(str(h.wd)))
+
+
+def test_adaptation_preserves_used_gate_repairs(adaptation):
+    h = adaptation
+    failure = h.gate(fail=True)
+    first = h.cli("executor", "begin-gate-repair", "--dispatch", h.wd, "--failure", failure)
+    assert first["repair_number"] == 1
+    original = Path(first["gate_repair_path"]).read_bytes()
+    h.implement("blocked")
+    block_stage(h, "BLOCKED", "blocked", "report.json")
+    adapt(h)
+    failure = h.gate(fail=True)
+    second = h.cli("executor", "begin-gate-repair", "--dispatch", h.wd, "--failure", failure)
+    assert second["repair_number"] == 2
+    assert second["remaining_repairs"] == 1
+    assert Path(first["gate_repair_path"]).read_bytes() == original
+
+
+def test_adaptation_revalidates_original_blocked_report(adaptation):
+    h = adaptation
+    report = block_stage(h, "BLOCKED", "blocked", "report.json")
+    adapt(h)
+    report.write_text(report.read_text() + "\n")
+    assert "证据文件已变化" in h.stage(ok=False)["error"]
+
+
+def test_adaptation_requires_dispatcher_stop_observation(adaptation):
+    h = adaptation
+    h.implement("blocked", accept=False)
+    closure = closure_source(h.wd, h.writer_report, observed_stopped=False)
+    h.cli(
+        "executor",
+        "implementer-accept",
+        "--dispatch",
+        h.sd,
+        "--report",
+        h.writer_report,
+        "--receipt",
+        h.writer_receipt,
+        "--closure",
+        closure,
+    )
+    assert "收尾观察" in adapt(h, ok=False)["error"]
+    # 新交付和新的派发者观察追加到检查点，不覆盖原报告或收尾证据。
+    h.implement("blocked")
+    adapt(h)
+
+
+@pytest.mark.parametrize("source_kind", ["report", "closure"])
+def test_adaptation_revalidates_implementer_recovery_sources(adaptation, source_kind):
+    h = adaptation
+    h.implement("blocked")
+    latest = sorted(h.root_dispatch.parent.glob("checkpoint-*.json"))[-1]
+    state = json.loads(latest.read_text())["state"]
+    report_source = state["implementer_sources"][-1]["report"]
+    source = (
+        report_source if source_kind == "report" else state["closures"][report_source["sha256"]]
+    )
+    if "closure_source" in source:
+        source = source["closure_source"]
+    adapt(h)
+    path = Path(source["path"])
+    path.write_text(path.read_text() + "\n")
+    assert "证据文件已变化" in h.stage(ok=False)["error"]
 
 
 if __name__ == "__main__":

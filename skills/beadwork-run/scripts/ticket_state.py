@@ -97,6 +97,37 @@ def checkpoint(d, state):
     return str(path)
 
 
+def require_resumable(state):
+    """阶段交付与 writer 交付分别约束恢复；报告文件名不参与状态判断。"""
+    if state["selected_stage"]:
+        _, report = resolve_source(state["selected_stage"])
+        repository.require(
+            report["outcome"] in ("interrupted", "blocked"),
+            "已完成或代码失败阶段不可作为中断恢复",
+        )
+
+
+def require_before_review(d, state):
+    repository.require(
+        not state["review_round_path"]
+        and not state["review_round"]
+        and not state["selected_review"]
+        and not (Path(d["gate_repair_root"]) / "gate-review-started.json").exists(),
+        "review 已预留或开始，writer 与计划保持冻结",
+    )
+
+
+def require_writable(d, state):
+    require_resumable(state)
+    require_before_review(d, state)
+    if state["implementer_sources"]:
+        _, report = resolve_source(state["implementer_sources"][-1])
+        repository.require(
+            report["outcome"] in ("interrupted", "blocked"),
+            "实现已交付，等待 executor 的 review 或下一 stage",
+        )
+
+
 def require_writer(d):
     """只允许当前未冻结阶段的 implementer 使用写入前检查和验证入口。"""
     repository.require(d.get("role") == "implementer", "单票源码 writer 必须为 implementer")
@@ -107,21 +138,7 @@ def require_writer(d):
         stage["implementer_dispatch"] == evidence.binding(d["dispatch_path"]),
         "不是当前 implementer dispatch",
     )
-    repository.require(
-        not (Path(stage["gate_repair_root"]) / "gate-review-started.json").exists(),
-        "review 已开始，writer 保持冻结",
-    )
-    if state["selected_stage"]:
-        _, report = resolve_source(state["selected_stage"])
-        repository.require(
-            report["outcome"] in ("interrupted", "blocked"), "阶段已封存，不能继续旧 writer"
-        )
-    if state["implementer_sources"]:
-        _, report = resolve_source(state["implementer_sources"][-1])
-        repository.require(
-            report["outcome"] in ("interrupted", "blocked"),
-            "实现已交付，等待 executor 的 review 或下一 stage",
-        )
+    require_writable(stage, state)
 
 
 def reserve_review(d, resume=False):

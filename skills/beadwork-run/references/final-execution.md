@@ -1,6 +1,6 @@
 # 最终阶段交接
 
-新派发使用 `workflow_contract_version: 8`。controller 管 root 与集成，finalizer 管 attempt 检查点；document-syncer 是 stage 0 文档 writer，fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收文档同步、fixer、唯一 round、selected_review、selected_stage 及其来源。
+新派发使用 `workflow_contract_version: 9`。controller 管 root 与集成，finalizer 管 attempt 检查点；document-syncer 是 stage 0 文档 writer，fixer 是修复阶段唯一 writer。检查点只追加，记录当前 stage、已验收文档同步、fixer、唯一 round、selected_review、selected_stage 及其来源。
 
 ## 准备与恢复
 

@@ -256,7 +256,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.acceptance = self.dispatch.parent / f"acceptance-{self.counter}.json"
         extra = []
         if (
-            self.d.get("workflow_contract_version") == 8
+            self.d.get("workflow_contract_version") == 9
             and self.d.get("role") == "finalizer"
             and self.d.get("attempt_id")
         ) or self.d.get("preflight_acceptance"):

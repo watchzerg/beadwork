@@ -45,7 +45,7 @@ stdout 为短回执；executor 确认 implementer 及命令结束，保存到该
 python3 <skill-dir>/scripts/beadwork.py executor implementer-accept --dispatch <stage-dispatch.json> --report <implementer-report.json> --receipt <implementer-receipt.json> --closure <closure-source.json>
 ```
 
-该入口重新校验身份、Git 和验证来源，并将选择追加到 root 检查点。重复验收同一来源幂等。实现的 passed/code_failure 一经验收，不能改报中断来继续旧 writer；已封存阶段不再接受新的实现来源，阶段/审查报告更正仍可在同 HEAD 完成。验收失败按证据/报告问题处理，不消耗 stage。合法部分报告也保留来源，但只有实现 DONE 才可准备 review。
+该入口重新校验身份、Git 和验证来源，并将选择追加到 root 检查点。重复验收同一来源幂等。实现的 passed/code_failure 一经验收，不能改报中断来继续旧 writer；成功或代码失败阶段不再接受新的实现来源，阶段/审查报告更正仍可在同 HEAD 完成。blocked/interrupted 阶段按原 stage 恢复；writer 与计划适配共用状态约束，review 预留后保持冻结。验收失败按证据/报告问题处理，不消耗 stage。合法部分报告也保留来源，但只有实现 DONE 才可准备 review。
 
 ## 阶段报告与整票交付
 

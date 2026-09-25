@@ -26,6 +26,26 @@ def validate_plan(d):
     keys = ("repository_root", "worktree", "branch", "parent_id", "ticket_id", "base_commit")
     require(all(d.get(k) == previous.get(k) for k in keys), "计划调整属于其他 ticket 或 BASE")
     validate_plan(previous)
+    recovery = record["recovery"]
+    checkpoint = evidence.read(evidence.bound(recovery["checkpoint"]))
+    require(
+        checkpoint["state"]["stage_dispatch"] == record["dispatch"]
+        and checkpoint["root"] == previous["ticket_root"],
+        "计划适配检查点与原 stage 不符",
+    )
+    state = checkpoint["state"]
+    selected = state["selected_stage"]
+    for item in ([selected] if selected else []) + state["implementer_sources"]:
+        for source in item.values():
+            evidence.bound(source)
+    for item in state["implementer_sources"]:
+        closure = state.get("closures", {}).get(item["report"]["sha256"])
+        if closure:
+            evidence.bound(closure.get("closure_source", closure))
+    for source in recovery["context_sources"]:
+        context = evidence.read(evidence.bound(source))
+        for item in context["sources"]:
+            evidence.bound(item)
     require(
         record["original_plan"] == evidence.read(previous["expected_plan_path"]), "原执行计划已变化"
     )

@@ -25,6 +25,8 @@ python3 <skill-dir>/scripts/beadwork.py executor ticket-adapt-plan --dispatch <�
 
 controller 不同步审批和写适配 comment；最终 completion/停止记录引用报告与 root 检查点即可。恢复通过原 root 选择明确的实际计划，不从目录时间推断。需求、产品范围或 seam 授权变化仍返回上层处理。
 
+阶段已交付 `NEEDS_CONTEXT` 或 `BLOCKED` 时，先按恢复协议补齐事实并确认旧任务结束，再通过原 root 接续当前 stage。若 outcome 为 `blocked/interrupted`，且最近的 implementer 尚未成功或代码失败交付、当前 stage 尚未预留 review，仍可调用同一适配入口。存在 requested_context 时先用 `context-add` 绑定补齐事实；executor 核对这些事实确实解除当前阻塞。已有 implementer 交付时，脚本同时检查自报停止和派发者收尾观察；观察尚未确认停止时先追加更正交付与收尾来源。脚本根据检查点判断资格，不根据默认报告文件是否存在判断。调整记录绑定适配前检查点和上下文来源，恢复时重验阶段及 implementer 的报告、回执和收尾来源；旧报告、回执和检查点保持不变，后续报告使用新路径。已成功或代码失败的 stage 不以适配重新打开，review 预留后继续原 round。
+
 ## 完成与 review
 
 组装器为新契约 DONE 派生 `delivery_kind`：有真实提交为 `changed`，无提交为 `already_satisfied`。补测试/文档的真实提交也属于 changed；空提交不能作为交付。already_satisfied 表示仓库交付无变化，也适用于 ticket 只准备 ignored 或仓库外本机状态的情形；它要求 direct_verification、BASE=HEAD、commit 列表为空、现场干净、全部 acceptance 的当前验证及双轴 PASS。
