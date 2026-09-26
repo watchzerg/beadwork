@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import yaml
 
 SOURCE = Path(__file__).resolve().parents[1] / "skills/beadwork-run"
 GENERATED_PATTERNS = ("__pycache__", ".pytest_cache", "*.pyc", "*.pyo", ".DS_Store")
@@ -92,6 +93,18 @@ def distribution_runtime(copied_distribution: Path, tmp_path: Path) -> Distribut
 
 def relative_files(root: Path) -> set[Path]:
     return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
+
+
+def test_distribution_resources_and_explicit_invocation_policy(
+    copied_distribution: Path,
+) -> None:
+    assert (copied_distribution / "SKILL.md").is_file()
+    assert (copied_distribution / "references").is_dir()
+    assert (copied_distribution / "scripts").is_dir()
+    policy_path = copied_distribution / "agents/openai.yaml"
+    assert yaml.safe_load(policy_path.read_text(encoding="utf-8")) == {
+        "policy": {"allow_implicit_invocation": False}
+    }
 
 
 def test_isolated_runtime_uses_python_314_without_development_paths(

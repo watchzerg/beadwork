@@ -91,7 +91,6 @@ def prepare(input_path, output):
     intent = dict(
         data,
         **identity,
-        version=5,
         branch=branch,
         worktree=str(worktree),
         target_main=update["main_commit"],
@@ -217,7 +216,6 @@ def execute(intent_path, recovery=None):
     path = evidence.absolute(intent_path)
     d = evidence.read(path)
     folder = path.parent
-    require(d.get("version") == 5, "需要当前初始化 intent")
     evidence.bound(d["preflight_acceptance"])
     evidence.bound(d["update_main_result"])
     ready = folder / "ready.json"

@@ -10,8 +10,6 @@ import evidence
 import repository
 import verification_records
 
-VERSION = 1
-
 
 def _record(item):
     _, started, _, result, _ = verification_records.read(item)
@@ -74,7 +72,6 @@ def build(sources, reviewed_head, notes, context_source, source_manifest):
         if why:
             selected.append(item)
     return {
-        "version": VERSION,
         "reviewed_head": reviewed_head,
         "context_source": context_source,
         "source_manifest": source_manifest,
@@ -99,7 +96,6 @@ def check(dispatch):
     source = dispatch.get("verification_view_source")
     repository.require(source, "reviewer 缺少 verification view")
     view = evidence.read(evidence.bound(source))
-    repository.require(view.get("version") == VERSION, "verification view 版本无效")
     repository.require(view.get("reviewed_head") == dispatch["reviewed_head"], "view HEAD 不符")
     evidence.bound(view["context_source"])
     sources = evidence.read(evidence.bound(view["source_manifest"]))
@@ -126,5 +122,8 @@ def check(dispatch):
         view["context_source"],
         view["source_manifest"],
     )
-    repository.require(view == expected, "verification view 与完整来源不符")
+    repository.require(
+        view == expected,
+        "verification view 与完整来源不符",
+    )
     return view

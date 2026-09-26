@@ -62,7 +62,7 @@ def validate_plan(d):
 def dispatch(path):
     p = evidence.absolute(path)
     d = evidence.read(p)
-    workflow_contract.require_current(d)
+    workflow_contract.launch_context(d)
     require(
         d["role"] in ("executor", "finalizer", "implementer", "fixer", "document-syncer"),
         "需要 executor、implementer 或 finalizer dispatch",
@@ -97,7 +97,7 @@ def same_attempt(a, b):
 def verification_dispatch(path):
     p = evidence.absolute(path)
     d = evidence.read(p)
-    workflow_contract.require_current(d)
+    workflow_contract.launch_context(d)
     repository.require(
         d["role"] in ("executor", "implementer", "fixer", "finalizer", "document-syncer")
         and d["dispatch_path"] == str(p),

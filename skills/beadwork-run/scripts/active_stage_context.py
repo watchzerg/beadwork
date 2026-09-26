@@ -9,8 +9,6 @@ import repository
 import review_context
 import ticket_state
 
-VERSION = 1
-
 
 def _transition(dispatch):
     previous = dispatch.get("previous_stage")
@@ -93,7 +91,6 @@ def _verification(directory, report, writer_source):
 def build(dispatch, verification_view_source):
     previous, report, writer_source, review_source = _sources(dispatch)
     return {
-        "version": VERSION,
         "kind": "active-stage-context",
         "ticket_id": dispatch["ticket_id"],
         "continuation": _transition(dispatch),
@@ -137,7 +134,6 @@ def check(dispatch, *, validate_sources=False):
         return None
     repository.require(source, "后续 stage 缺少 active stage context")
     context = evidence.read(evidence.bound(source))
-    repository.require(context.get("version") == VERSION, "active stage context 版本无效")
     view_source = context.get("verification_view_source")
     view = evidence.read(evidence.bound(view_source))
     manifest = evidence.read(evidence.bound(view["source_manifest"]))
@@ -158,9 +154,13 @@ def check(dispatch, *, validate_sources=False):
         expected_context,
         view["source_manifest"],
     )
-    repository.require(view == expected_view, "active verification view 与来源不符")
     repository.require(
-        context == build(dispatch, view_source), "active stage context 与前阶段来源不符"
+        view == expected_view,
+        "active verification view 与来源不符",
+    )
+    repository.require(
+        context == build(dispatch, view_source),
+        "active stage context 与前阶段来源不符",
     )
     repository.require(
         context["from_stage"] + 1 == context["stage"]

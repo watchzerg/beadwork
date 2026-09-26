@@ -12,7 +12,6 @@ import graph
 import repository
 
 KINDS = ("claim", "comment", "close")
-VERSION = 3
 
 
 def require(value, message):
@@ -132,8 +131,7 @@ def prepare(input_path, output, *, identity=None):
             value["repository_root"], value["parent_id"], plan, children
         )
     target = evidence.absolute(output)
-    intent = {"version": VERSION, **value}
-    evidence.write(target, intent)
+    evidence.write(target, value)
     return {"intent_path": str(target), "intent_sha256": evidence.digest(target)}
 
 
@@ -154,7 +152,6 @@ def receipt(result_path, result):
 def execute(intent_path):
     path = evidence.absolute(intent_path)
     intent = evidence.read(path)
-    require(intent.get("version") == VERSION, "需要当前 tracker intent")
     if intent["kind"] == "claim":
         require(
             isinstance(intent.get("expected_assignee"), str)

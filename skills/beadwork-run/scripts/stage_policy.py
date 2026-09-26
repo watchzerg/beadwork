@@ -60,7 +60,6 @@ def authorize_extension(previous, selected_stage, report, facts, stage_limit):
         raise ValueError("追加 stage 需要用户授权原因")
     new_limit = stage_limit + additional
     return new_limit, {
-        "version": 1,
         "kind": "authorized-stage-extension",
         "stage": previous["stage"],
         "selected_stage": selected_stage,

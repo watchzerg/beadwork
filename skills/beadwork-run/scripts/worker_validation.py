@@ -145,7 +145,7 @@ def dispatch_schema(role):
 
 def validate(role, report, axis_schema, expected):
     try:
-        workflow_contract.require_current(expected)
+        workflow_contract.launch_context(expected)
     except ValueError as error:
         return ["dispatch_contract: " + str(error)]
     if role == "implementer":

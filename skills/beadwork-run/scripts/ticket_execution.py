@@ -51,7 +51,7 @@ def resume_root(d):
     repository.require(previous.get("ticket_scope") == "root", "恢复需要当前单票 root dispatch")
     import workflow_contract
 
-    workflow_contract.require_current(previous)
+    workflow_contract.launch_context(previous)
     same_ticket(previous, d)
     repository.topology(previous)
     repository.git(d["worktree"], "merge-base", "--is-ancestor", d["base_commit"], "HEAD")
@@ -145,7 +145,6 @@ def recover_unregistered_gate_repair(previous, report, state, reason, recovery_f
         "恢复需要报告绑定的干净 HEAD",
     )
     recovery = {
-        "version": 1,
         "kind": "unregistered-gate-repair",
         "stage": previous["stage"],
         "selected_stage": state["selected_stage"],

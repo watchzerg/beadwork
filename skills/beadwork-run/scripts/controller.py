@@ -103,7 +103,7 @@ def prepare(args):
             isinstance(d["linked_spec"], str) and d["linked_spec"].strip(),
             "需要明确 linked_spec，parent 即 spec 时填写 parent ID",
         )
-    workflow_contract.stamp(d)
+    workflow_contract.set_launch_context(d)
     d.update(
         repository_root=root,
         parent_id=parent,
@@ -135,7 +135,7 @@ def prepare(args):
                 git(d["worktree"], "merge-base", "--is-ancestor", d["base_commit"], head)
             if d["mode"] == "resume" and d.get("previous_dispatch"):
                 previous = read(d["previous_dispatch"])
-                workflow_contract.require_current(previous)
+                workflow_contract.launch_context(previous)
                 validate_plan(previous)
                 if previous.get("plan_adjustment"):
                     require(
@@ -174,7 +174,7 @@ def prepare(args):
             require("prior_finalization" in d, "必须明确 prior_finalization，首次为 null")
             if d["prior_finalization"] and d["prior_finalization"].get("stage_path"):
                 previous = read(d["prior_finalization"]["stage_path"])
-                workflow_contract.require_current(previous)
+                workflow_contract.launch_context(previous)
             finalization.prepare_attempt(d, head)
             if d.get("final_sync_result") and not d.get("resume_stage"):
                 import main_sync
@@ -245,7 +245,7 @@ check_batch_beads = repository.check_batch_beads
 
 def inspect(dispatch_path, report_path, receipt_path):
     d = read(dispatch_path)
-    workflow_contract.require_current(d)
+    workflow_contract.launch_context(d)
     if d["role"] == "finalizer":
         return finalization.inspect_delivery(dispatch_path, report_path, receipt_path)
     directory = Path(dispatch_path).resolve().parent

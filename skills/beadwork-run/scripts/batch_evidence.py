@@ -138,7 +138,6 @@ def manifest(input_path):
         "验收来源必须按固定 children 一一对应",
     )
     return {
-        "version": 1,
         "parent_id": data["parent_id"],
         "expected_children": data["expected_children"],
         "tickets": tickets,

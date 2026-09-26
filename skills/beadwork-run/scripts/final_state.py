@@ -14,8 +14,7 @@ import workflow_contract
 
 def strict(d):
     return (
-        workflow_contract.current(d)
-        and d.get("role") in ("finalizer", "fixer", "document-syncer")
+        d.get("role") in ("finalizer", "fixer", "document-syncer")
         and "attempt_id" in d
         and not d.get("ticket_scope")
     )

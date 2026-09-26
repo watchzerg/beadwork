@@ -34,7 +34,7 @@ def prepare_attempt(d, head):
         previous = evidence.read(prior["stage_path"])
         import workflow_contract
 
-        workflow_contract.require_current(previous)
+        workflow_contract.launch_context(previous)
         repository.require(
             previous.get("role") == "finalizer" and "stage" in previous, "需要有效的最终阶段"
         )
@@ -224,7 +224,7 @@ def check_report(expected, report, *, review_checks=None):
     review_checks = set() if review_checks is None else review_checks
     import workflow_contract
 
-    workflow_contract.require_current(expected)
+    workflow_contract.launch_context(expected)
     repository.require(
         report.get("attempt_id") == expected["attempt_id"] and report.get("stage_sources"),
         "缺少最终阶段身份或来源",
@@ -236,7 +236,7 @@ def check_report(expected, report, *, review_checks=None):
     d = stages[-1]
     same_attempt(expected, d)
     if fs.strict(expected):
-        repository.require(fs.strict(d), "最终交付协议版本不符")
+        repository.require(fs.strict(d), "最终交付阶段身份或启动上下文不符")
         fs.check_sources(d, report)
         fv.check(d, report)
         if "stage" not in expected:

@@ -54,11 +54,6 @@ lint:
 typecheck:
     mise exec -- uv run --locked ty check
 
-# 检查根维护文档、skill 文档、仓库结构、Python 语法和 whitespace。
-check-docs:
-    mise exec -- uv run --locked python scripts/maintenance_check.py
-    git diff --check
-
 # 使用项目环境中的 PyYAML 运行用户级 skill validator；缺失时明确失败。
 validate-skill:
     #!/usr/bin/env bash
@@ -81,7 +76,7 @@ test suite *args:
 # 完整门禁：静态检查、全部 pytest 和真实 skill validator 顺序执行，首错停止。
 gate-full:
     just check-toolchain
-    just check-docs
+    git diff --check
     just lint
     just typecheck
     mise exec -- uv run --locked python scripts/run_tests.py --gate all

@@ -44,7 +44,7 @@ def prepare_utility_stage(data):
         skill_dir=str(SCRIPT.parent.parent),
         role="executor",
     )
-    workflow_contract.stamp(d)
+    workflow_contract.set_launch_context(d)
     repository.topology(d)
     head = repository.sha(d["worktree"], "HEAD")
     if d["mode"] == "new":

@@ -24,7 +24,6 @@ from typing import Any
 
 import document_closeout
 import evidence
-import workflow_contract
 import workflow_policy
 from review_schema import axis_report_schema
 from schema_validation import (
@@ -248,7 +247,6 @@ def existing_behavior_round(report: dict[str, Any], index: int) -> bool:
             )
             and collection["pair"] == pair
             and dispatch["role"] == "executor"
-            and dispatch.get("workflow_contract_version") == workflow_contract.VERSION
             and dispatch["base_commit"] == base
             and dispatch["test_mode"] == "direct_verification"
             and isinstance(acceptance, list)

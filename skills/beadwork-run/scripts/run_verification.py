@@ -64,7 +64,7 @@ def run(args):
     d = dispatch(source)
     import workflow_contract
 
-    workflow_contract.require_current(d)
+    workflow_contract.launch_context(d)
     before = state(d)
     if d.get("document_mode") == "review_closeout":
         import document_closeout

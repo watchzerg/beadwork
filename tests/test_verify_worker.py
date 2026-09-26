@@ -46,7 +46,7 @@ class WorkerDeliveryTests(unittest.TestCase):
 
     def expected(self, role):
         if role == "reviewer":
-            return workflow_contract.stamp(
+            return workflow_contract.set_launch_context(
                 {
                     "axis": "spec",
                     "reviewed_base": A,
@@ -54,7 +54,7 @@ class WorkerDeliveryTests(unittest.TestCase):
                     **self.review_context,
                 }
             )
-        return workflow_contract.stamp(
+        return workflow_contract.set_launch_context(
             {
                 "parent_id": "demo-1",
                 "branch": "implement/demo-1",

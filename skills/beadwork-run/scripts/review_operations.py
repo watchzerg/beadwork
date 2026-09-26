@@ -196,7 +196,7 @@ def prepare_review(args):
             identity["dispatch_path"],
             "--emit-receipt",
         )
-        workflow_contract.stamp(identity)
+        workflow_contract.set_launch_context(identity)
         role_instructions.publish(identity, "reviewer")
         publish_or_match(identity["report_schema_path"], report_io.reviewer("--schema"))
         publish_or_match(identity["receipt_schema_path"], report_io.reviewer("--receipt-schema"))
