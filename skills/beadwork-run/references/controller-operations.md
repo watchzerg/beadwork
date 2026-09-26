@@ -15,11 +15,13 @@ operation 公共字段为 repository_root（primary 绝对路径）、parent_id�
 
 | kind | 输入与 controller 前置核对 |
 | --- | --- |
-| claim | expected_assignee：实际领取身份；parent 需 install/gate-core 快速基线通过，child 需刷新后的 claim frontier 与 sync_result |
+| claim | 身份由脚本固定，不填写 expected_assignee；parent 需 install/gate-core 快速基线通过，child 需刷新后的 claim frontier 与 sync_result |
 | comment | body_source：正文文件的 path/sha256 binding；completion/integration-ready 使用已验收报告生成的 comment_source |
 | close | reason、prerequisite（path/sha256）；child 绑定成功 acceptance，parent 绑定成功 merge checkpoint；controller 另核对对应 completion 已写入 |
 
-脚本保存 V2 intent，写后读回 show/comments；它验证 body_source/prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。result 只保留操作所需的状态投影，execute 返回 result_source 短回执；comment 另含唯一读回的字符串 `comment_id`，用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。
+脚本保存 V3 intent，写后读回 show/comments；它验证 body_source/prerequisite 文件绑定，不代替成功状态、语义和流程顺序核对。result 只保留操作所需的状态投影，execute 返回 result_source 短回执；comment 另含唯一读回的字符串 `comment_id`，用于 merge。结果缓存只表示该 intent 曾完成，进入后续步骤仍核对实时现场。
+
+领取身份在 prepare 时优先取 `BEADS_ACTOR`；未设置时读取 primary 的 `git user.name`，缺失或为空即失败。intent 保存 `expected_assignee` 和 `assignee_source`；execute 显式使用 `--actor`，读回必须匹配固定值，不随环境变化重新解析。初始化在创建 worktree 前固定身份，parent claim 沿用该值；child claim 使用同一解析规则。输入不接受手填身份，也不使用 Git 邮箱或 Beads 的其他隐式回退。
 
 未知结果使用原 intent 重试，先读回协调；不创建新 intent 盲目重发。claim 竞争失败重新计算 frontier；已由其他身份领取时不采用。
 
@@ -32,7 +34,7 @@ python3 <skill-dir>/scripts/beadwork.py batch-initialize prepare --input <initia
 python3 <skill-dir>/scripts/beadwork.py batch-initialize execute --intent <intent.json>
 ```
 
-prepare 输入为 repository_root、parent_id、固定 expected_children、expected_assignee，以及 preflight_acceptance、update_main_result 两个 path/sha256 bindings。先建立唯一目录；脚本绑定固定 main、READY preflight 和执行计划。execute 自动创建 Beads worktree，核对共享 workspace，顺序完成 install/gate-core、parent claim 与中文批次 comment，全部成功才发布 ready.json，返回 base_commit、comment_id 和来源。正常调用不手写步骤或 comment。
+prepare 输入为 repository_root、parent_id、固定 expected_children，以及 preflight_acceptance、update_main_result 两个 path/sha256 bindings。先建立唯一目录；脚本绑定固定 main、READY preflight 和执行计划。execute 自动创建 Beads worktree，核对共享 workspace，顺序完成 install/gate-core、parent claim 与中文批次 comment，全部成功才发布 ready.json，返回 base_commit、comment_id 和来源。正常调用不手写步骤或 comment。
 
 失败使用原 intent 重试，保留旧日志；成功步骤仅在上游来源一致时复用。未知或中断命令先确认宿主任务与外部资源结束，再加 `--recovery <observations.json>`。文件为观察数组，每项包含 run_path（错误指向的运行目录）、task_id、stopped、observed_at、evidence、unresolved；stopped 必须为 true 且 unresolved 为空。脚本保存观察，不自行探测宿主任务。已进入 child 工作时走 recovery-batch.md，不重跑初始化。ready 只证明初始化完成，后续仍执行实时 frontier 和 sync-main。
 
@@ -163,4 +165,4 @@ executor 负责开工 BASE 已满足和恢复 TDD 的执行策略适配，使用
 
 ## 串行计划绑定
 
-child claim 的 prepare 自动读取已接纳计划并写入 intent；execute 重新核对计划、下一张票和实时 ready，必须提供 `expected_assignee`。恢复领取使用原始 intent；相同 assignee 不能替代来源身份。Parent claim 不受子票顺序约束。计划发布和显式调整使用 [serial-planning.md](serial-planning.md) 的脚本入口，日常循环不手写区块或重排。
+child claim 的 prepare 自动读取已接纳计划并写入 intent；execute 重新核对计划、下一张票和实时 ready，身份由脚本固定。恢复领取使用原始 intent；相同 assignee 不能替代来源身份。Parent claim 不受子票顺序约束。计划发布和显式调整使用 [serial-planning.md](serial-planning.md) 的脚本入口，日常循环不手写区块或重排。

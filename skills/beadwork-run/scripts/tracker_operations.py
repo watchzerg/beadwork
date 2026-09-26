@@ -3,19 +3,40 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 import evidence
 import execution_plan
 import graph
+import repository
 
 KINDS = ("claim", "comment", "close")
-VERSION = 2
+VERSION = 3
 
 
 def require(value, message):
     if not value:
         raise ValueError(message)
+
+
+def claim_identity(root):
+    """固定 Beadwork 的领取身份；执行时显式传 actor，不依赖 bd 的隐式回退。"""
+    if "BEADS_ACTOR" in os.environ:
+        actor, source = os.environ["BEADS_ACTOR"], "BEADS_ACTOR"
+    else:
+        result = subprocess.run(
+            ["git", "config", "--get", "user.name"],
+            cwd=repository.primary(root),
+            capture_output=True,
+            text=True,
+        )
+        require(result.returncode in (0, 1), "读取 git user.name 失败：" + result.stderr.strip())
+        actor, source = result.stdout.strip(), "git user.name"
+    require(
+        isinstance(actor, str) and actor.strip(), "缺少领取身份：设置 BEADS_ACTOR 或 git user.name"
+    )
+    return {"expected_assignee": actor.strip(), "assignee_source": source}
 
 
 def command(root, *args, readonly=False):
@@ -78,7 +99,7 @@ def matching_comment(rows, marker):
     return str(value)
 
 
-def prepare(input_path, output):
+def prepare(input_path, output, *, identity=None):
     value = evidence.read(input_path)
     require(
         set(value)
@@ -89,7 +110,6 @@ def prepare(input_path, output):
             "kind",
             "body_source",
             "reason",
-            "expected_assignee",
             "prerequisite",
         },
         "tracker intent 输入字段无效",
@@ -97,6 +117,8 @@ def prepare(input_path, output):
     require(value.get("kind") in KINDS, "tracker kind 无效")
     for key in ("repository_root", "parent_id", "issue_id"):
         require(isinstance(value.get(key), str) and value[key], f"缺少 {key}")
+    if value["kind"] == "claim":
+        value.update(identity if identity is not None else claim_identity(value["repository_root"]))
     if value["kind"] == "comment":
         body = evidence.bound(value.get("body_source"))
         require(body.read_text(encoding="utf-8").strip(), "comment 需要非空正文来源")
@@ -108,10 +130,6 @@ def prepare(input_path, output):
         _, children, _, plan = execution_plan.live(value["repository_root"], value["parent_id"])
         value["execution_plan_source"] = execution_plan.check_selected(
             value["repository_root"], value["parent_id"], plan, children
-        )
-        require(
-            isinstance(value.get("expected_assignee"), str) and value["expected_assignee"].strip(),
-            "child claim 需要 expected_assignee",
         )
     target = evidence.absolute(output)
     intent = {"version": VERSION, **value}
@@ -137,6 +155,12 @@ def execute(intent_path):
     path = evidence.absolute(intent_path)
     intent = evidence.read(path)
     require(intent.get("version") == VERSION, "需要当前 tracker intent")
+    if intent["kind"] == "claim":
+        require(
+            isinstance(intent.get("expected_assignee"), str)
+            and intent["expected_assignee"].strip(),
+            "claim intent 缺少固定领取身份",
+        )
     if intent["kind"] == "comment":
         evidence.bound(intent["body_source"])
     result_path = path.with_name(path.stem + "-result.json")
@@ -212,7 +236,7 @@ def execute(intent_path):
                 execution_plan.record_progress(
                     root, intent["parent_id"], issue_id, "started", evidence.binding(path)
                 )
-            write_result = command(root, "update", issue_id, "--claim")
+            write_result = command(root, "update", issue_id, "--claim", "--actor", expected)
     elif kind == "comment":
         already = matching_comment(comments(root, issue_id), marker) is not None
         if not already:
@@ -236,8 +260,7 @@ def execute(intent_path):
     after = {} if kind == "comment" else issue(root, issue_id)
     if kind == "claim":
         require(after.get("status") == "in_progress" and after.get("assignee"), "claim 未读回")
-        if intent.get("expected_assignee"):
-            require(after.get("assignee") == intent["expected_assignee"], "claim assignee 不符")
+        require(after.get("assignee") == intent["expected_assignee"], "claim assignee 不符")
     elif kind == "comment":
         comment_id = matching_comment(comments(root, issue_id), marker)
         require(comment_id is not None, "comment 写入结果未知")

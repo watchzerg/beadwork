@@ -38,7 +38,7 @@ elif a[0]=='where':
  place=root/'.beads' if not s.get('wrong_workspace') or Path.cwd()==root else root/'wrong'
  print(json.dumps({'path':str(place),'database_path':str(place/'db')}))
 elif a[:2]==['update','demo']:
- s['issue'].update(status='in_progress',assignee='fixture');p.write_text(json.dumps(s));print('{}')
+ s['issue'].update(status='in_progress',assignee=a[a.index('--actor')+1]);p.write_text(json.dumps(s));print('{}')
 elif a[:2]==['comments','add']:
  body=Path(a[a.index('-f')+1]).read_text();s['comments'].append({'id':len(s['comments'])+1,'text':body});p.write_text(json.dumps(s));print('{}')
 elif a[0]=='comments': print(json.dumps(s['comments']))
@@ -100,6 +100,7 @@ class BatchOperationsTests(unittest.TestCase):
             {
                 "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
                 "TRACKER_STATE": str(self.state),
+                "BEADS_ACTOR": "fixture",
             },
         )
         environment.start()
@@ -180,7 +181,6 @@ class BatchOperationsTests(unittest.TestCase):
                 "expected_children": report["expected_children"],
                 "preflight_acceptance": evidence.binding(accepted),
                 "update_main_result": evidence.binding(update),
-                "expected_assignee": "fixture",
             },
         )
         folder = self.root / ".worktrees/.evidence/demo/initialize/first"
@@ -273,7 +273,11 @@ class BatchOperationsTests(unittest.TestCase):
         )
         accepted = pd.parent / "accepted.json"
         h.call("accept", "--dispatch", pd, "--report", rp, "--receipt", rr, "--output", accepted)
-        initialized = self.cli("execute", "--intent", self.initialize(accepted))
+        intent = self.initialize(accepted)
+        self.assertEqual(evidence.read(intent)["expected_assignee"], "fixture")
+        with patch.dict(os.environ, BEADS_ACTOR="changed-after-prepare"):
+            initialized = self.cli("execute", "--intent", intent)
+        self.assertEqual(evidence.read(self.state)["issue"]["assignee"], "fixture")
         self.assertEqual(initialized["worktree"], str(h.wt))
         common = {
             "repository_root": str(self.root),

@@ -23,16 +23,12 @@ def prepare(input_path, output):
             "expected_children",
             "preflight_acceptance",
             "update_main_result",
-            "expected_assignee",
         },
         "初始化输入字段不符",
     )
     root = repository.primary(data["repository_root"])
     require(root == data["repository_root"], "初始化需要 primary 绝对路径")
-    require(
-        isinstance(data["expected_assignee"], str) and data["expected_assignee"].strip(),
-        "缺少领取身份",
-    )
+    identity = tracker.claim_identity(root)
     accepted = evidence.read(evidence.bound(data["preflight_acceptance"]))
     require(
         accepted.get("kind") == "mechanical_acceptance"
@@ -94,7 +90,8 @@ def prepare(input_path, output):
     require(not list(expected.glob("*/intent.json")), "已有初始化 intent；使用原入口恢复")
     intent = dict(
         data,
-        version=4,
+        **identity,
+        version=5,
         branch=branch,
         worktree=str(worktree),
         target_main=update["main_commit"],
@@ -198,7 +195,7 @@ def workspace(d, folder):
     return sources
 
 
-def tracker_step(folder, name, value):
+def tracker_step(folder, name, value, *, identity=None):
     path = folder / (name + "-intent.json")
     if not path.exists():
         source = folder / (name + "-input.json")
@@ -206,7 +203,7 @@ def tracker_step(folder, name, value):
             require(evidence.read(source) == value, "tracker 输入变化")
         else:
             evidence.write(source, value)
-        tracker.prepare(source, path)
+        tracker.prepare(source, path, identity=identity)
     result = tracker.execute(path)
     source = result["result_source"]
     require(
@@ -220,7 +217,7 @@ def execute(intent_path, recovery=None):
     path = evidence.absolute(intent_path)
     d = evidence.read(path)
     folder = path.parent
-    require(d.get("version") == 4, "需要当前初始化 intent")
+    require(d.get("version") == 5, "需要当前初始化 intent")
     evidence.bound(d["preflight_acceptance"])
     evidence.bound(d["update_main_result"])
     ready = folder / "ready.json"
@@ -290,7 +287,10 @@ def execute(intent_path, recovery=None):
     live_unstarted(d)
     common = dict(repository_root=root, parent_id=d["parent_id"], issue_id=d["parent_id"])
     claimed, claim_source = tracker_step(
-        folder, "claim", dict(common, kind="claim", expected_assignee=d["expected_assignee"])
+        folder,
+        "claim",
+        dict(common, kind="claim"),
+        identity={key: d[key] for key in ("expected_assignee", "assignee_source")},
     )
     current = tracker.issue(root, d["parent_id"])
     require(

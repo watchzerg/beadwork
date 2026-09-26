@@ -28,6 +28,7 @@ class ExecutionPlanTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.env = dict(
             os.environ,
+            BEADS_ACTOR="fixture",
             GIT_CONFIG_NOSYSTEM="1",
             GIT_CONFIG_GLOBAL=os.devnull,
             GIT_AUTHOR_NAME="Test",
@@ -73,7 +74,7 @@ elif a[0]=='ready':
 elif a[0]=='update':
  if '--body-file' in a: s['parent']['description']=Path(a[a.index('--body-file')+1]).read_text()
  else:
-  x=next(x for x in s['children'] if x['id']==a[1]);x.update(status='in_progress',assignee='fixture')
+  x=next(x for x in s['children'] if x['id']==a[1]);x.update(status='in_progress',assignee=a[a.index('--actor')+1])
  s['writes'].append(a);p.write_text(json.dumps(s));print('{}')
 elif a[0]=='close':
  next(x for x in s['children'] if x['id']==a[1])['status']='closed';s['writes'].append(a);p.write_text(json.dumps(s));print('{}')
@@ -125,12 +126,49 @@ else: raise AssertionError(a)
                 parent_id="p-1",
                 issue_id=ticket or self.order[0],
                 kind=kind,
-                expected_assignee="fixture",
                 **extra,
             ),
         )
         tracker.prepare(source, target)
         return target
+
+    def test_claim_fixes_actor_before_environment_changes(self):
+        intent = self.intent("claim")
+        self.assertEqual(evidence.read(intent)["assignee_source"], "BEADS_ACTOR")
+        with patch.dict(os.environ, BEADS_ACTOR="different-actor"):
+            tracker.execute(intent)
+            tracker.execute(intent)
+        state = evidence.read(self.state_path)
+        self.assertEqual(state["children"][0]["assignee"], "fixture")
+        self.assertEqual(len(state["writes"]), 1)
+        state["children"][0]["assignee"] = "another-owner"
+        self.state_path.write_text(json.dumps(state))
+        with self.assertRaisesRegex(ValueError, "活动票归属不同"):
+            tracker.execute(intent)
+        self.assertEqual(len(evidence.read(self.state_path)["writes"]), 1)
+
+    def test_claim_identity_uses_git_name_and_rejects_manual_input(self):
+        for key, value in (("user.name", "Git Owner"), ("user.email", "different@example.com")):
+            subprocess.run(
+                ["git", "config", key, value],
+                cwd=self.root,
+                env=self.env,
+                check=True,
+                capture_output=True,
+            )
+        with patch.dict(os.environ):
+            os.environ.pop("BEADS_ACTOR", None)
+            intent = self.intent("git-claim")
+        self.assertEqual(evidence.read(intent)["expected_assignee"], "Git Owner")
+        self.assertEqual(evidence.read(intent)["assignee_source"], "git user.name")
+        tracker.execute(intent)
+        self.assertEqual(evidence.read(self.state_path)["children"][0]["assignee"], "Git Owner")
+        with self.assertRaisesRegex(ValueError, "输入字段无效"):
+            self.intent("manual", expected_assignee="different@example.com")
+        with patch.dict(os.environ, BEADS_ACTOR="   "):
+            with self.assertRaisesRegex(ValueError, "缺少领取身份"):
+                self.intent("empty")
+        self.assertFalse((self.root / "empty.json").exists())
 
     def test_next_blocked_never_skips_to_ready_later(self):
         self.state["ready"] = self.order[1:]
