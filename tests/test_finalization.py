@@ -130,7 +130,7 @@ class FinalizationTests(unittest.TestCase):
         self.assertEqual(d["stage"], 0)
         return output
 
-    def review(self, dispatch, blocking=False, evidence=None):
+    def review(self, dispatch, blocking=False, evidence=None, repair_scope="code"):
         prepared = self.call(
             "review-prepare",
             "--dispatch",
@@ -155,6 +155,7 @@ class FinalizationTests(unittest.TestCase):
                     {
                         "axis": axis,
                         "kind": "defect",
+                        "repair_scope": repair_scope,
                         "blocking": True,
                         "title": "需要修复",
                         "evidence": "真实 review 证据",

@@ -25,7 +25,7 @@ python3 <skill-dir>/scripts/beadwork.py executor implementer-accept --dispatch <
 
 ## 文档同步交付
 
-final-stage 为 stage 0 返回 document_dispatch、document_launch_context 和 selected_document；按返回上下文及该 dispatch 的 model/reasoning_effort 派发 document-syncer，不手工构造 dispatch。规则见 [documentation-sync.md](documentation-sync.md)。
+final-stage 为 stage 0 返回 document_dispatch、document_launch_context 和 selected_document；按返回上下文及该 dispatch 的 model/reasoning_effort 派发 document-syncer，不手工构造 dispatch。规则见 [documentation-sync.md](documentation-sync.md)。executor/finalizer 的 review 后收尾通过 document-closeout-prepare 取得同角色 dispatch，复用 document-assemble，验收使用 [document-closeout-accept](document-closeout.md)。
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor document-assemble --dispatch <document-dispatch.json> --draft <draft.json> --output <report.json>
@@ -34,7 +34,7 @@ python3 <skill-dir>/scripts/beadwork.py executor document-accept --dispatch <sta
 
 同步器读取 draft_schema_path，填写 inspected、summary、result、verification_notes、实际收尾与剩余工作。身份、BASE/HEAD、commits、changed_files 和验证来源由脚本生成。DONE 需要干净现场、已完成检查、无剩余工作；当前 HEAD 的每项定向检查按完整 argv 分别取最新结果，不得用另一组 test 参数的成功掩盖失败。有修改为 updated，无修改为 no_change_needed，不要求空提交或 gate-full。BLOCKED/blocked|interrupted 使用 incomplete，不触发新的修复 stage。
 
-finalizer 先核对文档范围与语义，再保存回执并带实际收尾观察 accept。源码 writer 未结束时不运行验证；stage 0 完整 gate/review 必须覆盖同步器交付 HEAD。检查点保留 document_sources，最终报告单独列出 document_commits；后续 fixer 的提交继续使用 fix_sources/fix.commits，全部最终新增提交必须可追溯到这两类来源。
+finalizer 先核对文档范围与语义，再保存回执并带实际收尾观察 accept。源码 writer 未结束时不运行验证；stage 0 完整 gate/review 必须覆盖同步器交付 HEAD。检查点保留 document_sources，最终报告单独列出 document_commits；后续 fixer 的提交继续使用 fix_sources/fix.commits，全部最终新增提交必须可追溯到这两类来源。review 后收尾的文档提交仍归 document_sources/document_commits，另保留 document_closeout 的定点验收；两类提交可能在历史中交错，不改写提交归属。
 
 
 ## fixer 交付

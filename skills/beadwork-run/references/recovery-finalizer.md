@@ -2,7 +2,7 @@
 
 prior_finalization 指向原阶段 dispatch；同一 reviewed_main 恢复原 attempt 和检查点，保留 BASE、stage、document-syncer/fixer/review 的明确选择、commits、dirty 现场及 gate-fix 额度。先确认旧任务结束，再调用 final-stage continuation: resume；返回原 stage、document_dispatch、selected_document、selected_fixer、review_round、selected_review、selected_stage 和 context_sources。
 
-document-syncer 或 fixer DONE 已验收时，不重新派 writer；review 已开始时只继续原 round 的缺失轴或同 HEAD 更正。collect 已完成而阶段报告未写出时直接使用已选 collection 组装。collection 写出但检查点未完成时，用原 round 和明确 selection 重新 collect 到新文件。review 准备只有半成品时使用 review-prepare --resume，保留原目录。
+document-syncer 或 fixer DONE 已验收时，不重新派 writer；review 已开始时只继续原 round 的缺失轴或同 HEAD 更正。collect 已完成而阶段报告未写出时，先按 repair_route 完成适用的文档收尾，再使用已选来源组装。collection 写出但检查点未完成时，用原 round 和明确 selection 重新 collect 到新文件。review 准备只有半成品时使用 review-prepare --resume，保留原目录。
 
 fixer 的 blocked/interrupted 只有在自报 stopped_tasks 和派发者 closure 均确认停止后，才返回可接替的 fixer_dispatch；finalizer 补充验证同样要求当前 fixer 的双边收尾确认，不能复用前一阶段的停止记录。停止观察未确认时保留现场，实际结束后通过新报告和 observation 更正并重新验收，再恢复原阶段。已验收 code_failure 的 fixer 不再恢复写入，组装阶段报告后按额度 repair。
 
@@ -17,3 +17,5 @@ finalizer 自己的验证中断或结果未知时，确认旧任务及外部资�
 正常交付使用 final-deliver，不手工复制和改 receipt。具体入口见 final-execution.md；收尾和新增事实按 report-delivery.md。
 
 final-stage 从 checkpoint 恢复已选来源；组装不接受显式 review/fixer 参数。历史格式仅可按 recovery-report.md 诊断，不导入当前执行流程。
+
+已存在 document_closeout 时，先读取绑定的 dispatch 与 acceptance，按 [文档收尾](document-closeout.md) 接续。已验收的收尾不重新派 writer/reviewer；通过则交付，blocked 则报告阻塞，code_required 则按代码修复规则推进。尚未交付的中断任务只在确认旧任务及命令结束后接续原 dispatch，不重新调用 prepare。

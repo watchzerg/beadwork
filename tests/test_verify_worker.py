@@ -71,6 +71,7 @@ class WorkerDeliveryTests(unittest.TestCase):
                 {
                     "axis": "spec",
                     "kind": "defect",
+                    "repair_scope": "code",
                     "blocking": True,
                     "title": "遗漏需求",
                     "evidence": "需求和代码证据",

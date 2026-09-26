@@ -13,7 +13,8 @@ python3 <skill-dir>/scripts/beadwork.py executor ticket-stage --dispatch <root-d
 1. 派发全新 implementer，交接 writer dispatch、项目规则、需求来源和实际进度通信目标。实现与交付见 [writer-delivery.md](writer-delivery.md) 的 implementer 部分。
 2. 确认 writer 与命令结束，保存回执；核对 acceptance、Test plan、失败处置与候选 gate-core，执行 implementer-accept。
 3. 实现通过后，按 [review.md](review.md) 派发一轮并行双轴审查。候选保持冻结。
-4. 填写本阶段 draft_schema_path 所需语义判断，组装阶段报告：
+4. 完整 review 按 repair_route 分流；仅文档阻塞先完成 [文档收尾](document-closeout.md)，不消耗新 stage 或重跑代码 gate。无阻塞或收尾通过才可 passed；收尾失败为 blocked，确认需要代码修复为 code_failure。
+5. 填写本阶段 draft_schema_path 所需语义判断，组装阶段报告：
 
 ```bash
 python3 <skill-dir>/scripts/beadwork.py executor ticket-assemble --dispatch <stage-dispatch.json> --draft <stage-draft.json> --output <stage-report.json>
@@ -40,7 +41,7 @@ stage 0 的 active_stage_context_source 为 null；后续 stage 提供内容绑�
 python3 <skill-dir>/scripts/beadwork.py executor ticket-deliver --dispatch <root-dispatch.json> --output <root-report.json>
 ```
 
-交付 checkpoint 明确选中的阶段报告，执行完整自检并返回 root 短回执。DONE 需要 acceptance、必要验证与最后双轴 PASS 覆盖交付 HEAD，现场干净且任务已结束。未到授权上限的 code_failure 继续内部修复。controller 验收 root 交付后记录 completion 并关闭 ticket。
+交付 checkpoint 明确选中的阶段报告，执行完整自检并返回 root 短回执。DONE 需要 acceptance、必要验证与最后双轴 review 覆盖代码候选；有文档收尾时，由绑定的验收记录覆盖后续文档 HEAD，现场干净且任务已结束。未到授权上限的 code_failure 继续内部修复。controller 验收 root 交付后记录 completion 并关闭 ticket。
 
 ## 条件入口
 

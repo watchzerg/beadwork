@@ -13,6 +13,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 import dispatch_contract
+import document_closeout
 import document_sync
 import evidence
 import finalization
@@ -201,6 +202,10 @@ def execute(args):
         "fixer-check": lambda a: finalization.fixer_check(a.dispatch, a.report),
         "fixer-accept": lambda a: finalization.accept_fixer(
             a.dispatch, a.report, a.receipt, handoff.acceptance_closure(a)
+        ),
+        "document-closeout-prepare": lambda a: document_closeout.prepare(a.dispatch, load(a.input)),
+        "document-closeout-accept": lambda a: document_closeout.accept(
+            a.dispatch, a.report, a.receipt, load(a.input), handoff.acceptance_closure(a)
         ),
         "document-assemble": lambda a: document_sync.assemble(a.dispatch, a.draft, a.output),
         "document-check": lambda a: document_sync.check(a.dispatch, a.report),

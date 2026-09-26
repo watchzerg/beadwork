@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import active_stage_context
 import dispatch_contract
+import document_closeout
 import draft_contracts
 import evidence
 import handoff
@@ -58,7 +59,12 @@ def check_stage_report_core(d, report, *, review_checks=None):
                 evidence.bound(evidence.read(evidence.bound(item["round"]))["dispatch"])
             )
             repository.require(origin.get("stage") == d["stage"], "新增 review 不属于当前阶段")
-    if len(sources) > len(prior) and review["gate"] == "BLOCKED":
+    closeout = document_closeout.validate(report)
+    if (
+        len(sources) > len(prior)
+        and review["gate"] == "BLOCKED"
+        and not (closeout and closeout["outcome"] == "passed")
+    ):
         repository.require(
             report["outcome"] in ("code_failure", "blocked"),
             "完整 BLOCKED review 必须明确代码失败或非代码阻塞",
@@ -72,6 +78,11 @@ def check_stage_report_core(d, report, *, review_checks=None):
         repository.require(report["status"] == "BLOCKED", "代码失败必须为 BLOCKED")
         if len(sources) > len(prior):
             repository.require(review["gate"] == "BLOCKED", "当前 review PASS 不能标为代码失败")
+            repository.require(
+                review_evidence.repair_route(review["final"]) == "code"
+                or (closeout and closeout["outcome"] == "code_required"),
+                "仅文档阻塞不能进入代码修复 stage",
+            )
     else:
         repository.require(report["status"] != "DONE", "未完成阶段不能返回 DONE")
 
@@ -348,9 +359,13 @@ def _check_stage(d, report, verified, *, state=None, review_checks=None):
             closure,
             required=bool(w.get("preflight_acceptance")),
         )
+    repository.require(
+        report.get("document_closeout") == document_closeout.selected(d), "阶段报告遗漏文档收尾来源"
+    )
+    candidate_head = document_closeout.candidate_head(report)
     if sources:
         repository.require(
-            implementation["head_commit"] == report["head_commit"], "阶段 HEAD 与最后实现交付不符"
+            implementation["head_commit"] == candidate_head, "阶段 HEAD 与最后实现交付不符"
         )
         repository.require(
             all(row in report["verification"] for row in implementation["verification"]),
@@ -360,7 +375,7 @@ def _check_stage(d, report, verified, *, state=None, review_checks=None):
     if new_review:
         repository.require(
             all(
-                axis["reviewed_head"] == report["head_commit"]
+                axis["reviewed_head"] == candidate_head
                 for axis in report["review"]["final"].values()
             ),
             "当前 review 未覆盖本阶段交付 HEAD",
@@ -418,13 +433,14 @@ def assemble_stage(args):
     stopped = report.pop("stopped_tasks")
     repository.require(type(stopped) is bool, "stopped_tasks 必须为布尔值")
     extra = {
+        "document_closeout": document_closeout.selected(d),
         "execution": {
             "root": d["ticket_root"],
             "stage_dispatch": evidence.binding(args.dispatch),
             "previous_stages": d["prior_stages"],
             "implementers": state["implementer_sources"],
             "stopped_tasks": stopped,
-        }
+        },
     }
     # 原组装器仍负责 Git、plan 与双轴原始证据；实现日志由已验收报告注入。
     verification = []

@@ -36,7 +36,7 @@
 - 票间同步合入 main、改变 implementation HEAD 后，安装输入变化时执行 `install`，随后运行 `gate-core`；main 已包含时不重复执行命令。
 - implementer 按项目规则完成格式化及相关静态检查，通过 `test` 获取本票行为证据；提交后在干净候选上运行 `gate-core`。
 - 每票的 Test plan 必须说明实际验证命令或场景及预期结果；涉及数据库、浏览器、进程等真实边界时，验证必须能够观察所要求的行为。无法收窄时，在本票执行完整相关 suite，不能只凭 core 通过关闭票据。
-- 最终同步只按安装输入变化决定是否重新执行 `install`，由 finalizer 在最终干净候选上运行一次完整 `gate-full`。修复改变候选后重新执行该完整入口。
+- 最终同步只按安装输入变化决定是否重新执行 `install`，由 finalizer 在最终干净候选上运行一次完整 `gate-full`。代码修复改变候选后重新执行该完整入口；review 后仅文档修复按 [文档收尾](../skills/beadwork-run/references/document-closeout.md) 复用原代码 gate，不增加强制的项目文档 recipe。
 - executor/reviewer 核对本票行为证据；最终 reviewer 核对整个 parent 的验收范围。修改测试框架或 gate 定义时，必须审查完整验收是否遗漏必要覆盖。
 
 更细的 Test plan、TDD 和证据规则由随 skill 分发的共享契约维护：

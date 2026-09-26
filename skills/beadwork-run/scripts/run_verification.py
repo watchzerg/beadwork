@@ -66,9 +66,16 @@ def run(args):
 
     workflow_contract.require_current(d)
     before = state(d)
-    if d.get("ticket_scope"):
+    if d.get("document_mode") == "review_closeout":
+        import document_closeout
+
+        document_closeout.require_writer(d)
+        repository.require(
+            args.recipe == "test" and not args.delivery, "文档收尾只采集定向 test，不运行代码 gate"
+        )
+    elif d.get("ticket_scope"):
         ticket_state.require_writer(d)
-    if final_state.strict(d):
+    elif final_state.strict(d):
         if d["role"] in ("fixer", "document-syncer"):
             final_state.require_writer(d)
         else:

@@ -17,6 +17,7 @@ def strict(d):
         workflow_contract.current(d)
         and d.get("role") in ("finalizer", "fixer", "document-syncer")
         and "attempt_id" in d
+        and not d.get("ticket_scope")
     )
 
 
@@ -115,6 +116,7 @@ def select_review(d, path):
     value, item = selected(d)
     collection = evidence.read(path)
     repository.require(item["round"] == collection["round"], "只能选择原 round 的审查或更正")
+    repository.require(not item.get("document_closeout"), "文档收尾已开始，原 review 保持冻结")
     item["review"] = evidence.binding(str(path))
     item["report"] = None
     save(d, value)
@@ -138,6 +140,9 @@ def check_sources(d, report):
         report["review_sources"] == reviews, "阶段报告必须保留已选 review；更正后需重新组装"
     )
     repository.require(report["fix_sources"] == item["fixes"], "阶段报告必须保留已验收 fixer 来源")
+    repository.require(
+        report.get("document_closeout") == item.get("document_closeout"), "阶段报告遗漏文档收尾"
+    )
     repository.require(
         report["document_sources"] == item["documents"], "阶段报告必须保留文档同步来源"
     )
@@ -212,6 +217,7 @@ def result(d):
         "document_launch_context": workflow_contract.launch_context(evidence.read(document_path))
         if document_path
         else None,
+        "document_closeout": item.get("document_closeout"),
         "selected_document": item["documents"][-1] if item["documents"] else None,
         "stage_path": d["dispatch_path"],
         "stage": d["stage"],

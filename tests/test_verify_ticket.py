@@ -184,6 +184,7 @@ class TicketAcceptanceTests(unittest.TestCase):
             {
                 "axis": "standards",
                 "kind": "smell",
+                "repair_scope": "code",
                 "blocking": False,
                 "title": "可能重复",
                 "evidence": "两段同形分支，但当前不值得引入抽象",

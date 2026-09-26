@@ -15,4 +15,6 @@ controller 使用 prepare executor mode=resume，提供原 root 的 previous_dis
 - 新阶段可提供 `model_overrides` 和非空 `model_override_reason`，角色只允许 implementer/standards/spec；覆盖只能提高档位，后续不降档。已有 stage 恢复沿用模型。
 
 
-review_started 时继续原 round；已有 implementer DONE 则直接继续 review。已有阶段报告时按 outcome 继续或交付。恢复保留原 BASE、正确实现与额度。
+review_started 时读取原 round 和已选 collection，按 repair_route 继续；已有 implementer DONE 则直接继续 review。已有阶段报告时按 outcome 继续或交付。恢复保留原 BASE、正确实现与额度。
+
+已存在 document_closeout 时，先读取绑定的 dispatch 与 acceptance，按 [文档收尾](document-closeout.md) 接续。已验收的收尾不重新派 writer/reviewer；通过则交付，blocked 则报告阻塞，code_required 则按代码修复规则推进。尚未交付的中断任务只在确认旧任务及命令结束后接续原 dispatch，不重新调用 prepare。

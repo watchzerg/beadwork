@@ -4,6 +4,7 @@ import shlex
 from pathlib import Path
 
 import dispatch_contract
+import document_closeout
 import evidence
 import gate_repair
 import repository
@@ -27,7 +28,12 @@ def records(d, sources, allowed, notes, successful=False):
             "验证不属于已绑定阶段或 fixer",
         )
         origin = evidence.read(source)
-        dispatch_contract.same_attempt(origin, d)
+        if d.get("ticket_scope"):
+            repository.require(
+                origin["dispatch_path"] == d["dispatch_path"], "文档验证属于其他 writer"
+            )
+        else:
+            dispatch_contract.same_attempt(origin, d)
         repository.require(
             start["dispatch_sha256"] == evidence.digest(source) and start["cwd"] == d["worktree"],
             "验证身份已变化",
@@ -129,16 +135,39 @@ def check(d, report, live=False):
     repository.require(
         report["verification"] == [row[-1] for row in rows], "验证报告与原始运行不符"
     )
-    head = report["head_commit"]
-    current = [row for row in rows if row[2]["before"]["head"] == head]
+    head = (
+        document_closeout.candidate_head(report)
+        if d["role"] == "finalizer"
+        else report["head_commit"]
+    )
+    closeout_dispatches = {
+        source["dispatch"]["path"]
+        for source in report.get("document_sources", [])
+        if evidence.read(evidence.bound(source["dispatch"])).get("document_mode")
+        == "review_closeout"
+    }
+    current = [
+        row
+        for row in rows
+        if row[2]["before"]["head"] == head and row[2]["dispatch_path"] not in closeout_dispatches
+    ]
     latest = {row[-1]["gate"]: row for row in current}
     if passed and d["role"] == "document-syncer":
-        # 不同 test 参数属于不同检查，不能用另一项成功掩盖当前失败。
-        document_checks = {tuple(row[2]["argv"]): row for row in current}
+        # 收尾不再依赖后续代码 gate：提交不能抹去已执行文档检查的失败或覆盖义务。
+        closeout = d.get("document_mode") == "review_closeout"
+        document_checks = {tuple(row[2]["argv"]): row for row in (rows if closeout else current)}
         repository.require(
             all(row[-1]["passed"] for row in document_checks.values()),
             "文档定向检查仍失败或无效",
         )
+        if closeout:
+            repository.require(
+                all(
+                    row[2]["before"] == {"head": head, "status": ""}
+                    for row in document_checks.values()
+                ),
+                "文档定向检查未覆盖当前干净 HEAD，需在文档提交后重跑",
+            )
     if passed and d["role"] != "document-syncer":
         repository.require(
             latest.get("gate-full") and latest["gate-full"][-1]["passed"],

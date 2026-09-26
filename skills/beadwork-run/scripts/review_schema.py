@@ -11,6 +11,7 @@ def axis_report_schema() -> dict[str, Any]:
             "axis": {"enum": ["standards", "spec"]},
             "kind": {"enum": ["defect", "documented_standard", "smell"]},
             "blocking": {"type": "boolean"},
+            "repair_scope": {"enum": ["code", "docs"]},
             "title": TEXT,
             "evidence": TEXT,
         }

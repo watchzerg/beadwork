@@ -12,6 +12,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 import dispatch_contract
+import document_closeout
 import draft_contracts
 import evidence
 import execution_plan
@@ -368,10 +369,14 @@ def ticket_gate_summary(implementation):
 
 
 def final_gate_summary(report):
+    head = document_closeout.candidate_head(report)
+    closeout = report.get("document_closeout")
+    folder = Path(closeout["dispatch"]["path"]).parent if closeout else None
     latest = {
         item["gate"]: item
         for item in report["verification"]
-        if item["head_commit"] == report["head_commit"]
+        if item["head_commit"] == head
+        and not (folder and Path(item["log_path"]).is_relative_to(folder))
     }
     return [latest[gate] for gate in sorted(latest)]
 
@@ -403,8 +408,18 @@ def comment(args):
         "```",
         "",
         "提交范围：`" + metadata["reviewed_main"] + ".." + metadata["reviewed_head"] + "`",
-        "Review：PASS；轮次：" + str(len(r["review_rounds"]) if final else r["review"]["attempts"]),
+        (
+            "Review：原代码候选审查完成，文档阻塞已定点验收；轮次："
+            if r.get("document_closeout")
+            else "Review：PASS；轮次："
+        )
+        + str(len(r["review_rounds"]) if final else r["review"]["attempts"]),
     ]
+    if r.get("document_closeout"):
+        lines += [
+            "代码 gate/review HEAD：`" + document_closeout.candidate_head(r) + "`",
+            "文档收尾来源：" + json.dumps(r["document_closeout"], ensure_ascii=False),
+        ]
     if metadata["reviewed_main"] == metadata["reviewed_head"]:
         lines += ["受审行为已在基线满足；本次无新增提交。"]
     if not final:

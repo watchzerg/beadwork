@@ -14,6 +14,7 @@ import evidence
 import execution_plan
 import test_verify_phase as phase_fixture
 import test_verify_ticket as ticket_fixture
+import workflow_contract
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/beadwork-run/scripts/beadwork.py"
 
@@ -256,7 +257,7 @@ else: print(Path(os.environ['BD_FIXTURE_'+a[0].upper()]).read_text())
         self.acceptance = self.dispatch.parent / f"acceptance-{self.counter}.json"
         extra = []
         if (
-            self.d.get("workflow_contract_version") == 10
+            self.d.get("workflow_contract_version") == workflow_contract.VERSION
             and self.d.get("role") == "finalizer"
             and self.d.get("attempt_id")
         ) or self.d.get("preflight_acceptance"):

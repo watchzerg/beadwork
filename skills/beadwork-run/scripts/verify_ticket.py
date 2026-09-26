@@ -22,6 +22,7 @@ import subprocess
 import sys
 from typing import Any
 
+import document_closeout
 import evidence
 import workflow_contract
 import workflow_policy
@@ -141,6 +142,7 @@ def executor_schema(review_schema: dict[str, Any]) -> dict[str, Any]:
                     "stopped_tasks": {"type": "boolean"},
                 }
             ),
+            "document_closeout": document_closeout.schema(),
             "delivery_kind": {"enum": ["changed", "already_satisfied", None]},
             "status": {"enum": ["DONE", "NEEDS_CONTEXT", "BLOCKED"]},
             "stage": {"type": "integer", "enum": list(range(workflow_policy.MAX_STAGES))},
@@ -165,7 +167,7 @@ def executor_schema(review_schema: dict[str, Any]) -> dict[str, Any]:
             "blockers": TEXTS,
             "concerns": TEXTS,
         },
-        optional=("stage", "outcome", "delivery_kind", "execution"),
+        optional=("stage", "outcome", "delivery_kind", "execution", "document_closeout"),
     )
     schema["$schema"] = "http://json-schema.org/draft-07/schema#"
     conditions: list[Any] = [
@@ -180,7 +182,7 @@ def executor_schema(review_schema: dict[str, Any]) -> dict[str, Any]:
                     "verification": {"minItems": 1},
                     "blockers": {"maxItems": 0},
                     "requested_context": {"maxItems": 0},
-                    "review": {"type": "object", "properties": {"gate": {"const": "PASS"}}},
+                    "review": {"type": "object"},
                     "test_plan": {
                         "type": "object",
                         "if": {"properties": {"mode": {"const": "TDD"}}},
@@ -342,8 +344,16 @@ def report_errors(report: Any, schema: dict[str, Any]) -> list[dict[str, Any]]:
         expected_gate = "BLOCKED" if blocking else "PASS"
         if review["gate"] != expected_gate:
             failures.append({"check": "review_gate", "expected": expected_gate})
+        closeout = document_closeout.validate(report)
+        candidate_head = closeout["head"] if closeout else report["head_commit"]
+        if (
+            report["status"] == "DONE"
+            and blocking
+            and not (closeout and closeout["outcome"] == "passed")
+        ):
+            failures.append({"check": "review_gate_pass_or_document_closeout"})
         if report["status"] == "DONE" and any(
-            result["reviewed_head"] != report["head_commit"] for result in final.values()
+            result["reviewed_head"] != candidate_head for result in final.values()
         ):
             failures.append({"check": "review_head_matches_reported"})
     return failures

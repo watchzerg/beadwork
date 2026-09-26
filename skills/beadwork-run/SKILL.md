@@ -13,13 +13,13 @@ branch:   implement/<full-parent-id>
 worktree: .worktrees/<full-parent-id>
 ```
 
-parent 的 Beads type 不受限制。controller 管批次、Git/worktree、环境、Beads 写入与最终集成；每票派全新 executor，后者管理 implementer 与双轴 reviewers；全部 tickets 完成后派 finalizer，管理 document-syncer、fixer 与最终 reviewers。
+parent 的 Beads type 不受限制。controller 管批次、Git/worktree、环境、Beads 写入与最终集成；每票派全新 executor，后者管理 implementer、文档收尾的 document-syncer 与双轴 reviewers；全部 tickets 完成后派 finalizer，管理 document-syncer、fixer 与最终 reviewers。
 
 ## 开始执行
 
 - 解析 skill 与项目规则的真实绝对路径。内置 Python CLI 使用 python3 ≥ 3.14，在目标 repository/worktree 执行；stdout 为 JSON，普通操作非零退出时保留现场并处理原因。验证采集的退出码另见 [verification.md](references/verification.md)。
 - 读取 [testing-contract.md](references/testing-contract.md)、[report-delivery.md](references/report-delivery.md) 和 [controller-operations.md](references/controller-operations.md)。建立基线和核对最终覆盖时读 testing-gates.md；测试计划或 seam 冲突按共享测试契约路由。
-- 宿主为 Codex，支持 controller → preflight、controller → executor → implementer/reviewers、controller → finalizer → document-syncer/fixer/reviewers 的独立上下文派发、并行只读 review、文件报告和任务结束观察。写入前确认这些能力。
+- 宿主为 Codex，支持 controller → preflight、controller → executor → implementer/document-syncer/reviewers、controller → finalizer → document-syncer/fixer/reviewers 的独立上下文派发、并行只读 review、文件报告和任务结束观察。写入前确认这些能力。
 - 子 agent 按 prepare 返回的模型配置派发，使用 `fork_turns: "none"`，交接 dispatch 路径、required_reads、适用规则、任务来源及进度通信目标。preflight/finalizer 默认 Sol-medium，复杂现场可用 Sol-high；controller 建议 Sol-medium，复杂恢复可用 high。模型政策和明确授权扩展见 [model-policy.md](references/model-policy.md)。
 - Beads 查询使用结构化 `--json`；写入统一走 controller 的 tracker intent/readback 入口。
 
@@ -48,7 +48,7 @@ expected children 逐个传参。脚本核对固定范围、计划、依赖和�
 2. 领取成功后 prepare executor（mode=new，带 sync_result 和 READY preflight_acceptance）。写 start comment，记录 parent、branch、worktree、完整 BASE、root dispatch 与 sync_result；成功后派发 executor。
 3. `resume` frontier：按 [recovery-ticket.md](references/recovery-ticket.md) 核实原 BASE/root，prepare mode=resume 后接续。`done` 进入最终集成；其他阻塞按停止处理。
 4. executor 自行完成 stage 循环。controller 接收进度，等待 root 交付；按共享契约确认后代任务结束并 accept。
-5. 核对整票来源、最终状态、gate-core、本票行为证据与最后 review 的 HEAD、现场和收尾。日常 Test plan/red/seam/acceptance 语义由 executor 验收；矛盾、缺证或越界时追查。误写 primary 时保留现场并停止。
+5. 核对整票来源、最终状态、gate-core、本票行为证据、代码候选 review 与适用文档收尾的 HEAD 关系、现场和收尾。日常 Test plan/red/seam/acceptance 语义由 executor 验收；矛盾、缺证或越界时追查。误写 primary 时保留现场并停止。
 6. DONE：调用 controller comment，以已验收报告生成 completion；直接将 comment_source 用作 tracker body_source。写入成功后 close，绑定 acceptance，再刷新 frontier。
 7. NEEDS_CONTEXT 按 [recovery-needs-context.md](references/recovery-needs-context.md) 补事实；BLOCKED 按 [recovery-blocked.md](references/recovery-blocked.md) 保存停止与恢复入口。
 
@@ -58,8 +58,8 @@ expected children 逐个传参。脚本核对固定范围、计划、依赖和�
 
 1. graph next 确认固定 children 全部关闭。update-main 固定本地 main，使用返回完整 SHA 作为 reviewed_main 执行 sync-final；已有未完成 intent 时恢复原输入。同步成功后派 finalizer。
 2. prepare finalizer，交接 reviewed_main、final_sync_result、linked spec、ticket/completion pointers、规则和通信目标。首次 prior_finalization 为 null；接替时读 [recovery-finalizer.md](references/recovery-finalizer.md)。
-3. finalizer 管文档同步、完整 gate-full、修复与双轴 review。controller 等待 final-deliver 的 root 交付，确认任务结束并 accept。
-4. READY_TO_MERGE 时核对批次身份、固定 children、reviewed_main、文档结果、完整 gate-full、parent acceptance 覆盖、最后双轴 PASS、提交和原始 findings 来源，以及干净现场和实际收尾。有矛盾时定点追查；通过后复用有效 gates/review。
+3. finalizer 管文档同步、完整 gate-full、修复与双轴 review；executor/finalizer 对纯文档 findings 均使用一次 [限定文档收尾](references/document-closeout.md)。controller 等待 final-deliver 的 root 交付，确认任务结束并 accept。
+4. READY_TO_MERGE 时核对批次身份、固定 children、reviewed_main、文档结果、完整 gate-full、parent acceptance 覆盖、最后双轴 review、适用的文档收尾验收、提交和原始 findings 来源，以及干净现场和实际收尾。有矛盾时定点追查；通过后复用有效 gates/review。
 
 BLOCKED 保存 parent 停止记录；根因不明时读 [recovery-diagnosis.md](references/recovery-diagnosis.md)。
 

@@ -15,8 +15,9 @@ flowchart TD
     C -->|每张 ticket| E["executor · 单票 stage 循环"]
     C -->|全部 tickets 完成| F["finalizer · 最终验收 stage 循环"]
     E --> I["implementer · 实现与 gate-fix 循环"]
+    E -->|review 后仅文档阻塞| D
     E --> ER["reviewers · Standards / Spec 两轴"]
-    F -->|stage 0| D["document-syncer · 批次文档同步"]
+    F -->|stage 0 同步或 review 后文档收尾| D["document-syncer · 文档同步与限定收尾"]
     F -->|修复阶段| X["fixer · 修复与 gate-fix 循环"]
     F --> FR["reviewers · Standards / Spec 两轴"]
 ```
@@ -29,11 +30,11 @@ implementer/document-syncer/fixer 完成并停止写入后，才开始对应 rev
 | --- | --- | --- |
 | [controller](../skills/beadwork-run/SKILL.md) | 选择、领取、关闭 tickets；环境准备、Git/worktree 生命周期、整票与最终交付验收、本地集成与收尾；独占 Beads 写入 | 用户 |
 | [preflight](../skills/beadwork-run/agents/preflight.md) | 固定 children 范围，核对工具链、recipes、spec/Test plan 和恢复事实；只写证据 | controller：`READY` / `BLOCKED` |
-| [executor](../skills/beadwork-run/agents/ticket-executor.md) | 协调整张 ticket；管理 stages、计划适配、实现语义验收与双轴 review；只写证据 | controller：`DONE` / `NEEDS_CONTEXT` / `BLOCKED` |
+| [executor](../skills/beadwork-run/agents/ticket-executor.md) | 协调整张 ticket；管理 stages、计划适配、实现语义验收、双轴 review 与文档收尾；只写证据 | controller：`DONE` / `NEEDS_CONTEXT` / `BLOCKED` |
 | [implementer](../skills/beadwork-run/agents/implementer.md) | 当前 stage 的源码实现、测试、分层提交和交付 gates；自行处理阶段内 gate-fix | executor：实现结果与验证证据 |
 | [reviewer](../skills/beadwork-run/agents/reviewer.md) | 按 Standards 或 Spec 轴独立只读审查；提供原始 findings | executor 或 finalizer：本轴报告 |
 | [finalizer](../skills/beadwork-run/agents/finalizer.md) | 汇总批次边界；管理最终 stages、修复语义验收与双轴 review；stage 0 自行跑最终 gates | controller：`READY_TO_MERGE` / `BLOCKED` |
-| [document-syncer](../skills/beadwork-run/agents/document-syncer.md) | stage 0 检查整个批次的文档影响，按需同步并提交；不修产品代码，不组织 review | finalizer：文档结果与检查证据 |
+| [document-syncer](../skills/beadwork-run/agents/document-syncer.md) | stage 0 检查批次文档影响；review 后仅文档阻塞时完成一次限定修复，不修产品代码，不组织 review | executor/finalizer：文档结果与检查证据 |
 | [fixer](../skills/beadwork-run/agents/fixer.md) | 最终修复 stage 的唯一源码 writer；修复批次阻塞、提交并完成最终 gates，自行处理 gate-fix | finalizer：修复结果与验证证据 |
 
 `READY` 不代表已安装、冒烟或领取；implementer/document-syncer/fixer 的 `DONE` 不代表 review 通过；reviewer 的 `COMPLETED` 只表示审查完成，是否通过由 findings 决定。最终合入由 controller 执行。
@@ -46,12 +47,14 @@ implementer/document-syncer/fixer 完成并停止写入后，才开始对应 rev
 | stage | executor / finalizer | 代码失败进入下一阶段；每阶段至多一轮完整双轴 review。ticket 从 stage 0 实现；最终 stage 0 先派 document-syncer，再由 finalizer 运行完整 gate；stage 1..5 派 fixer 修复并维护关联文档 |
 | gate-fix | implementer / fixer | 当前 writer 在同一 stage 内修正交付 gate 的代码失败；用尽机会仍失败才交回上层 |
 
+完整双轴 review 按 blocking findings 的 `repair_scope` 分流：含代码问题走下一 stage；仅文档问题由 document-syncer 在当前 stage 收尾，直接派发者逐项验收，不重跑代码 gate 或派新 reviewer。收尾失败报告阻塞；确认必须修代码则记录 code_required，回到代码修复流程。协议见 [文档收尾](../skills/beadwork-run/references/document-closeout.md)。
+
 阶段与 gate-fix 的额度由脚本绑定；session 接替不等于新阶段。中断接续原阶段，环境/spec/seam 等非代码阻塞保留证据并停止。具体次数与恢复输入见角色协议。
 
 ## 验收与实现边界
 
 - **agent 判断语义，脚本校验事实。** executor/finalizer 负责需求、修复处置、验证覆盖和 review 的日常语义验收；controller 核对交付与集成条件，遇到矛盾、缺证或越界迹象再追查。
-- **验证由当前执行者负责。** controller 在初始化和改变 HEAD 的票间同步建立 `gate-core` 快速基线；ticket 的定向行为验证和干净候选 `gate-core` 由 implementer 执行；最终 stage 0 由 finalizer 执行一次完整 `gate-full`，修复阶段由 fixer 重新执行该入口。相同 HEAD 的完整有效结果复用。
+- **验证由当前执行者负责。** controller 在初始化和改变 HEAD 的票间同步建立 `gate-core` 快速基线；ticket 的定向行为验证和干净候选 `gate-core` 由 implementer 执行；最终 stage 0 由 finalizer 执行一次完整 `gate-full`，修复阶段由 fixer 重新执行该入口。相同 HEAD 的完整有效结果复用；纯文档收尾保留原代码候选 gate/review 的 HEAD，由独立收尾记录覆盖文档交付 HEAD。
 - **报告可追溯。** 使用文件报告、短回执及 SHA-256 来源绑定；直接派发者验收子角色。报告与更正 append-only，最终阶段检查点固定文档同步/fixer/review/阶段报告选择；验证绑定原始运行，本票行为覆盖由 executor/reviewer 核对。派发者记录收尾观察，回执不替代任务停止确认。详见 [交付协议](../skills/beadwork-run/references/report-delivery.md)。
 - **源码与协议各有入口。** `skills/` 是 skill 源码；[scripts/](../skills/beadwork-run/scripts/) 实现身份、计数、状态和证据校验，不派发 agent；[共享测试契约](../skills/beadwork-run/references/testing-contract.md) 定义测试规则，目标项目只需提供 `install`、`test`、`gate-core`、`gate-full` 四个 just 入口，内部 suite、格式化和静态检查由项目维护。具体参数与行为见接入契约。
 
@@ -63,7 +66,7 @@ implementer/document-syncer/fixer 完成并停止写入后，才开始对应 rev
 | --- | --- | --- |
 | 公开入口 | [beadwork.py](../skills/beadwork-run/scripts/beadwork.py) → [cli.py](../skills/beadwork-run/scripts/cli.py) | 唯一公开 Python CLI、Python 下限检查、argparse 路由、JSON 与退出码边界 |
 | 顶层操作 | [controller.py](../skills/beadwork-run/scripts/controller.py)、[executor_operations.py](../skills/beadwork-run/scripts/executor_operations.py) | 批次验收与集成；多角色操作、现场检查 |
-| 操作编排 | [ticket_execution.py](../skills/beadwork-run/scripts/ticket_execution.py)、[finalization.py](../skills/beadwork-run/scripts/finalization.py)、[document_sync.py](../skills/beadwork-run/scripts/document_sync.py)、[review_operations.py](../skills/beadwork-run/scripts/review_operations.py) | 阶段准备、验收后选择、review 准备与收集、最终交付 |
+| 操作编排 | [ticket_execution.py](../skills/beadwork-run/scripts/ticket_execution.py)、[finalization.py](../skills/beadwork-run/scripts/finalization.py)、[document_sync.py](../skills/beadwork-run/scripts/document_sync.py)、[document_closeout.py](../skills/beadwork-run/scripts/document_closeout.py)、[review_operations.py](../skills/beadwork-run/scripts/review_operations.py) | 阶段准备、验收后选择、review 准备与收集、最终交付 |
 | 状态 | [ticket_state.py](../skills/beadwork-run/scripts/ticket_state.py)、[final_state.py](../skills/beadwork-run/scripts/final_state.py)、[gate_repair.py](../skills/beadwork-run/scripts/gate_repair.py) | 检查点、当前 writer、来源选择、冻结和额度 |
 | 报告与只读来源 | [ticket_reports.py](../skills/beadwork-run/scripts/ticket_reports.py)、[implementer_reports.py](../skills/beadwork-run/scripts/implementer_reports.py)、[fixer_reports.py](../skills/beadwork-run/scripts/fixer_reports.py)、[review_evidence.py](../skills/beadwork-run/scripts/review_evidence.py) | 组装候选报告并校验字段、Git 事实和原始来源；不推进阶段 |
 | 验证 | [run_verification.py](../skills/beadwork-run/scripts/run_verification.py)、[ticket_verification.py](../skills/beadwork-run/scripts/ticket_verification.py)、[final_verification.py](../skills/beadwork-run/scripts/final_verification.py)、[report_io.py](../skills/beadwork-run/scripts/report_io.py) | 运行采集与报告读取分开；ticket/final 各自判断覆盖；内部 verifier facade 直接调用各报告校验实现 |

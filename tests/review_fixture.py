@@ -35,7 +35,7 @@ class ReviewFixture(unittest.TestCase):
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         return json.loads(result.stdout if ok else result.stderr)
 
-    def round(self, blocking=False, evidence=None):
+    def round(self, blocking=False, evidence=None, repair_scope="code"):
         prepared = self.call(
             "review-prepare",
             "--dispatch",
@@ -60,6 +60,7 @@ class ReviewFixture(unittest.TestCase):
                     {
                         "axis": axis,
                         "kind": "defect" if blocking else "smell",
+                        "repair_scope": repair_scope,
                         "blocking": blocking,
                         "title": "需处理" if blocking else "命名建议",
                         "evidence": "原始证据，不改写",

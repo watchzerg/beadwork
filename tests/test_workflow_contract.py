@@ -10,7 +10,7 @@ def test_stamp_and_require_current():
     assert workflow_contract.stamp(value) is value
     assert value == {
         "role": "executor",
-        "workflow_contract_version": 10,
+        "workflow_contract_version": 11,
         "launch_context": {"fork_turns": "none", "required": True},
     }
     assert workflow_contract.require_current(value) is value
@@ -33,6 +33,7 @@ def test_stamp_and_require_current():
         {"workflow_contract_version": 7},
         {"workflow_contract_version": 8},
         {"workflow_contract_version": 9},
+        {"workflow_contract_version": 10},
     ],
 )
 def test_require_current_rejects_missing_or_unknown_version(value):

@@ -9,6 +9,17 @@ import repository
 AXES = ("standards", "spec")
 
 
+def repair_route(pair):
+    blockers = [f for axis in pair.values() for f in axis["findings"] if f["blocking"]]
+    return (
+        "code"
+        if any(f["repair_scope"] == "code" for f in blockers)
+        else "docs"
+        if blockers
+        else "none"
+    )
+
+
 def require_axis_sources(sources):
     if not isinstance(sources, dict) or set(sources) != set(AXES):
         raise ValueError("必须明确提供两个轴的报告与回执")
@@ -103,5 +114,10 @@ def collection(path, dispatch_path, *, verified=None):
     repository.require(
         all(previous.get(key) == current.get(key) for key in keys), "review 属于其他 ticket 或 BASE"
     )
-    repository.require(item["pair"] == pair and item["gate"] == gate, "聚合结果与原始报告不符")
+    repository.require(
+        item["pair"] == pair
+        and item["gate"] == gate
+        and item["repair_route"] == repair_route(pair),
+        "聚合结果与原始报告不符",
+    )
     return pair, gate

@@ -15,6 +15,7 @@ def implementer_schema():
     schema = v.executor_schema(v.axis_report_schema())
     schema["properties"].pop("review")
     schema["properties"].pop("execution")
+    schema["properties"].pop("document_closeout")
     schema["required"].remove("review")
     schema.pop("allOf")
     schema["properties"].update(

@@ -34,8 +34,7 @@ def relative_reads(role, mode=None, scope=None, axis=None, ticket_scope=None):
             references += ["testing-plan", "testing-seams", "testing-tdd"]
         elif axis == "spec":
             references += ["testing-plan"]
-        if scope == "batch":
-            references += ["documentation-sync"]
+        references += ["documentation-sync"]
     reads += [f"references/{name}.md" for name in references]
     return reads
 

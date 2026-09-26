@@ -174,7 +174,7 @@ class TicketExecutionTests(unittest.TestCase):
             self.writer_report, self.writer_receipt = output, rp
         return receipt
 
-    def review(self, blocking=False):
+    def review(self, blocking=False, repair_scope="code"):
         e = review_fixture.ReviewFixture()
         e.h, e.dispatch, e.directory = self.h, self.sd, self.sd.parent
         evidence = None
@@ -185,7 +185,7 @@ class TicketExecutionTests(unittest.TestCase):
             evidence = self.file(
                 "acceptance", [{"criterion": "目标行为", "evidence": "现有行为与验证"}]
             )
-        return e.collect(e.round(blocking=blocking, evidence=evidence))
+        return e.collect(e.round(blocking=blocking, evidence=evidence, repair_scope=repair_scope))
 
     def assemble(self, reviews=(), outcome="passed", ok=True, **changes):
         draft = dict(self.draft(outcome), stopped_tasks=True, **changes)

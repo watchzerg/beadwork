@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 import dispatch_contract
+import document_closeout
 import document_sync
 import draft_contracts
 import evidence
@@ -241,6 +242,8 @@ def check_report(expected, report, *, review_checks=None):
         if "stage" not in expected:
             fs.check_delivery(expected, report)
     check_stage_history(expected, report, d, stages)
+    closeout = document_closeout.validate(report)
+    candidate_head = closeout["head"] if closeout else report["head_commit"]
     reviews, fixes = report["review_sources"], report["fix_sources"]
     repository.require(reviews[: len(d["prior_reviews"])] == d["prior_reviews"], "丢失历史 review")
     repository.require(fixes[: len(d["prior_fixes"])] == d["prior_fixes"], "丢失历史 fixer 交付")
@@ -265,8 +268,11 @@ def check_report(expected, report, *, review_checks=None):
     )
     if len(reviews) > len(d["prior_reviews"]):
         code_failure_evidence |= any(
-            f["blocking"] for axis in report["review_rounds"][-1].values() for f in axis["findings"]
+            f["blocking"] and f["repair_scope"] == "code"
+            for axis in report["review_rounds"][-1].values()
+            for f in axis["findings"]
         )
+    code_failure_evidence |= bool(closeout and closeout["outcome"] == "code_required")
     commits = []
     for source in fixes:
         fd, fr, fc = read_fixer(
@@ -288,9 +294,11 @@ def check_report(expected, report, *, review_checks=None):
         )
     if fs.strict(d) and report["outcome"] == "code_failure":
         new_blocking = len(reviews) > len(d["prior_reviews"]) and any(
-            f["blocking"] for axis in report["review_rounds"][-1].values() for f in axis["findings"]
+            f["blocking"] and f["repair_scope"] == "code"
+            for axis in report["review_rounds"][-1].values()
+            for f in axis["findings"]
         )
-        if not new_blocking:
+        if not new_blocking and not (closeout and closeout["outcome"] == "code_required"):
             rows = fv.check(d, report)
             failed_checks = [
                 row
@@ -329,18 +337,21 @@ def check_report(expected, report, *, review_checks=None):
     repository.require(report["document_commits"] == document_commits, "文档提交与原始报告不符")
     if report["outcome"] in ("passed", "code_failure"):
         document_sync.require_done(
-            d, report["document_sources"], exact_head=d["stage"] == 0, head=report["head_commit"]
+            d, report["document_sources"], exact_head=d["stage"] == 0, head=candidate_head
         )
     if report["head_commit"]:
         actual = repository.git(
             d["worktree"], "rev-list", "--reverse", d["start_head"] + ".." + report["head_commit"]
         ).splitlines()
-        repository.require(actual == document_commits + commits, "集成后提交遗漏或超出 writer 来源")
+        repository.require(
+            len(actual) == len(document_commits) + len(commits)
+            and set(actual) == set(document_commits + commits),
+            "集成后提交遗漏或超出 writer 来源",
+        )
     if report["outcome"] == "passed":
         repository.require(report["status"] == "READY_TO_MERGE", "passed 必须 READY_TO_MERGE")
         repository.require(
-            reviews
-            and report["review_rounds"][-1]["spec"]["reviewed_head"] == report["head_commit"],
+            reviews and report["review_rounds"][-1]["spec"]["reviewed_head"] == candidate_head,
             "最终 review 未覆盖 HEAD",
         )
     else:
@@ -361,6 +372,7 @@ def assemble(dispatch_path, draft_path, output_path):
     r["verification_notes"] = {**selected_verification_notes(d), **r.get("verification_notes", {})}
     head = repository.sha(d["worktree"], "HEAD")
     r.update(
+        document_closeout=document_closeout.selected(d),
         parent_id=d["parent_id"],
         expected_children=d["expected_children"],
         reviewed_main=d["reviewed_main"],
@@ -771,9 +783,10 @@ def check_review_history(d, report, reviews, *, review_checks=None):
             evidence.bound(evidence.read(evidence.bound(item["round"]))["dispatch"])
         )
         repository.require(origin.get("stage") == d["stage"], "新增 review 不属于当前阶段")
+        closeout = document_closeout.validate(report)
         if any(
             f["blocking"] for axis in report["review_rounds"][-1].values() for f in axis["findings"]
-        ):
+        ) and not (closeout and closeout["outcome"] == "passed"):
             repository.require(
                 report["outcome"] in ("code_failure", "blocked"),
                 "完整 BLOCKED review 必须明确代码失败或非代码阻塞",

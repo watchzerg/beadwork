@@ -6,7 +6,7 @@
 
 controller 独占 Beads 写入、Git/worktree 生命周期、安装与最终集成。其余角色对 Beads 只读；源码由当前 implementer/fixer 写入，stage 0 文档由 document-syncer 写入；协调者与 reviewers 只写证据。writer 与 reviewer 直接完成本角色工作，子 agent 派发由 controller/executor/finalizer 负责。writer 使用普通 commits；本流程不使用 stash、reset、amend、squash、force-remove 或 push。
 
-同一时刻只有一个源码 writer。派发接替 writer、合入或清理前，派发者确认原 writer、命令与后代任务已结束。review 期间保持候选冻结，后续源码修复进入新 stage。
+同一时刻只有一个源码 writer。派发接替 writer、合入或清理前，派发者确认原 writer、命令与后代任务已结束。review 期间保持候选冻结，后续代码修复进入新 stage；仅文档阻塞按 [文档收尾](document-closeout.md) 在当前 stage 派独立 writer，仍保持单 writer 和实际收尾确认。
 
 prepare 返回 dispatch 和角色所需的 required_reads。按返回模型配置派发独立上下文 agent，使用 `fork_turns: "none"`；交接 dispatch 路径、项目规则、需求来源及可用的进度通信目标。子角色读取自己的清单，条件参考在触发时读取。派发者仅为 outputSchema 读取 receipt schema，支持 strict 时启用。
 

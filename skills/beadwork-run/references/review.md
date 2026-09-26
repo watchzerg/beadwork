@@ -26,12 +26,14 @@ python3 <skill-dir>/scripts/beadwork.py executor review-collect --round <round.j
 
 每轴输入为 report、receipt、observation；已有收尾来源时也可使用 report、receipt、closure。collect 自动保存观察来源，校验身份、回执、停止状态和真实候选，保存原始 pair、派生 gate 与 bindings，并更新 checkpoint。
 
-- 两轴均 COMPLETED：blocking findings 决定 gate；完整代码类阻塞按阶段规则修复，非阻塞 smells 保留。
+- 两轴均 COMPLETED：blocking findings 决定原始 gate；脚本汇总 `repair_route`。`none` 正常完成，`code` 进入下一修复 stage 并处理代码与关联文档，`docs` 进入 [文档收尾](document-closeout.md)。仅统计 blocking findings，smells 保留且不影响路由。
 - 任一轴未完成、校验失败或现场变化：保存已有证据，按 blocked 处理。
 
 派发者核对 findings 与原始证据的语义一致性。分类疑问交原 reviewer 核实并更正；原始 findings 保持其轴与分类。
 
 ## 复审与更正
+
+文档收尾开始后原 collection 保持冻结，不再派 reviewer 或更正其 findings。文档收尾的验收单独记录，原 BLOCKED 不改写为 PASS。
 
 代码修复使用新 stage、新 HEAD 和原 BASE，检查原 findings 根因、修复直接影响的路径与完整范围的新问题。外部状态修复可以按 existing_behavior 规则保持同 HEAD；需当前状态的可核查证据。
 

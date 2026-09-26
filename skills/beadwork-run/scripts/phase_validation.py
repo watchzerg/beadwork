@@ -17,6 +17,7 @@ import re
 import sys
 from typing import Any
 
+import document_closeout
 import draft_contracts
 import review_schema
 import schema_validation
@@ -136,6 +137,7 @@ def finalizer_schema(axis: dict[str, Any]) -> dict[str, Any]:
                 "type": "array",
                 "items": object_schema({key: source for key in ("dispatch", "report", "receipt")}),
             },
+            "document_closeout": document_closeout.schema(),
             "document_commits": {"type": "array", "items": SHA, "uniqueItems": True},
             "fix_sources": {
                 "type": "array",
@@ -438,7 +440,8 @@ def finalizer_failures(
             and len(report["review_rounds"]) < prior["review_rounds_used"]
         ):
             failures.append(fail("review_round_limit"))
-    head, base = report["head_commit"], report["reviewed_main"]
+    closeout = document_closeout.validate(report)
+    head, base = (closeout["head"] if closeout else report["head_commit"]), report["reviewed_main"]
     if head is None or base is None:
         failures.append(fail("ready_commit_identity"))
     else:
@@ -449,15 +452,19 @@ def finalizer_failures(
                 )
             )
         final_pair = report["review_rounds"][-1] if report["review_rounds"] else None
-        if final_pair and any(
-            f.get("blocking") for item in final_pair.values() for f in item.get("findings", [])
+        if (
+            final_pair
+            and not (closeout and closeout["outcome"] == "passed")
+            and any(
+                f.get("blocking") for item in final_pair.values() for f in item.get("findings", [])
+            )
         ):
             failures.append(fail("final_review_gate_pass"))
     required = {"gate-full"}
     # verification 按时间顺序追加；同一 gate 以交付 HEAD 的最后一次结果为准。
     latest: dict[str, dict[str, Any]] = {}
     for item in report["verification"]:
-        if item["head_commit"] == report["head_commit"]:
+        if item["head_commit"] == head:
             latest[item["gate"]] = item
     passed = {gate for gate, item in latest.items() if item["passed"]}
     if not required.issubset(passed):

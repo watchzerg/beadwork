@@ -104,7 +104,8 @@ def verification_dispatch(path):
         "需要 executor 或 fixer dispatch",
     )
     repository.require(
-        not d.get("ticket_scope") or d["role"] == "implementer", "单票验证采集仅由 implementer 执行"
+        not d.get("ticket_scope") or d["role"] in ("implementer", "document-syncer"),
+        "单票验证采集仅由 implementer 或文档收尾 writer 执行",
     )
     repository.require(Path(d["report_path"]).parent == p.parent, "dispatch 证据目录不符")
     return d

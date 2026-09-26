@@ -5,6 +5,7 @@ from pathlib import Path
 
 import active_stage_context
 import dispatch_contract
+import document_closeout
 import draft_contracts
 import evidence
 import gate_repair
@@ -116,6 +117,7 @@ def stage_result(d, state):
         "prior_implementer": selected,
         "selected_stage": state["selected_stage"],
         "selected_review": state["selected_review"],
+        "document_closeout": document_closeout.selected(d),
         "review_round": state["review_round_path"],
         "review_started": (Path(d["gate_repair_root"]) / "gate-review-started.json").exists(),
     }

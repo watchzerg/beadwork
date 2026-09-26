@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import dispatch_contract
+import document_closeout
 import draft_contracts
 import evidence
 import final_state as fs
@@ -21,8 +22,8 @@ def schema():
     fields.update(
         parent_id=TEXT,
         branch=TEXT,
-        attempt_id=TEXT,
-        stage={"enum": [0]},
+        attempt_id={"anyOf": [TEXT, {"type": "null"}]},
+        stage={"type": "integer", "minimum": 0},
         base_commit=SHA,
         head_commit=SHA,
         commits={"type": "array", "items": SHA, "uniqueItems": True},
@@ -41,10 +42,10 @@ def receipt_schema():
     )
 
 
-def publish(stage):
-    if stage["stage"] != 0:
+def publish(stage, closeout=None):
+    if stage["stage"] != 0 and closeout is None:
         return None
-    directory = Path(stage["dispatch_path"]).parent / ROLE
+    directory = Path(stage["dispatch_path"]).parent / ("document-closeout" if closeout else ROLE)
     directory.mkdir()
     d = dict(
         stage,
@@ -57,6 +58,13 @@ def publish(stage):
         report_schema_path=str(directory / "report-schema.json"),
         receipt_schema_path=str(directory / "receipt-schema.json"),
     )
+    d.setdefault("attempt_id", None)
+    if closeout:
+        # 文档 BASE 是受审 HEAD；测试计划适配仍由绑定的 stage 校验。
+        d.pop("plan_adjustment", None)
+        d.update(
+            document_mode="review_closeout", base_commit=closeout["head"], closeout_input=closeout
+        )
     d["self_check_argv"] = beadwork_argv(
         "executor", "document-check", "--dispatch", d["dispatch_path"], "--report", d["report_path"]
     )
@@ -80,15 +88,19 @@ def git_facts(d, head):
 
 def check(dispatch_path, report_path, receipt_path=None, *, live=True):
     d = dispatch_contract.dispatch(dispatch_path)
-    repository.require(d["role"] == ROLE and d["stage"] == 0, "需要 stage 0 文档同步 dispatch")
+    repository.require(d["role"] == ROLE, "需要文档同步 dispatch")
     stage = dispatch_contract.dispatch(str(evidence.bound(d["stage_dispatch"])))
-    dispatch_contract.same_attempt(d, stage)
-    _, selected = fs.selected(stage, current=live)
-    repository.require(
-        selected["document_syncer"] == evidence.binding(dispatch_path)
-        and stage["stage_base"] == d["base_commit"],
-        "文档同步 writer 或 BASE 不符",
-    )
+    if d.get("document_mode") == "review_closeout":
+        document_closeout.check_writer(d, stage, current=live)
+    else:
+        dispatch_contract.same_attempt(d, stage)
+        _, selected = fs.selected(stage, current=live)
+        repository.require(
+            d["stage"] == 0
+            and selected["document_syncer"] == evidence.binding(dispatch_path)
+            and stage["stage_base"] == d["base_commit"],
+            "文档同步 writer 或 BASE 不符",
+        )
     for path in (report_path, receipt_path):
         if path:
             repository.require(Path(path).parent == Path(dispatch_path).parent, "文档报告目录不符")
@@ -127,7 +139,10 @@ def check(dispatch_path, report_path, receipt_path=None, *, live=True):
         repository.require(
             repository.sha(d["worktree"], "HEAD") == r["head_commit"], "文档 HEAD 已变化"
         )
-        repository.require(not passed or not repository.status(d["worktree"]), "文档交付现场不干净")
+        repository.require(
+            r["worktree_clean"] == (not repository.status(d["worktree"])), "文档现场与报告不符"
+        )
+        repository.require(not passed or r["worktree_clean"], "文档交付现场不干净")
     return receipt
 
 
@@ -135,7 +150,11 @@ def assemble(dispatch_path, draft_path, output):
     d = dispatch_contract.dispatch(dispatch_path)
     repository.require(d["role"] == ROLE, "需要文档同步 dispatch")
     stage = evidence.read(evidence.bound(d["stage_dispatch"]))
-    _, selected = fs.selected(stage)
+    if d.get("document_mode") == "review_closeout":
+        document_closeout.require_writer(d)
+        selected = {"round_path": None, "documents": []}
+    else:
+        _, selected = fs.selected(stage)
     repository.require(not selected["round_path"], "review 已开始，文档报告不能重新选择")
     if selected["documents"]:
         prior = evidence.read(evidence.bound(selected["documents"][-1]["report"]))
@@ -197,6 +216,11 @@ def read_sources(d, sources):
         stage = evidence.read(evidence.bound(writer["stage_dispatch"]))
         _, item = fs.selected(stage, current=False)
         repository.require(source in item["documents"], "文档来源未经验收")
+        if writer.get("document_mode") == "review_closeout":
+            selection = document_closeout.selected(stage)
+            record = evidence.read(evidence.bound(selection["acceptance"]))
+            repository.require(all(record[k] == source[k] for k in source), "文档收尾来源未经验收")
+            document_closeout.check_acceptance(writer, record, evidence.read(paths["report"]))
         handoff.check_close(
             paths["dispatch"], paths["report"], item["closures"].get(source["report"]["sha256"])
         )
@@ -208,7 +232,14 @@ def read_sources(d, sources):
 def require_done(d, sources, *, exact_head=False, head=None):
     repository.require(sources, "缺少已验收文档同步结果")
     read_sources(d, sources)
-    report = evidence.read(evidence.bound(sources[-1]["report"]))
+    # 批次同步前置条件由初始同步承担；后续收尾通过独立验收记录证明。
+    initial = [
+        s
+        for s in sources
+        if evidence.read(evidence.bound(s["dispatch"])).get("document_mode") != "review_closeout"
+    ]
+    repository.require(initial, "缺少初始批次文档同步")
+    report = evidence.read(evidence.bound(initial[-1]["report"]))
     repository.require(report["status"] == "DONE", "文档同步尚未完成")
     head = head or repository.sha(d["worktree"], "HEAD")
     repository.git(d["worktree"], "merge-base", "--is-ancestor", report["head_commit"], head)

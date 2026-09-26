@@ -115,6 +115,7 @@ def build(dispatch, verification_view_source):
         "blockers": report["blockers"],
         "requested_context": report["requested_context"],
         "concerns": report["concerns"],
+        "document_closeout": report.get("document_closeout"),
         "blocking_findings": _blocking_findings(report),
     }
 

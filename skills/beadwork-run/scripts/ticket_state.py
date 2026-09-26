@@ -197,6 +197,10 @@ def select_review(d, collection_path):
         repository.require(
             previous["round"] == collection["round"], "review 更正必须沿用同一 round 和 BASE/HEAD"
         )
+    repository.require(
+        not state.get("document_closeouts", {}).get(d["dispatch_path"]),
+        "文档收尾已开始，原 review 保持冻结",
+    )
     if state["selected_review"] != item:
         state.update(selected_review=item, selected_stage=None)
         checkpoint(d, state)

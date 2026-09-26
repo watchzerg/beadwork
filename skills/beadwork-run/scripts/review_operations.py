@@ -261,6 +261,7 @@ def collect_review(args):
         },
         "pair": pair,
         "gate": gate,
+        "repair_route": review_evidence.repair_route(pair),
     }
     output = dispatch_contract.output_path(args.output, path.parent)
     evidence.write(output, result)
@@ -268,4 +269,4 @@ def collect_review(args):
         ticket_state.select_review(d, output)
     if final_state.strict(d):
         final_state.select_review(d, output)
-    return {"collection_path": str(output), "gate": gate}
+    return {"collection_path": str(output), "gate": gate, "repair_route": result["repair_route"]}

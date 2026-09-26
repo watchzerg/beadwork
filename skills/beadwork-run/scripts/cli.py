@@ -81,7 +81,13 @@ def _controller(subparsers) -> None:
 def _executor(subparsers) -> None:
     parser = subparsers.add_parser("executor", help="executor 与 worker 操作")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("context-add", "ticket-stage", "ticket-adapt-plan", "final-stage"):
+    for name in (
+        "context-add",
+        "ticket-stage",
+        "ticket-adapt-plan",
+        "final-stage",
+        "document-closeout-prepare",
+    ):
         p = _leaf(commands, name, executor_operations.execute)
         _required(p, "dispatch", "input")
     p = _leaf(commands, "handoff-close", executor_operations.execute)
@@ -101,9 +107,16 @@ def _executor(subparsers) -> None:
     for name in ("implementer-check", "fixer-check", "document-check", "check"):
         p = _leaf(commands, name, executor_operations.execute)
         _required(p, "dispatch", "report")
-    for name in ("implementer-accept", "fixer-accept", "document-accept"):
+    for name in (
+        "implementer-accept",
+        "fixer-accept",
+        "document-accept",
+        "document-closeout-accept",
+    ):
         p = _leaf(commands, name, executor_operations.execute)
         _required(p, "dispatch", "report", "receipt")
+        if name == "document-closeout-accept":
+            _required(p, "input")
         source = p.add_mutually_exclusive_group()
         source.add_argument("--closure")
         source.add_argument("--observation")

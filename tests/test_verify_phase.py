@@ -127,6 +127,7 @@ class PhaseValidatorTests(unittest.TestCase):
                 {
                     "axis": "spec",
                     "kind": "defect",
+                    "repair_scope": "code",
                     "blocking": True,
                     "title": "缺陷",
                     "evidence": "证据",
@@ -173,6 +174,7 @@ class PhaseValidatorTests(unittest.TestCase):
             "fix": {"used": False, "commits": [], "dispositions": []},
             "document_sources": [],
             "document_commits": [],
+            "document_closeout": None,
             "review_rounds": [self.pair()],
             "workspace": {"branch": "implement/demo-1", "observed_head": SHA_B, "clean": True},
             "sources": ["ticket evidence"],

@@ -86,6 +86,7 @@ def build(dispatch, view_source):
         "verification_view_source": view_source,
         "blockers": report["blockers"],
         "remaining_work": report["remaining_work"],
+        "document_closeout": report.get("document_closeout"),
         "blocking_findings": findings,
         "previous_dispositions": dispositions,
         "document_source": report["document_sources"][-1],

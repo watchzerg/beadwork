@@ -29,7 +29,7 @@ controller 不同步审批和写适配 comment；最终 completion/停止记录�
 
 ## 完成与 review
 
-组装器为新契约 DONE 派生 `delivery_kind`：有真实提交为 `changed`，无提交为 `already_satisfied`。补测试/文档的真实提交也属于 changed；空提交不能作为交付。already_satisfied 表示仓库交付无变化，也适用于 ticket 只准备 ignored 或仓库外本机状态的情形；它要求 direct_verification、BASE=HEAD、commit 列表为空、现场干净、全部 acceptance 的当前验证及双轴 PASS。
+组装器为新契约 DONE 派生 `delivery_kind`：有真实提交为 `changed`，无提交为 `already_satisfied`。补测试/文档的真实提交也属于 changed；空提交不能作为交付。already_satisfied 表示仓库交付无变化，也适用于 ticket 只准备 ignored 或仓库外本机状态的情形；它要求 direct_verification、BASE=HEAD、commit 列表为空、现场干净、全部 acceptance 的当前验证及双轴 PASS，或原双轴审查与已通过的 [文档收尾](document-closeout.md)。
 
 无提交 review 通过 `review-prepare --evidence <acceptance.json>` 准备；文件为 criterion/evidence 非空数组，包含可读取的实现与验证来源。两轴收到 `review_kind: existing_behavior` 和 hash 绑定的证据文件：核实本票已有实现与全部验收要求，不对空 diff 自动 PASS，也不扩展为全仓库历史审查。普通 changed review 沿用 change 范围。
 

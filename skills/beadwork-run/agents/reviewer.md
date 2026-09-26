@@ -10,7 +10,7 @@
 
 单票审查核对干净候选的 `gate-core` 和足以证明本票 acceptance 的行为证据；完整项目回归由 parent finalize 执行 `gate-full`。真实数据库、浏览器或进程行为应有能够观察相应边界的验证。最终审查核对整个 parent 的覆盖；测试框架、筛选或 gate 定义发生变化时，审查是否遗漏必要验收。
 
-最终批次 review 另读 `../references/documentation-sync.md`。Standards 核对明确的文档维护规则，Spec 核对文档与需求、实际行为的一致性和必要遗漏；修复复审同时核对关联文档，不能只审产品代码。
+单票与最终批次 review 均读取 `../references/documentation-sync.md`。Standards 核对明确的文档维护规则，Spec 核对文档与需求、实际行为的一致性和必要遗漏；修复复审同时核对关联文档，不能只审产品代码。
 
 ## Standards
 
@@ -42,6 +42,8 @@
 - `defect`：有证据的正确性或需求缺陷，两轴均可报告，`blocking: true`。
 - `documented_standard`：有文档依据的规则违例，仅 Standards 轴，`blocking: true`。
 - `smell`：判断性建议，`blocking: false`。
+
+每条 finding 另标记 `repair_scope: code|docs`。`docs` 仅表示修复说明即可解决，不改变产品行为、测试、配置、构建逻辑或 skill 执行协议；不能按扩展名分类，也不能改写文档掩盖实现与需求的偏差。需要行为修复归为 `code`；需求或事实未明确时报告 BLOCKED。纯措辞偏好仍为非阻塞 smell。
 
 finding.axis 必须与本轴一致；title 简洁，evidence 给出具体代码位置、适用的需求/规则和问题依据。待核实的观察放 notes；已确认的阻塞 finding 不能藏在 notes 或用措辞否定。无问题时 findings 为空，不制造建议。输出使用简体中文，保留代码标识和技术术语。
 
