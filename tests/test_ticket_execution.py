@@ -249,6 +249,93 @@ class TicketExecutionTests(unittest.TestCase):
         self.deliver()
         self.stage(ok=False)
 
+    def repair_gate(self, failure):
+        return self.cli(
+            "executor", "begin-gate-repair", "--dispatch", self.wd, "--failure", failure
+        )
+
+    def rejected_gate(self):
+        before = list(self.wd.parent.glob("verification-*"))
+        error = self.cli(
+            "run-verification",
+            "--dispatch",
+            self.wd,
+            "--recipe",
+            "gate-core",
+            "--delivery",
+            ok=False,
+        )
+        self.assertEqual(list(self.wd.parent.glob("verification-*")), before)
+        return error["error"]
+
+    def test_passed_repair_can_extend_candidate_without_resetting_budget(self):
+        self.commit()
+        failure = self.gate(fail=True)
+        grant = self.repair_gate(failure)
+        grant_path = Path(grant["gate_repair_path"])
+        original = grant_path.read_bytes()
+        self.commit()
+        passed = self.gate()
+        old_result = passed.read_bytes()
+        self.commit()
+        self.implement(ok=False)  # 旧候选成功不能替代新 HEAD 的 gate。
+        self.gate()
+        failure = self.gate(fail=True)
+        grant = self.repair_gate(failure)
+        self.assertEqual(grant["repair_number"], 2)
+        self.assertEqual(grant["remaining_repairs"], 1)
+        self.commit()
+        self.gate()
+        self.assertEqual(grant_path.read_bytes(), original)
+        self.assertEqual(passed.read_bytes(), old_result)
+        self.implement()
+        self.assertIn("实现已交付", self.rejected_gate())
+        review = self.review()
+        self.assertIn("review", self.rejected_gate())
+        self.assemble([review])
+        self.deliver()
+
+    def test_changed_head_cannot_skip_unregistered_failure(self):
+        self.gate()
+        failure = self.gate(fail=True)
+        self.commit()
+        self.assertIn("最近交付未通过", self.rejected_gate())
+        error = self.cli(
+            "executor",
+            "begin-gate-repair",
+            "--dispatch",
+            self.wd,
+            "--failure",
+            failure,
+            ok=False,
+        )
+        self.assertIn("保留失败候选", error["error"])
+
+    def test_old_failure_cannot_authorize_repair_after_new_success(self):
+        failure = self.gate(fail=True)
+        self.gate()
+        error = self.cli(
+            "executor",
+            "begin-gate-repair",
+            "--dispatch",
+            self.wd,
+            "--failure",
+            failure,
+            ok=False,
+        )
+        self.assertIn("最近交付失败", error["error"])
+
+    def test_verification_notes_identifies_invalid_keys_and_keeps_source_check(self):
+        self.commit()
+        result = self.gate()
+        for key in (result.parent.name, str(result), "summary", str(self.h.root / "manual")):
+            error = self.implement(ok=False, verification_notes={key: "补充说明"})
+            self.assertIn(key, error["error"])
+            self.assertIn("run_path", error["error"])
+        self.implement(verification_notes={str(result.parent): "交付验证已通过"})
+        report = json.loads(self.writer_report.read_text())
+        self.assertIn("交付验证已通过", report["verification"][-1]["result"])
+
     def test_gate_exhaustion_advances_only_after_three_repairs(self):
         self.commit()
         failure = self.gate(fail=True)
@@ -476,6 +563,64 @@ def test_adaptation_preserves_used_gate_repairs(adaptation):
     assert second["repair_number"] == 2
     assert second["remaining_repairs"] == 1
     assert Path(first["gate_repair_path"]).read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "outcome", ["missing", "interrupted", "state_changed", "live_group", "tampered"]
+)
+def test_candidate_change_rejects_unknown_or_invalid_latest_delivery(adaptation, outcome):
+    h = adaptation
+    h.gate()
+    result = h.gate()
+    if outcome == "missing":
+        result.unlink()
+    elif outcome == "tampered":
+        result.with_name("output.log").write_text("日志已变化")
+    else:
+        data = json.loads(result.read_text())
+        if outcome == "live_group":
+            data["process_group_gone"] = False
+        else:
+            data["outcome"] = outcome
+        result.write_text(json.dumps(data))
+    h.commit()
+    assert h.rejected_gate()
+
+
+def test_passed_repair_survives_plan_adaptation_and_new_candidate(adaptation):
+    h = adaptation
+    first = h.repair_gate(h.gate(fail=True))
+    h.commit()
+    h.gate()
+    adapt(h)
+    h.commit()
+    h.gate()
+    second = h.repair_gate(h.gate(fail=True))
+    assert second["repair_number"] == 2
+    assert Path(first["gate_repair_path"]).exists()
+
+
+@pytest.mark.parametrize("prior_repair", [False, True])
+def test_unregistered_repair_recovery_uses_latest_failure(adaptation, prior_repair):
+    h = adaptation
+    if prior_repair:
+        h.repair_gate(h.gate(fail=True))
+        h.commit()
+        h.gate()
+    failure = h.gate(fail=True)
+    h.commit()  # 模拟遗漏授权而先提交；恢复必须消耗一个 stage。
+    h.implement("blocked")
+    h.assemble(outcome="blocked")
+    assert (
+        "recovery_failure"
+        in h.stage("recover", recovery_reason="修正提交前遗漏登记", ok=False)["error"]
+    )
+    h.stage("recover", recovery_reason="修正提交前遗漏登记", recovery_failure=str(failure))
+    assert h.stage_info["stage"] == 1
+    h.gate()
+    h.implement()
+    h.assemble([h.review()])
+    h.deliver()
 
 
 def test_adaptation_revalidates_original_blocked_report(adaptation):

@@ -10,7 +10,7 @@ implementer 读取 draft_schema_path。输入事实、规则/spec、必要 gate 
 python3 <skill-dir>/scripts/beadwork.py executor implementer-assemble --dispatch <implementer-dispatch.json> --draft <draft.json> --output <report.json>
 ```
 
-draft 结构读取生成的输入 schema。只提供语义判断：acceptance 的证据映射、test_plan 的判断依据与 red 证据、未采集的人工验证、实际收尾与阻塞事项。verification_notes 按运行目录记录有效 red、验证覆盖说明或未知运行收尾。脚本生成 mode/seams、身份和验证来源，不手工复制。
+draft 结构读取生成的输入 schema。只提供语义判断：acceptance 的证据映射、test_plan 的判断依据与 red 证据、未采集的人工验证、实际收尾与阻塞事项。verification_notes 以采集器返回的完整绝对 run_path 目录为键，记录有效 red、验证覆盖说明或未知运行收尾；未采集的人工验证写 verification，无补充说明时填 `{}`。脚本生成 mode/seams、身份和验证来源，不手工复制。
 
 组装器从 Git 生成 ticket BASE、stage_base、当前 HEAD 和整票 commits，收集当前及适配前 implementer 的全部验证日志。成功要求以采集器的 `--delivery` 运行无参数 `gate-core`，并在当前干净交付 HEAD 通过；`test` 的行为 red、直接验证与 acceptance 覆盖由 executor 验收。code_failure 要求三次修复已用尽，且存在第三次修复候选的正常非零交付结果。原始失败记录不会被成功重跑删除。组装器固定交付时的 verification_sources（运行目录及 started/result 的内容绑定，缺失文件显式为 null）；后续新增运行不改变历史报告，新报告仍采集全部当前来源。来源缺失或损坏时，verification_issues 保存原绑定与实际错误；只能返回 `BLOCKED / blocked|interrupted`，不能进入 review、声明成功或作为 code_failure 推进。
 

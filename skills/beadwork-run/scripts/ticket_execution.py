@@ -151,29 +151,16 @@ def recover_unregistered_gate_repair(previous, report, state, reason, recovery_f
         "recovered_head": head,
         "reason": reason.strip(),
     }
-    if used:
-        repository.require(recovery_failure is None, "已有 gate 修正候选时不接受 recovery_failure")
-        candidate_path = gate_repair.repair_path(p, used, candidate=True)
-        repository.require(candidate_path.exists(), "gate 修正候选尚未绑定")
-        candidate = evidence.read(candidate_path)
-        repository.require(head != candidate["head"], "恢复需要报告绑定的不同干净 HEAD")
-        repository.git(previous["worktree"], "merge-base", "--is-ancestor", candidate["head"], head)
-        recovery.update(
-            gate_repair=evidence.binding(str(gate_repair.repair_path(p, used))),
-            previous_candidate=evidence.binding(str(candidate_path)),
-        )
-    else:
-        repository.require(
-            recovery_failure, "没有可恢复的 gate 修正候选；首次未登记需提供 recovery_failure"
-        )
-        _, result_path, start, attempt = gate_repair.failure_source(previous, recovery_failure)
-        repository.require(attempt == 0, "首次未登记恢复只接受原始 delivery candidate")
-        failed_head = start["before"]["head"]
-        repository.require(head != failed_head, "恢复需要报告绑定的不同干净 HEAD")
-        recovery.update(
-            failure={"path": str(result_path), "sha256": evidence.digest(result_path)},
-            previous_head=failed_head,
-        )
+    repository.require(recovery_failure, "未登记修正恢复需要 recovery_failure")
+    _, result_path, start, attempt = gate_repair.failure_source(previous, recovery_failure)
+    latest = gate_repair.latest_delivery(previous)
+    repository.require(
+        attempt == used and latest is not None and latest[2] == result_path,
+        "恢复必须绑定当前额度下最近的未登记交付失败",
+    )
+    failed_head = start["before"]["head"]
+    repository.require(head != failed_head, "恢复需要报告绑定的不同干净 HEAD")
+    recovery.update(failure=evidence.binding(result_path), previous_head=failed_head)
     target = p / "unregistered-gate-repair-recovery.json"
     gate_repair.record(target, recovery)
     return evidence.binding(str(target))

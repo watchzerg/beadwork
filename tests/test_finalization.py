@@ -311,6 +311,7 @@ class FinalizationTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, exit_code, result.stdout + result.stderr)
+        return Path(json.loads(result.stdout)["run_path"]) / "result.json"
 
     def assert_finalizer_verification_blocked(self, stage):
         before = list(stage.parent.glob("verification-*"))
@@ -366,6 +367,28 @@ class FinalizationTests(unittest.TestCase):
         Path(context["verification_view_source"]["path"]).write_text("{}")
         error = self.stage(ok=False)
         self.assertIn("error", error)
+
+    def test_fixer_can_extend_passed_repair_before_delivery(self):
+        stage0 = self.stage()
+        self.done_document(stage0)
+        self.gate(stage0)
+        self.review(stage0, blocking=True)
+        _, receipt = self.assemble(stage0, outcome="code_failure")
+        stage1 = self.stage(previous=stage0, receipt=receipt, continuation="repair")
+        writer = Path(self.stage_info["fixer_dispatch"])
+        failure = self.gate(writer, exit_code=1)
+        grant = self.call("begin-gate-repair", "--dispatch", writer, "--failure", failure)
+        original = Path(grant["gate_repair_path"]).read_bytes()
+        (self.h.wt / "fix.txt").write_text("修复 gate")
+        self.h.h.git(self.h.wt, "add", "fix.txt")
+        self.h.h.git(self.h.wt, "commit", "-m", "修复 gate")
+        passed = self.gate(writer)
+        old_result = passed.read_bytes()
+        self.done_fixer(writer, messages=("补充验收覆盖",))
+        self.assertEqual(Path(grant["gate_repair_path"]).read_bytes(), original)
+        self.assertEqual(passed.read_bytes(), old_result)
+        self.review(stage1)
+        self.assemble(stage1, status="READY_TO_MERGE", outcome="passed")
 
     def test_review_findings_survive_a_gate_failure_without_new_review(self):
         stage0 = self.stage()

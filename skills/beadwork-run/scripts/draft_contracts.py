@@ -29,7 +29,20 @@ def plan_schema():
 
 
 def schema(role):
-    notes = {"type": "object", "additionalProperties": TEXT}
+    notes = {
+        "type": "object",
+        "additionalProperties": TEXT,
+        "description": (
+            "键必须是本角色已采集运行的完整规范绝对 run_path（verification-* 目录），"
+            "直接使用采集器返回值；不得使用目录简称、result.json/output.log 文件路径"
+            "或 red/summary 等标签。无补充说明时填 {}。"
+            + (
+                "手工验证写 verification，不放入 verification_notes。"
+                if role == "implementer"
+                else ""
+            )
+        ),
+    }
     outcome = {"enum": ["passed", "code_failure", "blocked", "interrupted"]}
     verification = rows({"command": TEXT, "result": TEXT})
     final_verification = rows(

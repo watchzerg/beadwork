@@ -110,7 +110,13 @@ def inspect(d, snapshot, notes, status):
             rows.append((start, end, end_path, row, run_path))
         except (OSError, ValueError, KeyError, TypeError) as error:
             issues.append({"source": item, "reason": str(error)})
-    repository.require(set(notes) <= seen, "verification_notes 引用了未收集的运行目录")
+    unknown = sorted(set(notes) - seen)
+    repository.require(
+        not unknown,
+        f"verification_notes 引用了未收集的运行目录：{unknown}；"
+        "键须使用采集器返回的完整绝对 run_path 目录，不能用简称、文件路径或标签；"
+        "手工验证写 verification，无补充说明时填 {}",
+    )
     return sorted(rows, key=lambda row: (row[0]["started_ns"], row[4])), issues
 
 

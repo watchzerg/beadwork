@@ -7,6 +7,7 @@ import evidence
 import final_state
 import repository
 import ticket_state
+import verification_records
 import workflow_policy
 
 MAX_REPAIRS = workflow_policy.MAX_GATE_REPAIRS
@@ -36,11 +37,9 @@ def record(path, value):
         repository.require(evidence.read(path) == value, "本阶段已有不同的 gate 修正记录")
 
 
-def repair_path(p, number, candidate=False):
-    # 保留第一轮既有路径，恢复旧证据时直接计为已使用一次。
+def repair_path(p, number):
     suffix = "" if number == 1 else f"-{number}"
-    kind = "-candidate" if candidate else ""
-    return p / f"gate-repair{kind}{suffix}.json"
+    return p / f"gate-repair{suffix}.json"
 
 
 def used_repairs(p):
@@ -53,16 +52,66 @@ def used_repairs(p):
 
 
 def freeze(d):
-    p = root(d)
-    used = used_repairs(p)
-    if used:
-        candidate = repair_path(p, used, candidate=True)
+    # review 准入已核验当前 HEAD 的交付来源；这里只冻结阶段。
+    record(root(d) / "gate-review-started.json", {"stage": d["stage"]})
+
+
+def latest_delivery(d):
+    """候选事实来自原始验证；同阶段计划适配沿用全部 writer 来源。"""
+    if d.get("ticket_scope") == "stage":
+        d = evidence.read(evidence.bound(d["implementer_dispatch"]))
+    runs = []
+    for source in [d["dispatch_path"], *d.get("verification_dispatches", [])]:
+        origin = evidence.read(source)
         repository.require(
-            candidate.exists()
-            and evidence.read(candidate)["head"] == repository.sha(d["worktree"], "HEAD"),
-            "review HEAD 必须是当前修正候选",
+            all(
+                origin.get(key) == d.get(key)
+                for key in (
+                    "role",
+                    "repository_root",
+                    "worktree",
+                    "branch",
+                    "parent_id",
+                    "ticket_id",
+                    "base_commit",
+                    "attempt_id",
+                    "stage",
+                )
+            )
+            and root(origin) == root(d),
+            "交付验证不属于当前逻辑阶段",
         )
-    record(p / "gate-review-started.json", {"stage": d["stage"]})
+        for item in verification_records.snapshot(source):
+            path, start, result_path, end, _ = verification_records.read(item)
+            repository.require(
+                start["dispatch_path"] == source
+                and start["dispatch_sha256"] == evidence.digest(source)
+                and start["cwd"] == d["worktree"],
+                "交付验证身份或内容已变化",
+            )
+            if start.get("delivery") is True:
+                recipe = "gate-full" if d["role"] == "fixer" else "gate-core"
+                repository.require(
+                    start["argv"] == ["just", "--one", "--", recipe]
+                    and type(start.get("delivery_attempt")) is int
+                    and 0 <= start["delivery_attempt"] <= MAX_REPAIRS
+                    and not start["before"]["status"],
+                    "交付验证候选无效",
+                )
+                runs.append((path, start, result_path, end))
+    return max(runs, key=lambda row: (row[1]["started_ns"], str(row[0]))) if runs else None
+
+
+def passed(start, end):
+    return bool(
+        end
+        and end["outcome"] == "exited"
+        and type(end["exit_code"]) is int
+        and end["exit_code"] == 0
+        and end["process_group_gone"] is True
+        and start["before"] == end["after"]
+        and not start["before"]["status"]
+    )
 
 
 def delivery(d, before):
@@ -80,8 +129,28 @@ def delivery(d, before):
         not (p / "gate-review-started.json").exists(), "review 已开始，源码与验证候选保持冻结"
     )
     used = used_repairs(p)
-    if used:
-        record(repair_path(p, used, candidate=True), {"head": before["head"]})
+    latest = latest_delivery(d)
+    if latest:
+        _, start, result_path, end = latest
+        attempt = start["delivery_attempt"]
+        repository.require(attempt <= used, "交付验证修复次数超出授权")
+        if attempt < used:
+            repository.require(
+                attempt + 1 == used
+                and result_path is not None
+                and evidence.read(repair_path(p, used))["failure"] == evidence.binding(result_path),
+                "修复授权不属于最近交付失败",
+            )
+        elif before["head"] != start["before"]["head"]:
+            repository.require(
+                passed(start, end),
+                "最近交付未通过；失败须先申请 gate 修复，中断须在原候选重跑",
+            )
+        repository.git(
+            d["worktree"], "merge-base", "--is-ancestor", start["before"]["head"], before["head"]
+        )
+    else:
+        repository.require(not used, "修复授权缺少交付验证来源")
     return used
 
 
@@ -177,12 +246,11 @@ def begin(args):
     target = repair_path(p, attempt + 1)
     if not target.exists():
         repository.require(attempt == used, "失败不属于当前交付候选")
-        if attempt:
-            candidate = repair_path(p, attempt, candidate=True)
-            repository.require(
-                candidate.exists() and evidence.read(candidate)["head"] == start["before"]["head"],
-                "失败 HEAD 不属于当前修正候选",
-            )
+        latest = latest_delivery(d)
+        repository.require(
+            latest is not None and latest[2] == result_path,
+            "只能使用最近交付失败申请修复",
+        )
         repository.require(
             repository.sha(d["worktree"], "HEAD") == start["before"]["head"]
             and not repository.status(d["worktree"]),

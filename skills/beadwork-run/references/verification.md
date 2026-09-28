@@ -36,7 +36,7 @@ writer 确认交付失败由代码导致后，在修改前调用上述入口申�
 
 遗漏修改前登记且已经提交时，保留候选与原始失败，按 blocked 交付。ticket 的特定恢复见 [recovery-ticket.md](recovery-ticket.md)；最终 fixer 交回 finalizer，保留原 attempt，由 controller 处理流程阻塞。ticket-stage recover 仅适用于单票阶段。
 
-当前 writer 集中修正，运行必要的定向验证；提交后以 `--delivery` 重跑本阶段交付入口（单票 `gate-core`，最终 `gate-full`）。重跑绑定修正后的干净候选 HEAD；该候选仍有代码失败时，有余额则申请下一次修正，三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由整个阶段共享，环境修复可在同 HEAD 重跑；review 开始后不能申请修正。
+当前 writer 集中修正，运行必要的定向验证；提交后以 `--delivery` 重跑本阶段交付入口（单票 `gate-core`，最终 `gate-full`）。重跑绑定修正后的干净候选 HEAD；该候选仍有代码失败时，有余额则申请下一次修正，三次修正后仍失败即返回 `BLOCKED / code_failure`。额度由修复授权累计，候选 HEAD 与结果以原始验证记录为准。最近交付完整通过且 writer 尚未成功交付、review 未开始时，可继续补充提交，但新 HEAD 必须重新通过交付验证；不会重置额度。失败须先登记修复，中断或环境修复在原 HEAD 重跑，不能用旧成功绕过最近失败或未知结果；review 开始后不能申请修正。
 
 机会属于整个逻辑阶段，dispatch 的 `gate_repair_root` 指向记录目录；同阶段恢复继承，新阶段重新获得机会。中断发生在修正开发期间可继续开发，发生在交付验证期间则恢复固定候选。stage 0 的 document-syncer 不享有交付 gate-fix 机会；文档同步后由 finalizer 执行完整验收；后续 fixer 使用相同入口。失败记录和成功重跑都保留；fixer 在已有 verification 字段引用这些记录，executor/finalizer 核对最终覆盖及失败处置，不以单次成功抹去其他失败。
 
