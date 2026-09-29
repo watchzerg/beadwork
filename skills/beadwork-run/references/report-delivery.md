@@ -15,7 +15,7 @@ prepare 返回 dispatch 和角色所需的 required_reads。按返回模型配�
 1. 使用 assembler 的角色读取 draft_schema_path，填写语义判断；脚本生成 Git 身份、提交、验证及 review 来源。这些角色在诊断时读取完整输出 schema；reviewer 读取 report_schema_path 并填写 AxisReport。
 2. assemble 已执行完整自检；成功 stdout 即最终短回执，合法 BLOCKED 也可交付。独立 check 用于报告更正或复核。输出采用新文件名，保留原件。
 3. 派发者等待子 agent 及命令结束，原样保存 receipt，读取报告并做相应语义验收。
-4. 编写实际收尾 observation：task_id、stopped、observed_at、evidence、unresolved。普通验收直接传 `--observation <observation.json>`，入口自动保存内容绑定的 closure，然后执行完整验收。receipt 到达仅证明交付，不证明任务结束。
+4. 编写实际收尾 observation：`task_id`、`observed_at`、`evidence` 为非空字符串，`stopped` 为布尔值，`unresolved` 为数组。普通验收直接传 `--observation <observation.json>`，入口自动保存内容绑定的 closure，然后执行完整验收。receipt 到达仅证明交付，不证明任务结束。
 5. 验收成功后由脚本选择来源。更正使用新的 report/receipt，由派发者明确选择；同 HEAD 更正只补事实，额度与 review round 沿用原值。
 
 成功及 code_failure 推进需要确认 stopped 且 unresolved 为空。未知停止状态可交付 BLOCKED，现场继续保留。子 agent 自报与派发者观察冲突时补齐实际收尾证据。SHA-256 绑定文件内容，语义结论由接收者核对；原始 findings 保存在来源链中。

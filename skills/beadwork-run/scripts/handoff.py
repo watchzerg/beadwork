@@ -109,20 +109,28 @@ def add_context(dispatch_path, facts):
 def close(dispatch_path, report_path, facts):
     evidence.read(dispatch_path)
     repository.require(Path(report_path).parent == Path(dispatch_path).parent, "收尾报告目录不符")
+    repository.require(isinstance(facts, dict), "observation 必须为 JSON object")
     required = {"task_id", "stopped", "observed_at", "evidence", "unresolved"}
     repository.require(
-        set(facts) == required
-        and type(facts["stopped"]) is bool
-        and isinstance(facts["unresolved"], list),
-        "收尾记录字段无效",
+        set(facts) == required,
+        f"observation 字段不符：缺少 {sorted(required - set(facts))}；"
+        f"多余 {sorted(set(facts) - required)}",
     )
     repository.require(
-        all(
-            isinstance(facts[k], str) and facts[k].strip()
-            for k in ("task_id", "observed_at", "evidence")
-        ),
-        "收尾观察缺少具体来源",
+        type(facts["stopped"]) is bool,
+        f"observation.stopped 必须为布尔值，实际类型为 {type(facts['stopped']).__name__}",
     )
+    repository.require(
+        isinstance(facts["unresolved"], list),
+        f"observation.unresolved 必须为数组，实际类型为 {type(facts['unresolved']).__name__}",
+    )
+    for key in ("task_id", "observed_at", "evidence"):
+        value = facts[key]
+        repository.require(
+            isinstance(value, str),
+            f"observation.{key} 必须为非空字符串，实际类型为 {type(value).__name__}",
+        )
+        repository.require(value.strip(), f"observation.{key} 必须为非空字符串，不能只有空白")
     repository.require(
         not facts["stopped"] or not facts["unresolved"], "仍有未结束事项，不能确认 stopped"
     )
