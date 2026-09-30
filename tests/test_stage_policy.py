@@ -11,7 +11,7 @@ pytestmark = pytest.mark.unit
 def test_coordinator_and_complex_role_floors(complex_ticket, effort):
     root = {"base_commit": "a" * 40, "complex_ticket": complex_ticket}
     ticket_execution.root_fields(root)
-    assert root["coordinator_model"] == {"model": "gpt-6-sol", "reasoning_effort": effort}
+    assert root["coordinator_model"] == {"model": "gpt-6.1-sol", "reasoning_effort": effort}
     if complex_ticket:
         for stage in range(6):
             models = stage_policy.ticket_models(stage, True, None, {})

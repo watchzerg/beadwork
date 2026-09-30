@@ -20,7 +20,7 @@ parent 的 Beads type 不受限制。controller 管批次、Git/worktree、环�
 - 解析 skill 与项目规则的真实绝对路径。内置 Python CLI 使用 python3 ≥ 3.14，在目标 repository/worktree 执行；stdout 为 JSON，普通操作非零退出时保留现场并处理原因。验证采集的退出码另见 [verification.md](references/verification.md)。
 - 读取 [testing-contract.md](references/testing-contract.md)、[report-delivery.md](references/report-delivery.md) 和 [controller-operations.md](references/controller-operations.md)。建立基线和核对最终覆盖时读 testing-gates.md；测试计划或 seam 冲突按共享测试契约路由。
 - 宿主为 Codex，支持 controller → preflight、controller → executor → implementer/document-syncer/reviewers、controller → finalizer → document-syncer/fixer/reviewers 的独立上下文派发、并行只读 review、文件报告和任务结束观察。写入前确认这些能力。
-- 子 agent 按 prepare 返回的模型配置派发，使用 `fork_turns: "none"`，交接 dispatch 路径、required_reads、适用规则、任务来源及进度通信目标。preflight/finalizer 默认 Sol-medium，复杂现场可用 Sol-high；controller 建议 Sol-medium，复杂恢复可用 high。模型政策和明确授权扩展见 [model-policy.md](references/model-policy.md)。
+- 子 agent 按 prepare 返回的模型配置派发，使用 `fork_turns: "none"`，交接 dispatch 路径、required_reads、适用规则、任务来源及进度通信目标。Sol 统一指 `gpt-6.1-sol`。preflight/finalizer 默认 Sol-medium，复杂现场可用 Sol-high；controller 建议 Sol-medium，复杂恢复可用 high。模型政策和明确授权扩展见 [model-policy.md](references/model-policy.md)。
 - Beads 查询使用结构化 `--json`；写入统一走 controller 的 tracker intent/readback 入口。
 
 ## 1. Preflight 与初始化
