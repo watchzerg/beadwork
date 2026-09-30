@@ -132,7 +132,7 @@ python3 <skill-dir>/scripts/beadwork.py controller accept --dispatch <dispatch.j
 controller 完成交付验收后调用：
 
 ```bash
-python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <completion-N.md> [--evidence <补证文件>...]
+python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <acceptance-N.json> --summary '<中文交付摘要>' --output <对应executor或finalizer的dispatch目录>/completion-N.md [--evidence <补证文件>...]
 ```
 
 只接受成功 executor/finalizer 报告，重新核验文件绑定和现场。executor 生成 ticket completion，finalizer 生成 integration-ready；保留 commit 范围、最终 gate 摘要、review 次数、当前阶段、原始非阻塞 smells 和 report/receipt/acceptance bindings。ticket completion 另从绑定运行来源生成本票 core 实测、去重后的定向行为证据，并说明完整项目回归由 parent finalize 验收；完整验证历史、执行来源树和模型矩阵只留在绑定报告，不复制进 tracker。controller 在生成前完成报告语义验收，用 `--evidence` 加入补证 binding。生成器负责事实投影；返回 comment_source 直接作为 tracker body_source。存在疑问时查看生成正文或原报告。
@@ -142,7 +142,7 @@ python3 <skill-dir>/scripts/beadwork.py controller comment --acceptance <accepta
 仅在语义验收通过、writer 已结束、生成的 integration-ready comment 已成功写入 parent 后调用：
 
 ```bash
-python3 <skill-dir>/scripts/beadwork.py controller merge --acceptance <acceptance-N.json> --comment-id <integration-ready-id> --output <merge-checkpoint.json>
+python3 <skill-dir>/scripts/beadwork.py controller merge --acceptance <acceptance-N.json> --comment-id <integration-ready-id> --output <finalizer的dispatch目录>/merge-checkpoint.json
 ```
 
 脚本只读查询实际 parent comment，核对其 parent、BASE/HEAD 和验收证据绑定，再核对 worktree、main 与受审 HEAD。先写 checkpoint，随后 fast-forward 到固定受审 SHA。返回 `merged: true` 才能继续写 parent completion 和关闭 parent。

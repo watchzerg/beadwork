@@ -185,6 +185,8 @@ def run(args):
         "dirty": bool(before["status"]),
         "log_path": str(log),
         "log_tail": tail(log),
+        "output_bytes": executed["output_bytes"],
+        "log_truncated": executed["log_truncated"],
         "error": executed["error"],
     }
     exit_code = (

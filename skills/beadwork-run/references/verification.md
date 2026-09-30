@@ -7,7 +7,9 @@ python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.js
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe gate-core
 ```
 
-脚本在 dispatch.worktree 执行实际 `just` 命令，继承已准备好的环境，在本轮 `verification-*` 目录保存 started.json、完整 output.log 和完成后的 result.json。started.json 的 `delivery` 字段记录本次是否使用 `--delivery`；最终验收只接受 `delivery: true` 的完整运行，开发验证成功不能替代交付验证。启动时 stderr 返回运行目录，结束时 stdout 返回命令、退出码、耗时、HEAD、dirty 状态和最多末尾 2048 字节/20 行日志。通常直接阅读摘要，需进一步诊断时搜索完整日志；不必重抄命令和结果。
+脚本在 dispatch.worktree 执行实际 `just` 命令，继承已准备好的环境，在本轮 `verification-*` 目录保存 started.json、output.log 和完成后的 result.json。started.json 的 `delivery` 字段记录本次是否使用 `--delivery`；最终验收只接受 `delivery: true` 的完整运行，开发验证成功不能替代交付验证。启动时 stderr 返回运行目录，结束时 stdout 返回命令、退出码、耗时、HEAD、dirty 状态和最多末尾 2048 字节/20 行日志。通常直接阅读摘要，需进一步诊断时搜索保存的日志；不必重抄命令和结果。
+
+共用命令采集器持续消费 stdout/stderr，合计不超过 2 MiB 时完整保存，超出时保留首尾各 1 MiB，并在中间标明省略字节数；安装与同步命令也使用此边界。result.json 记录实际读取的 `output_bytes` 和 `log_truncated`，验证摘要同步返回这两项。日志哈希绑定实际保存的文件；截断不改变命令退出码，但日志已是摘录，不能声称保留了全部输出。若被省略部分影响 red 根因或覆盖判断，应补充定向验证，不能仅凭退出码补推结论。
 
 | 脚本退出码 | 处理 |
 | --- | --- |

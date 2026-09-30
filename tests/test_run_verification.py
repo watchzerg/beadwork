@@ -32,7 +32,7 @@ class VerificationTests(unittest.TestCase):
             "#!"
             + sys.executable
             + "\n"
-            + "import json, os, signal, sys, time\nfrom pathlib import Path\nif sys.argv[1:] == ['--summary']:\n    if os.environ.get('TEST_MODE') == 'spawnfail': Path(sys.argv[0]).unlink()\n    print('install test gate-core gate-full'); sys.exit(0)\nassert sys.argv[1:3] == ['--one', '--']\nmode = os.environ.get('TEST_MODE', 'pass')\nprint(json.dumps({'argv': sys.argv[3:], 'cwd': os.getcwd()}), flush=True)\nif mode == 'fail': print('目标断言失败'); sys.exit(7)\nif mode == 'large': os.write(1, b'x' * 200000 + b'\\xffEND'); sys.exit(0)\nif mode == 'change': Path('new-file').write_text('changed'); sys.exit(0)\nif mode == 'hang':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    print('READY', flush=True)\n    while True: time.sleep(.1)\n"
+            + "import json, os, signal, sys, time\nfrom pathlib import Path\nif sys.argv[1:] == ['--summary']:\n    if os.environ.get('TEST_MODE') == 'spawnfail': Path(sys.argv[0]).unlink()\n    print('install test gate-core gate-full'); sys.exit(0)\nassert sys.argv[1:3] == ['--one', '--']\nmode = os.environ.get('TEST_MODE', 'pass')\nprint(json.dumps({'argv': sys.argv[3:], 'cwd': os.getcwd()}), flush=True)\nif mode == 'fail': print('目标断言失败'); sys.exit(7)\nif mode == 'large': os.write(1, b'x' * (3 * 1024 * 1024) + b'\\xffEND'); sys.exit(0)\nif mode == 'change': Path('new-file').write_text('changed'); sys.exit(0)\nif mode == 'hang':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    print('READY', flush=True)\n    while True: time.sleep(.1)\n"
         )
         self.fake.chmod(0o755)
         self.serial = 0
@@ -107,6 +107,23 @@ class VerificationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(output.read_text()) if expected == 0 else result
+
+    def test_large_log_summary_and_bound_result_expose_truncation(self):
+        import evidence
+
+        summary = self.run_record(mode="large")
+        directory = Path(summary["run_path"])
+        result = json.loads((directory / "result.json").read_text())
+        log = directory / "output.log"
+        self.assertTrue(summary["log_truncated"])
+        self.assertEqual(summary["output_bytes"], result["output_bytes"])
+        self.assertTrue(result["log_truncated"])
+        self.assertEqual(result["outcome"], "exited")
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["log_bytes"], log.stat().st_size)
+        self.assertLess(result["log_bytes"], 2 * 1024 * 1024 + 100)
+        self.assertEqual(result["log_sha256"], evidence.digest(log))
+        self.assertTrue(summary["log_tail"].endswith("\ufffdEND"))
 
     @unittest.skipUnless(REAL_JUST, "需要安装 just 以验证真实入口")
     def test_gate_full_is_unfiltered_and_records_one_complete_run(self):

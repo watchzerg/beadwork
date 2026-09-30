@@ -68,6 +68,8 @@ def command(d, directory, argv):
         "process_group_gone": executed["process_group_gone"],
         "recorder_error": executed["error"],
         "log_sha256": evidence.digest(folder / "output.log"),
+        "output_bytes": executed["output_bytes"],
+        "log_truncated": executed["log_truncated"],
     }
     evidence.write(folder / "result.json", result)
     repository.require(
