@@ -125,6 +125,31 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(result["log_sha256"], evidence.digest(log))
         self.assertTrue(summary["log_tail"].endswith("\ufffdEND"))
 
+    def test_unsupported_recipe_explains_test_route_without_starting_verification(self):
+        invoked = self.h.root / "just-invoked"
+        self.fake.write_text(
+            f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(invoked)!r}).touch()\n"
+        )
+        before = set(self.dispatch.parent.glob("verification-*"))
+        result = subprocess.run(
+            self.command("gate-database"),
+            cwd=self.h.root,
+            env=self.h.env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+        error = json.loads(result.stderr)
+        self.assertEqual(error["outcome"], "recorder_error")
+        self.assertIn("--recipe test -- <项目参数>", error["error"])
+        self.assertIn("确认覆盖等价", error["error"])
+        self.assertIn("不得省略原命令的准备步骤或检查", error["error"])
+        self.assertFalse(invoked.exists())
+        self.assertEqual(set(self.dispatch.parent.glob("verification-*")), before)
+
     @unittest.skipUnless(REAL_JUST, "需要安装 just 以验证真实入口")
     def test_gate_full_is_unfiltered_and_records_one_complete_run(self):
         self.fake.unlink()

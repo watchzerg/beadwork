@@ -98,7 +98,10 @@ def run(args):
     )
     repository.require(
         args.recipe in ("test", "gate-core", "gate-full"),
-        "仅采集 test、gate-core、gate-full",
+        "仅采集 test、gate-core、gate-full；"
+        "请检查项目 test 入口能否执行同一验证范围；"
+        "确认覆盖等价后通过 --recipe test -- <项目参数> 采集，"
+        "不得省略原命令的准备步骤或检查",
     )
     repository.require(
         not d.get("ticket_scope") or args.recipe != "gate-full",
