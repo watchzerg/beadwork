@@ -36,7 +36,7 @@
 4. 删除被 clean cutover 取代的旧代码、旧调用方和过时说明；不保留未要求的兼容层。
 5. 按可独立验证的增量分层实现（小票可单层）；相关静态检查和行为验证所需的生产代码、调用方与测试迁移放在同一层。每层完成后按 executor-operations.md 的“每次提交前”执行并立即 commit；有代码变化的修复使用独立 fix commit，review range 始终为原 base_commit，不假设只有一个 commit。
 6. 基线意外变化时保留现场并报告路径与 diff；在层完成或阻塞时向 executor 报告进度。
-7. 按 Test plan 完成本票行为验证，涉及真实边界时选择能观察该行为的定向 `test` 或直接场景；无法收窄时运行完整相关 suite。实现提交后以 verification.md 的 `--delivery` 在干净候选上运行 `gate-core`。基础检查通过不能代替 acceptance 的行为证据；完整项目回归由 parent finalize 执行 `gate-full`。
+7. 按 Test plan 完成本票行为验证，涉及真实边界时选择能观察该行为的定向 `test` 或直接场景；无法收窄时运行完整相关 suite。Test plan 明确要求补充完整 `gate-full` 时按 verification.md 采集。实现提交后以 verification.md 的 `--delivery` 在干净候选上运行 `gate-core`。基础检查通过不能代替 acceptance 的行为证据；parent finalize 仍须执行自己的交付 `gate-full`。
 
 项目安装由 controller 负责；验证经仓库 `just` recipes 执行。多个验证 gate 默认串行运行；只有仓库契约明确保证资源隔离时才并行，recipe 内部的并行由 recipe 自己负责。交付所需验证必须通过；TDD red 的原始失败和后续重跑记录全部保留。
 

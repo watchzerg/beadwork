@@ -249,6 +249,65 @@ class TicketExecutionTests(unittest.TestCase):
         self.deliver()
         self.stage(ok=False)
 
+    def test_supplementary_full_is_preserved_without_replacing_delivery_core(self):
+        import evidence
+
+        self.commit()
+        failed = self.gate("gate-full", fail=True, delivery=False)
+        passed = self.gate("gate-full", delivery=False)
+        head = self.h.h.git(self.h.wt, "rev-parse", "HEAD")
+        for result, exit_code in ((failed, 7), (passed, 0)):
+            started = json.loads((result.parent / "started.json").read_text())
+            completed = json.loads(result.read_text())
+            self.assertEqual(started["argv"], ["just", "--one", "--", "gate-full"])
+            self.assertFalse(started["delivery"])
+            self.assertNotIn("delivery_attempt", started)
+            self.assertEqual(started["before"], {"head": head, "status": ""})
+            self.assertEqual(completed["after"], started["before"])
+            self.assertEqual(completed["exit_code"], exit_code)
+            self.assertEqual(completed["outcome"], "exited")
+            self.assertEqual(completed["log_sha256"], evidence.digest(result.parent / "output.log"))
+        error = self.implement(ok=False)
+        self.assertIn("gate-core", error["error"])
+        core = self.gate()
+        self.implement(verification_notes={str(failed.parent): "模拟失败已由同候选重跑解决"})
+        report = json.loads(self.writer_report.read_text())
+        self.assertCountEqual(
+            [item["result"]["path"] for item in report["verification_sources"]],
+            [str(path) for path in (failed, passed, core)],
+        )
+        review = self.review()
+        frozen = self.cli(
+            "run-verification", "--dispatch", self.wd, "--recipe", "gate-full", ok=False
+        )
+        self.assertIn("review", frozen["error"])
+        self.assemble([review])
+        self.deliver()
+
+    def test_supplementary_full_keeps_candidate_and_delivery_boundaries(self):
+        self.commit()
+        before = list(self.wd.parent.glob("verification-*"))
+        for parameters, expected in (
+            (("--delivery",), "单票交付只接受 gate-core"),
+            (("--", "subset"), "完整 gate 不接受筛选参数"),
+        ):
+            error = self.cli(
+                "run-verification",
+                "--dispatch",
+                self.wd,
+                "--recipe",
+                "gate-full",
+                *parameters,
+                ok=False,
+            )
+            self.assertIn(expected, error["error"])
+        (self.h.wt / "ticket.txt").write_text("未提交修改")
+        error = self.cli(
+            "run-verification", "--dispatch", self.wd, "--recipe", "gate-full", ok=False
+        )
+        self.assertIn("干净 HEAD", error["error"])
+        self.assertEqual(list(self.wd.parent.glob("verification-*")), before)
+
     def repair_gate(self, failure):
         return self.cli(
             "executor", "begin-gate-repair", "--dispatch", self.wd, "--failure", failure

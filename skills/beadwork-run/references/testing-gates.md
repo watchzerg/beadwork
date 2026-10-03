@@ -8,6 +8,7 @@ Beadwork 只要求项目提供 `install`、`test [ARGS...]`、`gate-core` 和 `g
 - implementer 按项目规则选择格式化及静态检查命令，修改范围限制为本次相关文件。
 - 通过 `test [ARGS...]` 运行覆盖改动的最窄有效验证；参数由项目定义。需要完整相关 suite 时仍通过项目的 `test` 入口选择，不能以零匹配或占位命令作为通过。
 - Test plan 的 Verification 说明命令或场景及预期结果。涉及数据库、浏览器、跨进程等真实行为时，必须用能观察该行为的证据完成本票验收；无法收窄就运行完整相关 suite。
+- 完整项目回归默认留给 parent finalize。Test plan 明确要求本票运行完整 `gate-full` 时，按 `verification.md` 采集补充验证；规划收尾票时避免重复承担 finalizer 的完整验收。
 - Direct verification 执行声明的检查或场景，不为制造 red 新增 tautological test。TDD 的行为 red 按 `testing-tdd.md` 核对。
 - 本票提交后在同一干净候选 HEAD 上通过验证采集器运行带 `--delivery` 的无参数 `gate-core`。core 通过仅证明基础检查，executor/reviewer 仍须核对 acceptance 与 Test plan 的行为覆盖。
 - 已知失败必须解释并解决；不能通过更换测试选择或进入下一 stage 隐去未解决的问题。失败、中断和成功运行都保留原始证据。

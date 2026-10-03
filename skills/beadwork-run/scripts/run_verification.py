@@ -103,10 +103,6 @@ def run(args):
         "确认覆盖等价后通过 --recipe test -- <项目参数> 采集，"
         "不得省略原命令的准备步骤或检查",
     )
-    repository.require(
-        not d.get("ticket_scope") or args.recipe != "gate-full",
-        "单票不接受 gate-full；请运行本票所需边界，最终全量由 finalizer 执行",
-    )
     executable = shutil.which("just")
     repository.require(executable is not None, "未找到 just")
     repository.require(
@@ -130,6 +126,8 @@ def run(args):
             == ("gate-core" if d["role"] in ("executor", "implementer") else "gate-full"),
             "单票交付只接受 gate-core，最终交付只接受 gate-full",
         )
+    if d.get("ticket_scope") and args.recipe == "gate-full":
+        repository.require(not before["status"], "单票补充 gate-full 需要干净 HEAD")
     argv = ["just", "--one", "--", args.recipe, *parameters]
     attempt = None
     if args.delivery:

@@ -208,11 +208,13 @@ class DocumentSyncTests(unittest.TestCase):
         report, _ = self.f.assemble(self.stage, status="READY_TO_MERGE", outcome="passed")
         self.assertEqual(len(json.loads(report.read_text())["verification_sources"]), 3)
 
-    def test_document_writer_cannot_run_full_delivery_gate(self):
-        result = self.run_document_check("gate-full", delivery=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("完整 gate-full 由 finalizer", result.stderr)
-        self.assertFalse(list(self.dispatch.parent.glob("verification-*")))
+    def test_document_writer_cannot_run_full_gate(self):
+        for delivery in (False, True):
+            with self.subTest(delivery=delivery):
+                result = self.run_document_check("gate-full", delivery=delivery)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("完整 gate-full 由 finalizer", result.stderr)
+                self.assertFalse(list(self.dispatch.parent.glob("verification-*")))
 
     def test_different_targeted_check_cannot_hide_document_failure(self):
         failed = self.run_document_check(exit_code=1, parameters=("links",))

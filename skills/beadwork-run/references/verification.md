@@ -2,6 +2,8 @@
 
 implementer/fixer 使用以下入口采集 `test`、`gate-core` 和 `gate-full`，一次调用一个 recipe；只有 `test` 接受定向参数。单票固定交付检查为 `gate-core`，最终交付为 `gate-full`，均须使用采集器的 `--delivery`；`--delivery` 属于采集器，不传给 just。document-syncer 仅采集不带 --delivery 的 test/gate-core，文档检查按项目规则执行；finalizer 只采集带 `--delivery` 的无参数 `gate-full`。其他开发操作按项目规则执行并保留必要证据，controller 的 `install` 使用初始化/同步入口。
 
+采集与交付认定分开：Test plan 明确要求单票补充完整验证时，implementer 在干净 HEAD 上采集不带 `--delivery` 的无参数 `gate-full`，沿用同一日志、结果和报告来源链。补充运行不替代本票的交付 `gate-core` 或 finalizer 的交付 `gate-full`；验证范围按 [testing-gates.md](testing-gates.md) 选择。
+
 ```bash
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe test -- <测试路径及参数...>
 python3 <skill-dir>/scripts/beadwork.py run-verification --dispatch <dispatch.json> --recipe gate-core
