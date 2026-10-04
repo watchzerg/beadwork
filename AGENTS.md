@@ -16,7 +16,7 @@
 - 共用契约保留在 `skills/beadwork-run/references/`；按调用场景读取，避免在 README 或接入文档复制完整协议。
 - 修改只处理当前需求；保留既有协议字段、branch/worktree 布局和 append-only 证据语义，除非任务明确要求改变。
 - skill 运行源码最低支持 Python 3.14，只依赖标准库和 skill 自带模块。开发环境的具体 Python 补丁版本由 `.python-version` 固定；提高最低版本须作为单独兼容性变更。
-- skill 优化与升级默认只面向当前源码和升级后新启动的工作流，优先采用职责清晰、实现简洁的方案。不为旧版本、历史数据或升级前已启动但尚未完成的流程保留兼容层、迁移逻辑或跨版本恢复支持；不维护被替代的入口、参数或历史 flow。变更时同步更新当前调用者、测试和文档。只有用户明确要求兼容或迁移时，才将其纳入范围。
+- skill 优化与升级默认只面向当前源码和升级后新启动的工作流，优先采用职责清晰、实现简洁的方案。不为旧版本、历史数据或升级前已启动但尚未完成的流程保留兼容层、迁移逻辑或跨版本恢复支持；不维护被替代的入口、参数或历史 flow。变更时同步更新当前调用者和测试。只有用户明确要求兼容或迁移时，才将其纳入范围。
 - skill 的唯一公开 Python CLI 是 `python3 <skill-dir>/scripts/beadwork.py <command> …`；内部模块不作为脚本入口。
 - 不为 skill 工作流或执行证据维护版本号或版本校验。每次优化均按全新 flow 设计，不增加旧现场适配、历史迁移或替代版本校验的机制。
 - 真实项目的 Beads 数据、执行证据和本机备份不进入本仓库。
@@ -54,11 +54,11 @@ just -- test integration tests/test_controller.py -k 'prepare or accept'
 | 多阶段推进、恢复、关闭、集成 | 相关 workflow，加受影响的低层测试 |
 | CLI、import、目录、运行版本、分发内容 | CLI integration + distribution；涉及命令衔接时加 workflow |
 | 文档文字与链接 | 核对描述与实现、协议的一致性；修改链接时确认目标，修改执行命令时加相关 CLI 验证；按需运行 `git diff --check` |
-| 工具链升级、跨模块协议、目录迁移或交付 | `just gate-full` |
+| 工具链升级、跨模块协议、目录迁移 | `just gate-full` |
 
 `just test <suite>` 真实按 marker 选择；指定的 suite 没有匹配测试时沿用 pytest 非零退出。`unit` 串行运行，其余 suite 默认使用 4 个 xdist worker；`BEADWORK_TEST_JOBS=0` 仅用于串行诊断。不要仅因测试较慢或使用真实 Git 就将其归为 workflow。
 
-只修改文档时按上述范围核对，不强制运行独立文档 gate。Python 修改可分别运行 `just lint` 和 `just typecheck`；`just fmt` 会修改文件，不属于 gate。目录迁移、跨脚本协议或交付前运行完整门禁：
+只修改文档时按上述范围核对，不强制运行独立文档 gate。Python 修改可分别运行 `just lint` 和 `just typecheck`；`just fmt` 会修改文件，不属于 gate。目录迁移或跨脚本协议变更时运行完整门禁：
 
 ```sh
 just gate-full
