@@ -72,7 +72,7 @@ $beadwork-run demo-abc
 
 推荐使用 Matt Pocock 的 `to-spec` 和 `to-tickets` 完成上游规划。AGENTS.md 将这些流程接入 Beadwork 的共享测试契约，使 spec 中的测试 seam、ticket 中的 Test plan 与执行时的验证要求保持一致。其他方式创建的 tickets 满足同一契约时，也可以作为输入。
 
-执行 TDD ticket 时使用 `tdd`；发生合并冲突时使用 `resolving-merge-conflicts`。Standards / Spec 审查由 Beadwork 内置角色完成，其方法参考了 Matt 的 `code-review`，运行时直接使用本仓库的 reviewer 指令。
+执行 TDD ticket 时使用 `tdd`；发生合并冲突时遵循项目规则及 [同步恢复契约](skills/beadwork-run/references/controller-operations.md)。Standards / Spec 审查由 Beadwork 内置角色完成，其方法参考了 Matt 的 `code-review`，运行时直接使用本仓库的 reviewer 指令。
 
 | 组件 | 职责 |
 | --- | --- |

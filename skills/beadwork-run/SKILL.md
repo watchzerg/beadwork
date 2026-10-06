@@ -44,7 +44,7 @@ python3 <skill-dir>/scripts/beadwork.py graph next <parent-id> <expected-child-i
 
 expected children 逐个传参。脚本核对固定范围、计划、依赖和实时状态，选择批准序列中第一张未关闭的票。
 
-1. `claim` frontier：确认旧 writer 及命令结束，执行 sync-main；仅按返回的刷新 frontier 原子领取。同步变化时脚本按安装输入决定 install，并建立 gate-core 基线。冲突按项目规则及 resolving-merge-conflicts 处理后恢复原同步。
+1. `claim` frontier：确认旧 writer 及命令结束，执行 sync-main；仅按返回的刷新 frontier 原子领取。同步变化时脚本按安装输入决定 install，并建立 gate-core 基线。冲突按项目规则及 [同步恢复契约](references/controller-operations.md) 处理后恢复原同步。
 2. 领取成功后 prepare executor（mode=new，带 sync_result 和 READY preflight_acceptance）。写 start comment，记录 parent、branch、worktree、完整 BASE、root dispatch 与 sync_result；成功后派发 executor。
 3. `resume` frontier：按 [recovery-ticket.md](references/recovery-ticket.md) 核实原 BASE/root，prepare mode=resume 后接续。`done` 进入最终集成；其他阻塞按停止处理。
 4. executor 自行完成 stage 循环。controller 接收进度，等待 root 交付；按共享契约确认后代任务结束并 accept。
