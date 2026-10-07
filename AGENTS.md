@@ -23,9 +23,9 @@
 
 ## 开发环境与验证
 
-mise 只管理项目 uv，uv 管理开发 Python、`.venv` 和 Python 开发依赖；mise/just 自身是宿主前置工具。`mise.lock` 固定 uv，`.python-version` 固定 Python 补丁版本，`uv.lock` 固定开发依赖。不要升级用户级工具或修改相邻项目。
+Homebrew 管理宿主 uv/just，uv 管理开发 Python、`.venv` 和 Python 开发依赖。`.python-version` 固定 Python 补丁版本，`uv.lock` 固定开发依赖；uv 版本随宿主管理，不在项目内锁定。本仓库没有 Bun/Node 依赖，不需要 mise 配置。不要升级用户级工具或修改相邻项目。
 
-新环境先确认宿主已有 mise/just，再运行：
+新环境先确认宿主已有 uv/just，再运行：
 
 ```sh
 just install

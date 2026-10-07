@@ -106,20 +106,20 @@ skill 的唯一公开 Python 入口是 `python3 <skill-dir>/scripts/beadwork.py 
 
 维护者注意：正在运行的 agent 可能已经读取旧指令，后续读取又可能取得修改后的内容。是否避开正在进行的运行，由维护者自行判断；这不是 AI 修改源码前需要核实或请求确认的条件。
 
-开发环境要求宿主已有 mise 和 just。mise 只管理项目 uv；uv 管理 `.python-version` 固定的 Python 3.14 补丁版本、`.venv` 和开发依赖。`mise.lock` 固定 uv 的实际版本，`uv.lock` 固定 Ruff、ty、pytest、pytest-xdist 和 PyYAML；稳定版本解析明确排除 prerelease。
+开发环境使用 `brew → uv → Python`：Homebrew 管理宿主 uv 和 just，uv 管理 `.python-version` 固定的 Python 3.14 补丁版本、`.venv` 和开发依赖。uv 版本随宿主管理，不在项目内锁定；`uv.lock` 固定 Ruff、ty、pytest、pytest-xdist 和 PyYAML，稳定版本解析明确排除 prerelease。`brew → mise → bun/node` 用于需要 Bun/Node 的项目，本仓库没有这些依赖，因此不保留 mise 配置。
 
 用户级 `~/.codex/skills/.system/skill-creator/scripts/quick_validate.py` 是开发前置依赖。仓库不会下载、复制或改写它；缺失时 validator 和完整门禁会明确失败。
 
-新机器先确认宿主工具，再按项目声明安装 uv、Python 和 locked 依赖：
+新机器先确认已通过 Homebrew 安装 uv 和 just，再按项目声明安装 Python 和 locked 依赖：
 
 ```sh
-command -v mise
+command -v uv
 command -v just
 just install
 just check-toolchain
 ```
 
-`just install` 依次执行 locked mise 安装、项目 Python 准备和 `uv sync --locked`，不会升级宿主 mise/just 或修改全局默认版本。
+`just install` 使用宿主 uv 准备项目 Python，再执行 `uv sync --locked`；不会安装或升级宿主 uv/just，也不会修改全局默认版本。`just check-toolchain` 检查 uv/just 可用性及 uv 管理的 Python 补丁版本，不要求 uv 的固定版本。
 
 当前开发命令可用 `just --list` 查看。日常修改先运行最小 suite；额外 pytest 参数放在 `just --` 之后以保持 argv 边界：
 
